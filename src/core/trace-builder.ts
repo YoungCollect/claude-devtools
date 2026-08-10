@@ -1,5 +1,10 @@
 import { findAdapter } from './adapters/index.js';
-import type { HistoryItem, ProviderAdapter, StreamBlockEvent } from './adapters/types.js';
+import type {
+  HistoryItem,
+  ParsedRequest,
+  ProviderAdapter,
+  StreamBlockEvent,
+} from './adapters/types.js';
 import type { Store } from './store.js';
 import type { Conversation, SseFrame, TokenUsage, TraceNode, TransportRecord } from './types.js';
 
@@ -11,6 +16,8 @@ export interface ConversationState {
   fps: string[];
   /** Fingerprints we materialised from a response stream rather than from history. */
   producedFps: Set<string>;
+  /** The agent runtime's own run id, when it sent one. */
+  sessionId?: string;
   systemFp: string;
   turnCount: number;
   updatedAt: number;
@@ -71,13 +78,7 @@ export class TraceBuilder {
       return;
     }
 
-    const state = this.attachToConversation(
-      parsed.history,
-      parsed.systemFp,
-      parsed.system,
-      record,
-      parsed.agent,
-    );
+    const state = this.attachToConversation(parsed, record);
     record.conversationId = state.id;
     record.turnIndex = state.turnCount++;
 
@@ -95,27 +96,25 @@ export class TraceBuilder {
    * — a fresh session, a subagent with its own system prompt, a conversation
    * whose history was compacted out from under us — becomes a new trace.
    */
-  private attachToConversation(
-    history: HistoryItem[],
-    systemFp: string,
-    system: string | undefined,
-    record: TransportRecord,
-    agent: string,
-  ): ConversationState {
+  private attachToConversation(parsed: ParsedRequest, record: TransportRecord): ConversationState {
+    const { history, systemFp, sessionId } = parsed;
     const fps = history.map((item) => item.fp);
 
-    // Rank candidates by overlap first, then by matching system prompt, then by
-    // recency. The system-prompt tiebreaker is what keeps a subagent from being
-    // absorbed into its parent when the two happen to share a leading block.
-    let best: { state: ConversationState; score: [number, number, number] } | undefined;
+    // Session identity is a precondition, not a tiebreaker.
+    //
+    // As a tiebreaker it was inert in exactly the case that matters. Two runs in
+    // the same directory open with identical injected context — the same
+    // CLAUDE.md, the same environment blocks — so a fresh session's first request
+    // shares a leading prefix with the previous one. Being the only candidate, it
+    // won its own comparison and the mismatch never got a say. Observed: a
+    // session whose history had grown to 12 blocks absorbed a new one whose first
+    // request held 3, which the rewind branch below then read as a compaction.
+    let best: { state: ConversationState; score: [number, number] } | undefined;
     for (const state of this.conversations.values()) {
+      if (!sameSession(state, sessionId, systemFp)) continue;
       const common = commonPrefixLength(state.fps, fps);
       if (common === 0) continue;
-      const score: [number, number, number] = [
-        common,
-        state.systemFp === systemFp ? 1 : 0,
-        state.updatedAt,
-      ];
+      const score: [number, number] = [common, state.updatedAt];
       if (!best || compareScores(score, best.score) > 0) best = { state, score };
     }
 
@@ -142,21 +141,17 @@ export class TraceBuilder {
       return state;
     }
 
-    return this.createConversation(history, systemFp, system, record, agent);
+    return this.createConversation(parsed, record);
   }
 
-  private createConversation(
-    history: HistoryItem[],
-    systemFp: string,
-    system: string | undefined,
-    record: TransportRecord,
-    agent: string,
-  ): ConversationState {
+  private createConversation(parsed: ParsedRequest, record: TransportRecord): ConversationState {
+    const { history, systemFp, sessionId, system, agent } = parsed;
     const id = `conv_${++this.counter}`;
     const state: ConversationState = {
       id,
       fps: [],
       producedFps: new Set(),
+      sessionId,
       systemFp,
       turnCount: 0,
       updatedAt: record.timing.startedAt,
@@ -579,6 +574,38 @@ export class TraceBuilder {
 }
 
 /** Lexicographic compare of the candidate ranking tuple. */
+/**
+ * Whether a candidate conversation belongs to the same agent run as the request.
+ *
+ * Both signals are required, because each covers the other's blind spot:
+ *
+ *   - The **run id** (`x-claude-code-session-id`, surfaced by the adapter) is the
+ *     runtime's own answer to this exact question. It separates two runs that
+ *     produce a byte-identical system prompt, which a fingerprint cannot.
+ *   - The **system prompt** separates a subagent from its parent. A `Task`
+ *     subagent runs inside the same session and so carries the same run id, but
+ *     it is given its own prompt — without this it could be absorbed into the
+ *     parent whenever their opening blocks happen to agree.
+ *
+ * The run id is only enforced when both sides have one, so agents that send no
+ * such header (and conversations restored from before it was recorded) still
+ * match on the prompt alone.
+ *
+ * The cost is that a system prompt changing mid-run would split the trace. That
+ * is the safe direction to fail — two traces instead of one corrupted one — and
+ * it is not observed: Claude Code's environment block is documented as a
+ * start-of-session snapshot, and it held constant across every request of every
+ * captured session.
+ */
+function sameSession(
+  state: ConversationState,
+  sessionId: string | undefined,
+  systemFp: string,
+): boolean {
+  if (state.sessionId && sessionId && state.sessionId !== sessionId) return false;
+  return state.systemFp === systemFp;
+}
+
 function compareScores(a: readonly number[], b: readonly number[]): number {
   for (let i = 0; i < a.length; i++) {
     const diff = (a[i] ?? 0) - (b[i] ?? 0);

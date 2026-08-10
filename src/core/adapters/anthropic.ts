@@ -38,6 +38,7 @@ export const anthropicAdapter: ProviderAdapter = {
       kind: classify(path, tools.length, messages.length),
       agent: detectAgent(record.requestHeaders),
       model: typeof body?.model === 'string' ? body.model : undefined,
+      sessionId: readSessionId(record.requestHeaders),
       systemFp: fingerprint('system', system),
       system,
       history: messages.flatMap(readMessage),
@@ -216,6 +217,18 @@ function classify(path: string, toolCount: number, messageCount: number) {
   if (toolCount > 0) return 'conversation' as const;
   if (messageCount <= 2) return 'utility' as const;
   return 'conversation' as const;
+}
+
+/**
+ * Claude Code stamps every call with its own run id. That is a direct answer to
+ * "is this the same session?", which the trace builder would otherwise have to
+ * infer, so it is worth reading even though only one runtime sends it today.
+ *
+ * Kept in the adapter, not the builder: the header name is a wire detail.
+ */
+function readSessionId(headers: Record<string, string>): string | undefined {
+  const id = headers['x-claude-code-session-id'];
+  return id && id.trim() ? id : undefined;
 }
 
 function detectAgent(headers: Record<string, string>): string {

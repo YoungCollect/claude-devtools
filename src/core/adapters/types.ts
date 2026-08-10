@@ -45,7 +45,13 @@ export interface ParsedRequest {
   /** Agent runtime that made the call, e.g. `claude-code`. Not the provider. */
   agent: string;
   model?: string;
-  /** Hash of the system prompt — a tiebreaker when matching conversations. */
+  /**
+   * The agent runtime's own identifier for this run, when it sends one.
+   * Provider-neutral on purpose: adapters read it out of whatever header their
+   * runtime uses, so the trace builder never sees a wire format.
+   */
+  sessionId?: string;
+  /** Hash of the system prompt — a precondition when matching conversations. */
   systemFp: string;
   system?: string;
   history: HistoryItem[];

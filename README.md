@@ -74,8 +74,9 @@ So the builder (`src/core/trace-builder.ts`):
 
 1. Normalises each request's `messages[]` into per-block **history items** and
    fingerprints them.
-2. Diffs that list against the transcript it already knows for each conversation. The
-   longest prefix match wins; everything past the shared prefix is **newly revealed**.
+2. Diffs that list against the transcript it already knows for each conversation, among
+   those whose **system prompt matches**. The longest prefix match wins; everything past
+   the shared prefix is **newly revealed**.
 3. Takes assistant output from the **response stream** instead, materialising nodes live
    as `content_block_*` frames arrive.
 
@@ -87,6 +88,26 @@ That split matters, because chat events and HTTP requests are not 1:1:
 - A request with no shared prefix is a new conversation: a fresh session, or a subagent.
   If a `Task` tool call is still outstanding when one appears, it is linked as that
   subagent's trace and nested under its parent.
+
+**Session identity gates the match rather than merely ranking it.** Two runs in the same
+directory open with identical injected context — the same CLAUDE.md, the same
+environment blocks — so a fresh session's first request shares a leading prefix with the
+previous session and would otherwise be filed into its trace.
+
+Two signals guard it, and both are required because each covers the other's blind spot:
+
+- **The run id.** Claude Code stamps every call with `x-claude-code-session-id`, which
+  is the runtime's own answer to "is this the same session?". It separates two runs
+  whose system prompts are byte-identical, which a fingerprint cannot. The adapter
+  surfaces it as a neutral `sessionId`, so the builder never sees a header name.
+- **The system prompt.** A `Task` subagent runs inside the same session and therefore
+  carries the same run id, but it is given its own prompt — this is what keeps it from
+  being absorbed into its parent when their opening blocks agree. It is also the only
+  signal available for agents that send no run id at all.
+
+The run id is enforced only when both sides have one, so other agents (and conversations
+restored from before it was recorded) still match on the prompt alone. Genuine context
+compaction keeps both signals and continues its trace.
 
 ### Trace roles
 

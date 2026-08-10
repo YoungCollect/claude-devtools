@@ -213,3 +213,158 @@ function request(id: string, message = 'hello', startedAt = 1): TransportRecord 
 function frame(event: string, data: unknown) {
   return { event, data, raw: '', t: 1 };
 }
+
+/**
+ * A fresh agent session must start its own trace, even though its first request
+ * repeats the previous session's injected context verbatim.
+ *
+ * Reproduces an observed merge: two runs in the same directory open with the
+ * same CLAUDE.md and environment blocks, so the new session's first request
+ * shared a 3-block prefix with a conversation that had grown to 12 blocks. The
+ * system prompt differed — the signal that they were different sessions — but it
+ * was only a tiebreaker, and with a single candidate it never got a say.
+ */
+test('a new session with matching boilerplate but a different system prompt starts its own trace', () => {
+  const store = new Store();
+  const builder = new TraceBuilder(store);
+
+  // Shared, environment-derived opening blocks — identical across sessions.
+  const boilerplate = [
+    { role: 'user', content: '<system-reminder>project context</system-reminder>' },
+    { role: 'user', content: '<env>cwd=/repo</env>' },
+  ];
+
+  const session = (id: string, systemPrompt: string, tail: { role: string; content: string }[]) => {
+    const record = request(id);
+    record.requestBody = {
+      model: 'test-model',
+      tools: [{ name: 'Bash' }],
+      system: systemPrompt,
+      messages: [...boilerplate, ...tail],
+    };
+    builder.onRequestBody(record);
+    return record;
+  };
+
+  // Session one grows over several turns.
+  const first = session('sessionA_turn1', 'SYSTEM PROMPT A /scratch/aaaa', [
+    { role: 'user', content: 'first question' },
+  ]);
+  const grown = session('sessionA_turn2', 'SYSTEM PROMPT A /scratch/aaaa', [
+    { role: 'user', content: 'first question' },
+    { role: 'assistant', content: 'first answer' },
+    { role: 'user', content: 'second question' },
+  ]);
+  assert.equal(grown.conversationId, first.conversationId, 'same session must continue one trace');
+
+  // A brand new session: same boilerplate prefix, shorter history, new prompt.
+  const fresh = session('sessionB_turn1', 'SYSTEM PROMPT B /scratch/bbbb', [
+    { role: 'user', content: 'hello i am andy' },
+  ]);
+  assert.notEqual(
+    fresh.conversationId,
+    first.conversationId,
+    'a different system prompt means a different session',
+  );
+  assert.equal(store.snapshot().conversations.length, 2);
+
+  // The old trace must not have been rewound to the boilerplate prefix.
+  const originalNodes = store.getNodes(first.conversationId!);
+  assert.ok(
+    originalNodes.some((node) => node.text?.includes('second question')),
+    'the established trace keeps its own history',
+  );
+  assert.ok(
+    !originalNodes.some((node) => node.text?.includes('hello i am andy')),
+    'the new session must not be appended to the old trace',
+  );
+});
+
+/** Genuine compaction — same system prompt, shorter history — still continues. */
+test('a compacted history with the same system prompt continues its trace', () => {
+  const store = new Store();
+  const builder = new TraceBuilder(store);
+  const SYSTEM = 'SYSTEM PROMPT A /scratch/aaaa';
+
+  const send = (id: string, messages: { role: string; content: string }[]) => {
+    const record = request(id);
+    record.requestBody = { model: 'test-model', tools: [{ name: 'Bash' }], system: SYSTEM, messages };
+    builder.onRequestBody(record);
+    return record;
+  };
+
+  const long = send('compaction_turn1', [
+    { role: 'user', content: 'q1' },
+    { role: 'assistant', content: 'a1' },
+    { role: 'user', content: 'q2' },
+    { role: 'assistant', content: 'a2' },
+    { role: 'user', content: 'q3' },
+  ]);
+  const compacted = send('compaction_turn2', [
+    { role: 'user', content: 'q1' },
+    { role: 'user', content: 'q4 after compaction' },
+  ]);
+
+  assert.equal(compacted.conversationId, long.conversationId);
+  assert.equal(store.snapshot().conversations.length, 1);
+});
+
+/**
+ * The case a system-prompt fingerprint cannot catch on its own: two runs whose
+ * system prompts are byte-identical. Claude Code sends its own run id, so the
+ * builder does not have to infer session identity from the prompt at all.
+ */
+test('two runs with an identical system prompt are separated by the run id', () => {
+  const store = new Store();
+  const builder = new TraceBuilder(store);
+  const SYSTEM = 'IDENTICAL SYSTEM PROMPT';
+  const boilerplate = [{ role: 'user', content: '<env>cwd=/repo</env>' }];
+
+  const send = (id: string, runId: string | undefined, tail: { role: string; content: string }[]) => {
+    const record = request(id);
+    if (runId) record.requestHeaders['x-claude-code-session-id'] = runId;
+    record.requestBody = {
+      model: 'test-model',
+      tools: [{ name: 'Bash' }],
+      system: SYSTEM,
+      messages: [...boilerplate, ...tail],
+    };
+    builder.onRequestBody(record);
+    return record;
+  };
+
+  const runA1 = send('runA_1', 'session-aaaa', [{ role: 'user', content: 'question one' }]);
+  const runA2 = send('runA_2', 'session-aaaa', [
+    { role: 'user', content: 'question one' },
+    { role: 'assistant', content: 'answer one' },
+    { role: 'user', content: 'question two' },
+  ]);
+  assert.equal(runA2.conversationId, runA1.conversationId, 'same run id continues one trace');
+
+  const runB1 = send('runB_1', 'session-bbbb', [{ role: 'user', content: 'hello i am andy' }]);
+  assert.notEqual(runB1.conversationId, runA1.conversationId, 'a different run id is a new trace');
+  assert.equal(store.snapshot().conversations.length, 2);
+});
+
+/** Agents that send no run id must keep working off the system prompt alone. */
+test('conversations without a run id still match on the system prompt', () => {
+  const store = new Store();
+  const builder = new TraceBuilder(store);
+
+  const send = (id: string, system: string, messages: { role: string; content: string }[]) => {
+    const record = request(id);
+    delete record.requestHeaders['x-claude-code-session-id'];
+    record.requestBody = { model: 'test-model', tools: [{ name: 'Bash' }], system, messages };
+    builder.onRequestBody(record);
+    return record;
+  };
+
+  const first = send('noid_1', 'PROMPT A', [{ role: 'user', content: 'q1' }]);
+  const second = send('noid_2', 'PROMPT A', [
+    { role: 'user', content: 'q1' },
+    { role: 'assistant', content: 'a1' },
+    { role: 'user', content: 'q2' },
+  ]);
+  assert.equal(second.conversationId, first.conversationId);
+  assert.equal(store.snapshot().conversations.length, 1);
+});
