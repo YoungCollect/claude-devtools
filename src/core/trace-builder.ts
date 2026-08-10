@@ -1,9 +1,7 @@
-import { anthropicAdapter } from './adapters/anthropic.js';
+import { findAdapter } from './adapters/index.js';
 import type { HistoryItem, ProviderAdapter, StreamBlockEvent } from './adapters/types.js';
 import type { Store } from './store.js';
 import type { Conversation, SseFrame, TokenUsage, TraceNode, TransportRecord } from './types.js';
-
-const ADAPTERS: ProviderAdapter[] = [anthropicAdapter];
 
 /** Reconstruction state for one conversation. Persisted so a restart resumes
  * an in-flight agent session instead of starting a second trace for it. */
@@ -55,7 +53,7 @@ export class TraceBuilder {
   // -- request side ---------------------------------------------------------
 
   onRequestBody(record: TransportRecord): void {
-    const adapter = ADAPTERS.find((candidate) => candidate.matches(record));
+    const adapter = findAdapter(record);
     if (!adapter) {
       this.store.putTransport(record);
       this.store.touch();
@@ -282,14 +280,21 @@ export class TraceBuilder {
   // -- response side --------------------------------------------------------
 
   onStreamFrames(record: TransportRecord, frames: SseFrame[]): void {
-    const adapter = ADAPTERS.find((candidate) => candidate.matches(record));
+    const adapter = findAdapter(record);
     if (!adapter || !record.conversationId) return;
-    this.applyEvents(adapter, record, adapter.parseStreamFrames(frames));
+    const events = adapter.parseStreamFrames(frames);
+    if (record.timing.firstTokenAt === undefined) {
+      const firstOutput = events.find(
+        ({ type }) => type === 'block_start' || type === 'block_delta',
+      );
+      if (firstOutput) record.timing.firstTokenAt = firstOutput.t;
+    }
+    this.applyEvents(adapter, record, events);
     this.store.touch();
   }
 
   onComplete(record: TransportRecord): void {
-    const adapter = ADAPTERS.find((candidate) => candidate.matches(record));
+    const adapter = findAdapter(record);
     if (adapter && record.conversationId && !record.isStream) {
       this.applyEvents(adapter, record, adapter.parseResponseBody(record));
     }
@@ -489,6 +494,16 @@ export class TraceBuilder {
         if (info.conversationId === id) this.pendingToolCalls.delete(toolUseId);
       }
     }
+  }
+
+  /** Clears every correlation cache after the user explicitly clears traces. */
+  reset(): void {
+    this.conversations.clear();
+    this.streams.clear();
+    this.pendingToolCalls.clear();
+    this.dirtyNodeIds.clear();
+    this.dirtyConversationIds.clear();
+    this.counter = 0;
   }
 
   /**

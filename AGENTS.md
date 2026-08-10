@@ -21,6 +21,7 @@ Use pnpm because `pnpm-lock.yaml` is the repository lockfile.
 ```bash
 pnpm install --frozen-lockfile
 pnpm dev
+pnpm test
 pnpm typecheck
 pnpm build
 pnpm start
@@ -28,7 +29,7 @@ pnpm start
 
 - `pnpm dev` starts the proxy/API watcher and Vite dev server.
 - Before handing off code changes, run `pnpm typecheck` and `pnpm build`.
-- There is currently no automated `test` script. Do not claim tests passed when only typecheck/build ran. Add focused regression coverage when changing trace reconstruction, streaming, persistence, retention, or clearing behavior.
+- `pnpm test` runs the Node test suite. Add focused regression coverage when changing trace reconstruction, streaming, persistence, retention, or clearing behavior.
 - The server uses `node:sqlite`; preserve and document the supported Node runtime range when changing runtime requirements.
 
 ## Architecture rules
@@ -67,4 +68,4 @@ pnpm start
 
 - For behavior changes, exercise failure and lifecycle paths, not only the happy path: upstream errors, client aborts, concurrent conversations, restart/restore, capacity overflow, and Clear during a stream.
 - Keep README behavior and security claims synchronized with implementation.
-- Report validation commands exactly, including missing test coverage or environment-specific checks.
+- Report validation commands exactly, including test coverage or environment-specific checks.

@@ -18,6 +18,9 @@ without changing views or correlating ids by hand.
 
 ## Run it
 
+Requires Node.js 22.5 or newer because persistence uses the built-in
+`node:sqlite` module.
+
 ```bash
 npm install
 npm run build
@@ -54,7 +57,8 @@ Editing anything under `src/server` or `src/core` restarts the process and brief
 | 5173 | Vite dev server — **the URL to open during `pnpm dev`** |
 
 Environment overrides: `AGENT_DEVTOOLS_PROXY_PORT`, `AGENT_DEVTOOLS_UI_PORT`,
-`AGENT_DEVTOOLS_UPSTREAM`, `AGENT_DEVTOOLS_HOST`, `AGENT_DEVTOOLS_MAX_REQUESTS`.
+`AGENT_DEVTOOLS_UPSTREAM`, `AGENT_DEVTOOLS_MAX_REQUESTS`, `AGENT_DEVTOOLS_DB`, and
+`AGENT_DEVTOOLS_MAX_BYTES`. Both servers are intentionally fixed to `127.0.0.1`.
 
 ---
 
@@ -141,8 +145,8 @@ follows the OS preference):
 
 Every colour in `src/web/styles.css` names a **role**, never a hue: `canvas`, `code`,
 `tool-fg`, `muted`, `primary`. The two palettes fill the same role set, so switching
-themes is a CSS-variable swap on `<html data-theme>` — no component contains a colour
-decision, and no component knows which theme is active.
+themes is a CSS-variable swap on `<html data-theme>` — content components contain no
+colour decision. Only the theme control reads the active theme to render its state.
 
 The interesting role is `code`. In light it is the system's `code-window-card` — a dark
 navy card on cream. In dark that same card would be near-black on near-black, so the
@@ -200,10 +204,12 @@ trace** instead of opening a second one for the same session.
 | `AGENT_DEVTOOLS_MAX_BYTES` | 1 GB | Stored body bytes before the oldest conversations are dropped |
 | `--no-persist` | off | Memory only; traces lost on restart |
 
-Retention is byte-based and evicts whole conversations, oldest first, never the one
-currently in flight. When a conversation is evicted, the trace builder forgets it too —
-otherwise a still-running agent session could keep matching against history the store no
-longer has, and its requests would accumulate unreachable and un-evictable.
+Retention is byte-based and evicts whole conversations, oldest first, while protecting
+every conversation currently in flight. If protected conversations alone exceed the
+cap, their oldest request bodies are discarded while trace metadata remains available.
+When a conversation is evicted, the trace builder forgets it too — otherwise a
+still-running agent session could keep matching against history the store no longer has,
+and its requests would accumulate unreachable and un-evictable.
 
 `node:sqlite` is still marked experimental in Node 22, so the entry points pass
 `--disable-warning=ExperimentalWarning` to keep the notice off the banner. Running

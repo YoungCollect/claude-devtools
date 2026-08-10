@@ -209,3 +209,21 @@ export interface StateSnapshot {
   conversations: Conversation[];
   transport: TransportSummary[];
 }
+
+/** Provider-neutral materialisation of a streamed assistant response for the UI. */
+export interface AssembledResponse {
+  blocks: Array<{
+    index: number;
+    kind: string;
+    name?: string;
+    text: string;
+  }>;
+  stopReason?: string;
+}
+
+/** Provider-neutral request details prepared by an adapter for the Inspector. */
+export interface RequestInspection {
+  summary: Array<{ label: string; value: string }>;
+  toolNames: string[];
+  systemText?: string;
+}

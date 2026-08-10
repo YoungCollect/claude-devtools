@@ -21,24 +21,41 @@ export interface Config {
   maxBytes: number;
 }
 
-function intFromEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
+function intFromEnv(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  fallback: number,
+  max = Number.MAX_SAFE_INTEGER,
+): number {
+  const raw = env[name];
   if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  if (!/^\d+$/.test(raw)) throw new Error(`${name} must be a positive integer`);
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > max) {
+    throw new Error(`${name} must be between 1 and ${max}`);
+  }
+  return parsed;
 }
 
-export function loadConfig(argv: string[] = process.argv): Config {
+export function loadConfig(
+  argv: string[] = process.argv,
+  env: NodeJS.ProcessEnv = process.env,
+): Config {
+  const requestedHost = env.AGENT_DEVTOOLS_HOST ?? '127.0.0.1';
+  if (requestedHost !== '127.0.0.1') {
+    throw new Error(
+      'AGENT_DEVTOOLS_HOST must be 127.0.0.1; captured traffic cannot be exposed without authentication',
+    );
+  }
   return {
-    proxyPort: intFromEnv('AGENT_DEVTOOLS_PROXY_PORT', 4141),
-    uiPort: intFromEnv('AGENT_DEVTOOLS_UI_PORT', 4142),
-    vitePort: intFromEnv('AGENT_DEVTOOLS_VITE_PORT', 5173),
-    upstream: process.env.AGENT_DEVTOOLS_UPSTREAM ?? 'https://api.anthropic.com',
-    host: process.env.AGENT_DEVTOOLS_HOST ?? '127.0.0.1',
-    maxRequests: intFromEnv('AGENT_DEVTOOLS_MAX_REQUESTS', 5000),
+    proxyPort: intFromEnv(env, 'AGENT_DEVTOOLS_PROXY_PORT', 4141, 65_535),
+    uiPort: intFromEnv(env, 'AGENT_DEVTOOLS_UI_PORT', 4142, 65_535),
+    vitePort: intFromEnv(env, 'AGENT_DEVTOOLS_VITE_PORT', 5173, 65_535),
+    upstream: env.AGENT_DEVTOOLS_UPSTREAM ?? 'https://api.anthropic.com',
+    host: requestedHost,
+    maxRequests: intFromEnv(env, 'AGENT_DEVTOOLS_MAX_REQUESTS', 5000),
     persist: !argv.includes('--no-persist'),
-    dbFile:
-      process.env.AGENT_DEVTOOLS_DB ?? join(homedir(), '.agent-devtools', 'traces.db'),
-    maxBytes: intFromEnv('AGENT_DEVTOOLS_MAX_BYTES', 1024 * 1024 * 1024),
+    dbFile: env.AGENT_DEVTOOLS_DB ?? join(homedir(), '.agent-devtools', 'traces.db'),
+    maxBytes: intFromEnv(env, 'AGENT_DEVTOOLS_MAX_BYTES', 1024 * 1024 * 1024),
   };
 }

@@ -87,6 +87,9 @@ export class Persistence {
     // return to the OS instead of leaving the file permanently inflated.
     this.db.exec('PRAGMA auto_vacuum = INCREMENTAL');
     this.db.exec(SCHEMA);
+    this.repairNodeSequences();
+    this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS nodes_seq_unique ON nodes(seq)');
+    this.nodeSeq = this.nextNodeSequence();
     this.storedBytes = this.sumBytes();
     this.restrictPermissions();
   }
@@ -124,12 +127,17 @@ export class Persistence {
   }
 
   saveNode(node: TraceNode): void {
+    const serialized = JSON.stringify(node);
+    const exists = this.db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(node.id);
+    if (exists) {
+      this.db
+        .prepare('UPDATE nodes SET conversation_id = ?, node = ? WHERE id = ?')
+        .run(node.conversationId, serialized, node.id);
+      return;
+    }
     this.db
-      .prepare(
-        `INSERT INTO nodes (id, conversation_id, seq, node) VALUES (?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET node = excluded.node`,
-      )
-      .run(node.id, node.conversationId, this.nodeSeq++, JSON.stringify(node));
+      .prepare('INSERT INTO nodes (id, conversation_id, seq, node) VALUES (?, ?, ?, ?)')
+      .run(node.id, node.conversationId, this.nodeSeq++, serialized);
   }
 
   /**
@@ -181,10 +189,10 @@ export class Persistence {
         record.timing.startedAt,
         meta,
         bodiesJson,
-        bodiesJson.length,
+        Buffer.byteLength(bodiesJson),
       );
 
-    this.storedBytes += bodiesJson.length - (previous?.bytes ?? 0);
+    this.storedBytes += Buffer.byteLength(bodiesJson) - (previous?.bytes ?? 0);
   }
 
   // -- reads ----------------------------------------------------------------
@@ -219,7 +227,6 @@ export class Persistence {
       node: string;
     }[];
     const nodes = nodeRows.map((row) => JSON.parse(row.node) as TraceNode);
-    this.nodeSeq = nodes.length;
 
     const transportRows = this.db
       .prepare('SELECT meta FROM transport ORDER BY started_at')
@@ -236,30 +243,31 @@ export class Persistence {
   // -- retention ------------------------------------------------------------
 
   /**
-   * Drops whole conversations, oldest first, until stored bodies fit the cap.
+   * Drops whole inactive conversations, oldest first, until stored bodies fit
+   * the cap. If only protected conversations remain, their oldest bodies are
+   * trimmed while trace metadata stays intact.
    *
    * Accounting is by bytes, not by row count: one request can be 200 kB and
    * another 400 bytes, so a count-based cap says nothing about actual size.
    * Returns the conversation ids removed so the in-memory index can follow.
    */
-  sweep(activeConversationId?: string): string[] {
+  sweep(protectedConversationIds: ReadonlySet<string> = new Set()): string[] {
     if (this.storedBytes <= this.options.maxBytes) return [];
 
     const evicted: string[] = [];
+    let vacuumNeeded = false;
     while (this.storedBytes > this.options.maxBytes) {
-      const oldest = this.db
-        .prepare(
-          `SELECT id FROM conversations
-           WHERE id IS NOT ?
-           ORDER BY updated_at LIMIT 1`,
-        )
-        .get(activeConversationId ?? '') as { id: string } | undefined;
+      const candidates = this.db
+        .prepare('SELECT id FROM conversations ORDER BY updated_at')
+        .all() as { id: string }[];
+      const oldest = candidates.find(({ id }) => !protectedConversationIds.has(id));
 
       if (oldest) {
         this.db.prepare('DELETE FROM transport WHERE conversation_id = ?').run(oldest.id);
         this.db.prepare('DELETE FROM nodes WHERE conversation_id = ?').run(oldest.id);
         this.db.prepare('DELETE FROM conversations WHERE id = ?').run(oldest.id);
         evicted.push(oldest.id);
+        vacuumNeeded = true;
         this.storedBytes = this.sumBytes();
         continue;
       }
@@ -267,23 +275,44 @@ export class Persistence {
       // What remains is transport with no conversation to hang from: utility
       // traffic that never joined one, plus anything left dangling by an
       // earlier eviction. Both are unreachable from the UI, so both go.
-      const orphans = this.db
+      const orphanIds = this.db
         .prepare(
-          `DELETE FROM transport WHERE id IN (
-             SELECT t.id FROM transport t
-             WHERE (t.conversation_id IS NULL
-                    OR NOT EXISTS (SELECT 1 FROM conversations c WHERE c.id = t.conversation_id))
-               AND (t.conversation_id IS NULL OR t.conversation_id IS NOT ?)
-             ORDER BY t.started_at
-             LIMIT 200
+          `SELECT t.id, t.conversation_id FROM transport t
+           WHERE t.conversation_id IS NULL
+              OR NOT EXISTS (SELECT 1 FROM conversations c WHERE c.id = t.conversation_id)
+           ORDER BY t.started_at`,
+        )
+        .all() as { id: string; conversation_id: string | null }[];
+      const removableOrphans = orphanIds
+        .filter(
+          ({ conversation_id }) =>
+            conversation_id === null || !protectedConversationIds.has(conversation_id),
+        )
+        .slice(0, 200);
+      if (removableOrphans.length > 0) {
+        const remove = this.db.prepare('DELETE FROM transport WHERE id = ?');
+        for (const { id } of removableOrphans) remove.run(id);
+        vacuumNeeded = true;
+        this.storedBytes = this.sumBytes();
+        continue;
+      }
+
+      // Only protected conversations remain. Preserve their trace metadata but
+      // release the oldest heavy body so the configured byte cap stays real.
+      const trimmed = this.db
+        .prepare(
+          `UPDATE transport SET bodies = NULL, bytes = 0
+           WHERE id = (
+             SELECT id FROM transport WHERE bytes > 0 ORDER BY started_at LIMIT 1
            )`,
         )
-        .run(activeConversationId ?? '');
-      if (orphans.changes === 0) break;
+        .run();
+      if (trimmed.changes === 0) break;
+      vacuumNeeded = true;
       this.storedBytes = this.sumBytes();
     }
 
-    if (evicted.length > 0) this.db.exec('PRAGMA incremental_vacuum');
+    if (vacuumNeeded) this.db.exec('PRAGMA incremental_vacuum');
     return evicted;
   }
 
@@ -298,10 +327,62 @@ export class Persistence {
     return row?.total ?? 0;
   }
 
+  private nextNodeSequence(): number {
+    const row = this.db.prepare('SELECT COALESCE(MAX(seq), -1) + 1 AS next FROM nodes').get() as
+      | { next: number }
+      | undefined;
+    return row?.next ?? 0;
+  }
+
+  /** Repairs sequence gaps/duplicates written by versions before 0.0.1. */
+  private repairNodeSequences(): void {
+    const stats = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count,
+                COUNT(DISTINCT seq) AS distinct_count,
+                COALESCE(MIN(seq), 0) AS min_seq,
+                COALESCE(MAX(seq), -1) AS max_seq
+         FROM nodes`,
+      )
+      .get() as {
+      count: number;
+      distinct_count: number;
+      min_seq: number;
+      max_seq: number;
+    };
+    const contiguous =
+      stats.count === 0 ||
+      (stats.distinct_count === stats.count &&
+        stats.min_seq === 0 &&
+        stats.max_seq === stats.count - 1);
+    if (contiguous) return;
+
+    const offset = stats.max_seq + stats.count + 1;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      // Move existing values out of the target range first. This also works on
+      // later starts after the unique sequence index has been created.
+      this.db.prepare('UPDATE nodes SET seq = seq + ?').run(offset);
+      this.db.exec(`
+        WITH ordered AS (
+          SELECT id, ROW_NUMBER() OVER (ORDER BY seq, rowid) - 1 AS new_seq
+          FROM nodes
+        )
+        UPDATE nodes
+        SET seq = (SELECT new_seq FROM ordered WHERE ordered.id = nodes.id)
+      `);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   clear(): void {
     this.db.exec('DELETE FROM transport; DELETE FROM nodes; DELETE FROM conversations;');
     this.db.exec('PRAGMA incremental_vacuum');
     this.storedBytes = 0;
+    this.nodeSeq = 0;
   }
 
   close(): void {

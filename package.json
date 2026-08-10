@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "DevTools for AI Agents \u2014 Chat Trace with drill-down into the underlying HTTP/SSE.",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "bin": {
     "agent-devtools": "./bin/agent-devtools.js"
   },
@@ -13,6 +16,7 @@
     "dev:web": "vite",
     "build": "vite build && tsc -p tsconfig.server.json",
     "start": "node --disable-warning=ExperimentalWarning dist/server/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --import tsx --test tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {

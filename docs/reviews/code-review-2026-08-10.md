@@ -100,3 +100,26 @@
 - 正确性/安全：6 项（3 高、3 中）；最严重的是 Clear 状态分裂、并发 retention 误删和敏感 API 非 loopback 暴露。
 - 规范/可维护性：3 项（2 高、1 低）；最严重的是 provider 协议解析泄漏到 UI 以及安全文档与实际配置冲突。
 - 规格：0 项（无可用 spec）。
+
+## 修复记录（2026-08-10）
+
+本报告列出的问题已在后续优化中处理：
+
+| 编号 | 状态 | 修复摘要 |
+| --- | --- | --- |
+| CR-01 | 已修复 | 新增 `CaptureRuntime` 请求世代隔离；Clear 同时重置 Builder、Store 和 SQLite，旧的在途回调不再回写。 |
+| CR-02 | 已修复 | 按会话计数跟踪全部在途请求，retention 接收完整 protected id 集合。 |
+| CR-03 | 已修复 | 服务器强制 IPv4 loopback；非 `127.0.0.1` 的 `AGENT_DEVTOOLS_HOST` 配置会直接拒绝启动。 |
+| CR-04 | 已修复 | 启动时修复旧 seq 空洞/重复，建立唯一索引，只在新节点 INSERT 时分配序号，并从 `MAX(seq)+1` 恢复。 |
+| CR-05 | 已修复 | 只剩受保护会话时，按最旧请求释放 body 但保留元数据，使字节上限仍然有效。 |
+| CR-06 | 已修复 | `package.json` 声明 Node `>=22.5.0`，README 增加运行时前置条件。 |
+| ST-01 | 已修复 | 请求摘要、SSE 协议解析和响应组装收口到 ProviderAdapter/API；React 只渲染统一结构。 |
+| ST-02 | 已修复 | 实现与文档统一为只允许 `127.0.0.1`。 |
+| ST-03 | 已修复 | README 改为“内容组件不作颜色决策，仅主题控件读取当前主题”。 |
+
+新增 6 个回归测试，覆盖旧 seq 迁移、重启追加顺序、受保护会话 retention、超限 body 裁剪、Clear 期间在途请求、并发会话、loopback 配置及 provider-neutral 响应组装。修复后的验证结果：
+
+- `pnpm test`：6/6 通过。
+- `pnpm typecheck`：通过。
+- `pnpm build`：通过。
+- 运行时冒烟：成功启动代理/API，`GET /api/state`、`POST /api/clear`和 `GET /api/storage` 均成功。

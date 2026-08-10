@@ -107,9 +107,6 @@ export function createProxy(options: ProxyOptions): http.Server {
             const frames = parser.push(chunk.toString('utf8'), now);
             if (frames.length > 0) {
               record.sseFrames.push(...frames);
-              if (record.timing.firstTokenAt === undefined && frames.some(carriesOutput)) {
-                record.timing.firstTokenAt = frames.find(carriesOutput)?.t ?? now;
-              }
               options.hooks.onStreamFrames(record, frames);
             }
           } else {
@@ -188,14 +185,6 @@ export function createProxy(options: ProxyOptions): http.Server {
 export function serverPort(server: http.Server): number {
   const address = server.address() as AddressInfo | null;
   return address?.port ?? 0;
-}
-
-/**
- * Frames that carry actual model output. Used for time-to-first-token, which
- * should not be triggered by the `message_start` bookkeeping frame.
- */
-function carriesOutput(frame: SseFrame): boolean {
-  return frame.event === 'content_block_delta' || frame.event === 'content_block_start';
 }
 
 function buildUpstreamHeaders(

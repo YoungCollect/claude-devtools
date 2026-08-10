@@ -37,6 +37,24 @@ export const anthropicAdapter: ProviderAdapter = {
     };
   },
 
+  inspectRequest(record) {
+    const body = asRecord(record.requestBody);
+    if (!body) return undefined;
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const tools = Array.isArray(body?.tools) ? body.tools : [];
+    return {
+      summary: [
+        { label: 'model', value: asString(body?.model) ?? '—' },
+        { label: 'messages', value: String(messages.length) },
+        { label: 'tools', value: String(tools.length) },
+        { label: 'max tokens', value: String(body?.max_tokens ?? '—') },
+        { label: 'stream', value: String(body?.stream ?? false) },
+      ],
+      toolNames: tools.map((tool) => asString(asRecord(tool)?.name) ?? '?'),
+      systemText: readSystem(body?.system),
+    };
+  },
+
   parseStreamFrames(frames) {
     const events: StreamBlockEvent[] = [];
     for (const frame of frames) {

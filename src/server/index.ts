@@ -4,12 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 
 import { Store } from '../core/store.js';
-import type { TransportRecord } from '../core/types.js';
 import { TraceBuilder } from '../core/trace-builder.js';
 import { createApi } from './api.js';
 import { loadConfig } from './config.js';
 import { Persistence } from './persistence.js';
 import { createProxy } from './proxy.js';
+import { CaptureRuntime } from './runtime.js';
 
 const config = loadConfig();
 const store = new Store(config.maxRequests);
@@ -37,56 +37,13 @@ if (persistence) {
   }
 }
 
-/**
- * Writes a finished exchange to disk, then drops its bodies from memory.
- *
- * This is the step that makes the tool survive a long session: one Claude Code
- * turn carries ~233 kB of request body, and every turn resends the whole
- * transcript. Keeping only metadata resident turns hundreds of megabytes of
- * resident set into kilobytes.
- */
-function persistAndOffload(record: TransportRecord): void {
-  if (!persistence) return;
-  persistence.saveTransport(record);
-
-  const { nodes, conversations } = builder.drain();
-  for (const node of nodes) persistence.saveNode(node);
-  for (const { conversation, state } of conversations) {
-    persistence.saveConversation(conversation, state);
-  }
-
-  record.requestBodyRaw = undefined;
-  record.requestBody = undefined;
-  record.responseBodyRaw = undefined;
-  record.responseBody = undefined;
-  record.sseFrames = [];
-  record.bodiesOffloaded = true;
-
-  const evicted = persistence.sweep(record.conversationId);
-  for (const id of evicted) store.dropConversation(id);
-  builder.forget(evicted);
-}
+const runtime = new CaptureRuntime({ store, builder, persistence });
 
 createProxy({
   upstream: config.upstream,
   host: config.host,
   port: config.proxyPort,
-  hooks: {
-    onRequestStart: () => {
-      // Nothing to record yet — the body decides which conversation this is.
-    },
-    onRequestBody: (record) => builder.onRequestBody(record),
-    onResponseStart: (record) => {
-      store.putTransport(record);
-      store.touch();
-    },
-    onStreamFrames: (record, frames) => builder.onStreamFrames(record, frames),
-    onComplete: (record) => {
-      builder.onComplete(record);
-      persistAndOffload(record);
-      store.touch();
-    },
-  },
+  hooks: runtime.hooks,
 });
 
 /**
@@ -120,6 +77,7 @@ serve({
     config,
     webRoot,
     persistence,
+    clearState: () => runtime.clear(),
     devUiUrl: devMode ? viteUrl : undefined,
   }).fetch,
   hostname: config.host,

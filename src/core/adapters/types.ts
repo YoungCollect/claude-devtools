@@ -1,6 +1,7 @@
 import type {
   ProviderId,
   RequestKind,
+  RequestInspection,
   SseFrame,
   TokenUsage,
   TraceNodeKind,
@@ -67,6 +68,8 @@ export interface ProviderAdapter {
   /** Does this adapter own the request? First match wins. */
   matches(record: TransportRecord): boolean;
   parseRequest(record: TransportRecord): ParsedRequest;
+  /** Provider-neutral request summary for the transport Inspector. */
+  inspectRequest(record: TransportRecord): RequestInspection | undefined;
   /** Streaming path: called per batch of SSE frames, in order. */
   parseStreamFrames(frames: SseFrame[]): StreamBlockEvent[];
   /** Non-streaming path: called once when the JSON body is complete. */

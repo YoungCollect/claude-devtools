@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 
 import { redactHeaders } from '../core/redact.js';
+import { assembleStreamResponse, inspectRequest } from '../core/adapters/index.js';
 import type { Store } from '../core/store.js';
 import type { TransportRecord } from '../core/types.js';
 import type { Config } from './config.js';
@@ -16,6 +17,8 @@ export interface ApiOptions {
   webRoot?: string;
   /** Storage backing the on-demand body loads. Absent with `--no-persist`. */
   persistence?: Persistence;
+  /** Clears memory, reconstruction state, and disk as one lifecycle operation. */
+  clearState: () => void;
   /**
    * Dev only: where Vite is serving the UI. Non-API requests are redirected
    * there, so opening the usual port during `pnpm dev` still lands on the UI
@@ -24,7 +27,14 @@ export interface ApiOptions {
   devUiUrl?: string;
 }
 
-export function createApi({ store, config, webRoot, persistence, devUiUrl }: ApiOptions): Hono {
+export function createApi({
+  store,
+  config,
+  webRoot,
+  persistence,
+  clearState,
+  devUiUrl,
+}: ApiOptions): Hono {
   const app = new Hono();
 
   app.get('/api/config', (c) =>
@@ -53,8 +63,7 @@ export function createApi({ store, config, webRoot, persistence, devUiUrl }: Api
   });
 
   app.post('/api/clear', (c) => {
-    store.clear();
-    persistence?.clear();
+    clearState();
     return c.json({ ok: true });
   });
 
@@ -149,6 +158,8 @@ function presentRecord(record: TransportRecord, reveal: boolean) {
   const { startedAt, ttfbAt, firstTokenAt, endedAt } = record.timing;
   return {
     ...record,
+    assembledResponse: assembleStreamResponse(record),
+    requestInspection: inspectRequest(record),
     requestHeaders: redactHeaders(record.requestHeaders, reveal),
     responseHeaders: record.responseHeaders
       ? redactHeaders(record.responseHeaders, reveal)

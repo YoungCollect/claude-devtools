@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, type TransportDetail } from '../api.js';
 import { formatBytes, formatClock, formatMs, formatTokens, pretty, truncate } from '../format.js';
 import type { SseFrame, TraceNode } from '../../core/types.js';
@@ -242,29 +242,20 @@ function HeaderTable({ headers }: { headers: Record<string, string> }) {
 }
 
 function Payload({ record }: { record: TransportDetail }) {
-  const body = record.requestBody as Record<string, unknown> | undefined;
-  const messages = Array.isArray(body?.messages) ? body.messages : undefined;
-  const tools = Array.isArray(body?.tools) ? body.tools : undefined;
-  const system = body?.system;
+  const inspection = record.requestInspection;
 
   return (
     <>
-      {body && (
+      {inspection && (
         <Section title="Summary">
           <KeyValue
-            rows={[
-              ['model', String(body.model ?? '—')],
-              ['messages', String(messages?.length ?? 0)],
-              ['tools', String(tools?.length ?? 0)],
-              ['max_tokens', String(body.max_tokens ?? '—')],
-              ['stream', String(body.stream ?? false)],
-            ]}
+            rows={inspection.summary.map(({ label, value }) => [label, value])}
           />
-          {tools && tools.length > 0 && (
+          {inspection.toolNames.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {tools.map((tool, i) => (
+              {inspection.toolNames.map((toolName, i) => (
                 <Badge key={i} tone="tool">
-                  {String((tool as Record<string, unknown>)?.name ?? '?')}
+                  {toolName}
                 </Badge>
               ))}
             </div>
@@ -272,16 +263,16 @@ function Payload({ record }: { record: TransportDetail }) {
         </Section>
       )}
 
-      {system !== undefined && (
+      {inspection?.systemText !== undefined && (
         <Section title="System prompt" defaultOpen={false}>
-          <CodeBlock text={typeof system === 'string' ? system : pretty(system)} />
+          <CodeBlock text={inspection.systemText} />
         </Section>
       )}
 
       <Section
         title="Body"
         action={<CopyButton text={record.requestBodyRaw ?? ''} label="Copy JSON" />}
-        defaultOpen={system === undefined}
+        defaultOpen={inspection?.systemText === undefined}
       >
         <CodeBlock
           text={record.requestBody ? pretty(record.requestBody) : (record.requestBodyRaw ?? '')}
@@ -292,7 +283,7 @@ function Payload({ record }: { record: TransportDetail }) {
 }
 
 function Response({ record }: { record: TransportDetail }) {
-  const assembled = useMemo(() => assembleStream(record.sseFrames), [record.sseFrames]);
+  const assembled = formatAssembledResponse(record.assembledResponse);
 
   if (record.isStream) {
     return (
@@ -319,24 +310,15 @@ function Response({ record }: { record: TransportDetail }) {
 }
 
 function Stream({ record }: { record: TransportDetail }) {
-  const [hideDeltas, setHideDeltas] = useState(true);
   const start = record.timing.startedAt;
-
-  const frames = record.sseFrames.filter(
-    (frame) => !hideDeltas || frame.event !== 'content_block_delta',
-  );
+  const frames = record.sseFrames;
 
   if (record.sseFrames.length === 0) return <Empty>Not a streaming response.</Empty>;
 
   return (
     <div className="p-4">
-      <div className="mb-3 flex items-center gap-2.5">
-        <Button onClick={() => setHideDeltas((v) => !v)} active={hideDeltas}>
-          {hideDeltas ? 'deltas hidden' : 'deltas shown'}
-        </Button>
-        <span className="text-[13px] text-muted">
-          {frames.length} / {record.sseFrames.length} frames
-        </span>
+      <div className="mb-3 text-[13px] text-muted">
+        {frames.length} raw frames
       </div>
       <div className="on-code overflow-hidden rounded-lg bg-code">
         <div className="divide-y divide-code-divider">
@@ -507,43 +489,12 @@ function Raw({ record }: { record: TransportDetail }) {
   );
 }
 
-/**
- * Rebuild the final message from the captured frames, so the Response tab can
- * show what the agent actually received instead of a wall of deltas.
- */
-function assembleStream(frames: SseFrame[]): string {
-  const blocks = new Map<number, { type: string; name?: string; text: string }>();
-  let stopReason: string | undefined;
-
-  for (const frame of frames) {
-    const data = frame.data as Record<string, unknown> | undefined;
-    if (!data) continue;
-    const index = typeof data.index === 'number' ? data.index : undefined;
-
-    if (data.type === 'content_block_start' && index !== undefined) {
-      const block = data.content_block as Record<string, unknown> | undefined;
-      blocks.set(index, {
-        type: String(block?.type ?? 'text'),
-        name: typeof block?.name === 'string' ? block.name : undefined,
-        text: typeof block?.text === 'string' ? block.text : '',
-      });
-    } else if (data.type === 'content_block_delta' && index !== undefined) {
-      const delta = data.delta as Record<string, unknown> | undefined;
-      const chunk = delta?.text ?? delta?.thinking ?? delta?.partial_json;
-      const block = blocks.get(index);
-      if (block && typeof chunk === 'string') block.text += chunk;
-    } else if (data.type === 'message_delta') {
-      const delta = data.delta as Record<string, unknown> | undefined;
-      if (typeof delta?.stop_reason === 'string') stopReason = delta.stop_reason;
-    }
-  }
-
-  const parts = [...blocks.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([index, block]) => {
-      const header = `── [${index}] ${block.type}${block.name ? ` · ${block.name}` : ''} ──`;
-      return `${header}\n${block.text}`;
-    });
-  if (stopReason) parts.push(`── stop_reason ──\n${stopReason}`);
+function formatAssembledResponse(response: TransportDetail['assembledResponse']): string {
+  if (!response) return '';
+  const parts = response.blocks.map((block) => {
+    const header = `── [${block.index}] ${block.kind}${block.name ? ` · ${block.name}` : ''} ──`;
+    return `${header}\n${block.text}`;
+  });
+  if (response.stopReason) parts.push(`── stop_reason ──\n${response.stopReason}`);
   return parts.join('\n\n');
 }

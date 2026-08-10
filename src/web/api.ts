@@ -1,4 +1,10 @@
-import type { StateSnapshot, TraceNode, TransportRecord } from '../core/types.js';
+import type {
+  AssembledResponse,
+  RequestInspection,
+  StateSnapshot,
+  TraceNode,
+  TransportRecord,
+} from '../core/types.js';
 
 export interface DerivedTiming {
   totalMs?: number;
@@ -8,7 +14,11 @@ export interface DerivedTiming {
   frameCount: number;
 }
 
-export type TransportDetail = TransportRecord & { derivedTiming: DerivedTiming };
+export type TransportDetail = TransportRecord & {
+  derivedTiming: DerivedTiming;
+  assembledResponse?: AssembledResponse;
+  requestInspection?: RequestInspection;
+};
 
 export interface ServerConfig {
   proxyUrl: string;
