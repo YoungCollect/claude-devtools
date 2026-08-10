@@ -7,12 +7,15 @@ import { redactHeaders } from '../core/redact.js';
 import type { Store } from '../core/store.js';
 import type { TransportRecord } from '../core/types.js';
 import type { Config } from './config.js';
+import type { Persistence } from './persistence.js';
 
 export interface ApiOptions {
   store: Store;
   config: Config;
   /** Absolute path to the built SPA, or undefined in dev (Vite serves it). */
   webRoot?: string;
+  /** Storage backing the on-demand body loads. Absent with `--no-persist`. */
+  persistence?: Persistence;
   /**
    * Dev only: where Vite is serving the UI. Non-API requests are redirected
    * there, so opening the usual port during `pnpm dev` still lands on the UI
@@ -21,7 +24,7 @@ export interface ApiOptions {
   devUiUrl?: string;
 }
 
-export function createApi({ store, config, webRoot, devUiUrl }: ApiOptions): Hono {
+export function createApi({ store, config, webRoot, persistence, devUiUrl }: ApiOptions): Hono {
   const app = new Hono();
 
   app.get('/api/config', (c) =>
@@ -46,13 +49,22 @@ export function createApi({ store, config, webRoot, devUiUrl }: ApiOptions): Hon
     // Credentials stay masked unless the caller opts in per request — the UI
     // does that behind an explicit "reveal" toggle.
     const reveal = c.req.query('reveal') === '1';
-    return c.json({ record: presentRecord(record, reveal) });
+    return c.json({ record: presentRecord(hydrate(record, persistence), reveal) });
   });
 
   app.post('/api/clear', (c) => {
     store.clear();
+    persistence?.clear();
     return c.json({ ok: true });
   });
+
+  app.get('/api/storage', (c) =>
+    c.json(
+      persistence
+        ? { enabled: true, file: config.dbFile, bytes: persistence.totalBytes(), maxBytes: config.maxBytes }
+        : { enabled: false },
+    ),
+  );
 
   /**
    * Change feed. Only a revision number goes over the wire; the UI refetches
@@ -116,6 +128,20 @@ export function createApi({ store, config, webRoot, devUiUrl }: ApiOptions): Hon
   }
 
   return app;
+}
+
+/**
+ * Refills the bodies that were dropped from memory after the exchange finished.
+ *
+ * Only the Inspector needs them, and only for the one request being viewed —
+ * which is exactly why they are not kept resident. A miss means retention has
+ * since evicted the request; the metadata still renders.
+ */
+function hydrate(record: TransportRecord, persistence: Persistence | undefined): TransportRecord {
+  if (!record.bodiesOffloaded || !persistence) return record;
+  const bodies = persistence.loadBodies(record.id);
+  if (!bodies) return record;
+  return { ...record, ...bodies };
 }
 
 /** Shapes a record for the wire: masked headers plus derived timing. */

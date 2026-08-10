@@ -118,6 +118,19 @@ export class Store {
     return undefined;
   }
 
+  /** Removes one conversation and its nodes — used when retention evicts it. */
+  dropConversation(id: string): void {
+    this.conversations.delete(id);
+    this.nodesByConversation.delete(id);
+    for (const [recordId, record] of this.transport) {
+      if (record.conversationId === id) {
+        this.transport.delete(recordId);
+        const index = this.transportOrder.indexOf(recordId);
+        if (index !== -1) this.transportOrder.splice(index, 1);
+      }
+    }
+  }
+
   clear(): void {
     this.transport.clear();
     this.transportOrder.length = 0;

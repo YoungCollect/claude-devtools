@@ -4,14 +4,68 @@ import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 
 import { Store } from '../core/store.js';
+import type { TransportRecord } from '../core/types.js';
 import { TraceBuilder } from '../core/trace-builder.js';
 import { createApi } from './api.js';
 import { loadConfig } from './config.js';
+import { Persistence } from './persistence.js';
 import { createProxy } from './proxy.js';
 
 const config = loadConfig();
 const store = new Store(config.maxRequests);
 const builder = new TraceBuilder(store);
+
+const persistence = config.persist
+  ? new Persistence({ file: config.dbFile, maxBytes: config.maxBytes })
+  : undefined;
+
+let restored = { conversations: 0, requests: 0 };
+if (persistence) {
+  const loaded = persistence.loadAll();
+  for (const { conversation } of loaded.conversations) store.putConversation(conversation);
+  for (const node of loaded.nodes) store.appendNode(node);
+  for (const record of loaded.transport) {
+    record.bodiesOffloaded = true;
+    store.putTransport(record);
+  }
+  builder.restore(loaded.conversations, loaded.nodes);
+  restored = { conversations: loaded.conversations.length, requests: loaded.transport.length };
+  // appendNode() increments nodeCount as a side effect, so replaying a restored
+  // conversation's nodes would double it. Recompute from what actually landed.
+  for (const { conversation } of loaded.conversations) {
+    conversation.nodeCount = store.getNodes(conversation.id).length;
+  }
+}
+
+/**
+ * Writes a finished exchange to disk, then drops its bodies from memory.
+ *
+ * This is the step that makes the tool survive a long session: one Claude Code
+ * turn carries ~233 kB of request body, and every turn resends the whole
+ * transcript. Keeping only metadata resident turns hundreds of megabytes of
+ * resident set into kilobytes.
+ */
+function persistAndOffload(record: TransportRecord): void {
+  if (!persistence) return;
+  persistence.saveTransport(record);
+
+  const { nodes, conversations } = builder.drain();
+  for (const node of nodes) persistence.saveNode(node);
+  for (const { conversation, state } of conversations) {
+    persistence.saveConversation(conversation, state);
+  }
+
+  record.requestBodyRaw = undefined;
+  record.requestBody = undefined;
+  record.responseBodyRaw = undefined;
+  record.responseBody = undefined;
+  record.sseFrames = [];
+  record.bodiesOffloaded = true;
+
+  const evicted = persistence.sweep(record.conversationId);
+  for (const id of evicted) store.dropConversation(id);
+  builder.forget(evicted);
+}
 
 createProxy({
   upstream: config.upstream,
@@ -27,7 +81,11 @@ createProxy({
       store.touch();
     },
     onStreamFrames: (record, frames) => builder.onStreamFrames(record, frames),
-    onComplete: (record) => builder.onComplete(record),
+    onComplete: (record) => {
+      builder.onComplete(record);
+      persistAndOffload(record);
+      store.touch();
+    },
   },
 });
 
@@ -57,10 +115,23 @@ const viteUrl = `http://${config.host}:${config.vitePort}`;
 
 serve({
   // Whichever port you open in dev, you land on the UI that actually hot-reloads.
-  fetch: createApi({ store, config, webRoot, devUiUrl: devMode ? viteUrl : undefined }).fetch,
+  fetch: createApi({
+    store,
+    config,
+    webRoot,
+    persistence,
+    devUiUrl: devMode ? viteUrl : undefined,
+  }).fetch,
   hostname: config.host,
   port: config.uiPort,
 });
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    persistence?.close();
+    process.exit(0);
+  });
+}
 
 const uiLine = devMode
   ? `${viteUrl}  (vite · hot reload — ${apiUrl} redirects here)`
@@ -68,13 +139,25 @@ const uiLine = devMode
     ? apiUrl
     : `${apiUrl}  (api only — UI not built; run \`pnpm build\`, or \`pnpm dev\` for hot reload)`;
 
+const storageLine = persistence
+  ? `${config.dbFile}  (${formatBytes(persistence.totalBytes())} of ${formatBytes(config.maxBytes)}` +
+    `${restored.conversations > 0 ? `, restored ${restored.conversations} conversations / ${restored.requests} requests` : ''})`
+  : 'off (--no-persist) — traces are lost on restart';
+
 console.log(`
   agent-devtools${devMode ? '  ·  dev' : ''}
 
   proxy     ${proxyUrl}  →  ${config.upstream}
   ui        ${uiLine}
+  storage   ${storageLine}
 
   Point an agent at the proxy:
 
     ANTHROPIC_BASE_URL=${proxyUrl} claude
 `);
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} kB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}

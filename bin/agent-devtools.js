@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,4 +12,11 @@ if (!existsSync(entry)) {
   process.exit(1);
 }
 
-await import(entry);
+// Re-exec so the runtime flag applies: node:sqlite is still marked experimental
+// and would otherwise print a notice above our own banner on every start.
+const { status } = spawnSync(
+  process.execPath,
+  ['--disable-warning=ExperimentalWarning', entry, ...process.argv.slice(2)],
+  { stdio: 'inherit' },
+);
+process.exit(status ?? 0);

@@ -85,6 +85,12 @@ export interface TransportRecord {
   /** Set when the proxy itself failed (DNS, socket, upstream reset). */
   error?: string;
 
+  /**
+   * True once the heavy fields have been written to disk and dropped from
+   * memory. The API refills them from storage when the Inspector asks.
+   */
+  bodiesOffloaded?: boolean;
+
   /** Populated by the adapter once the request is understood. */
   model?: string;
   usage?: TokenUsage;

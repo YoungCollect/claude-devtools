@@ -9,10 +9,10 @@
   },
   "scripts": {
     "dev": "concurrently -n server,web -c cyan,magenta \"pnpm dev:server\" \"pnpm dev:web\"",
-    "dev:server": "tsx watch src/server/index.ts --dev",
+    "dev:server": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx watch src/server/index.ts --dev",
     "dev:web": "vite",
     "build": "vite build && tsc -p tsconfig.server.json",
-    "start": "node dist/server/index.js",
+    "start": "node --disable-warning=ExperimentalWarning dist/server/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {

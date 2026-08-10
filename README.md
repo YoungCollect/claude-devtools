@@ -43,9 +43,9 @@ Starts the proxy and API with `tsx watch`, and Vite with React Fast Refresh. **O
 either port works. The agent still points at :4141 exactly as in production, so you can
 edit the UI mid-session and watch the trace re-render without touching the agent.
 
-One caveat worth knowing: editing anything under `src/server` or `src/core` restarts the
-process, which **clears every captured trace** (the store is memory-only) and briefly
-drops :4141. Editing `src/web` never does — that is pure Fast Refresh.
+Editing anything under `src/server` or `src/core` restarts the process and briefly drops
+:4141 — but the traces survive, since they are persisted and reloaded on boot. Editing
+`src/web` doesn't restart anything; that is pure Fast Refresh.
 
 | Port | What |
 | ---- | ---- |
@@ -117,6 +117,7 @@ src/
   server/
     proxy.ts                :4141 streaming capture proxy
     api.ts                  :4142 REST + SSE change feed + static UI
+    persistence.ts          SQLite storage; bodies on disk, metadata resident
   web/                      React SPA — Trace, Inspector, Network
 ```
 
@@ -173,14 +174,52 @@ Copernicus and StyreneB are licensed; the app uses the substitutes the system do
 (Tiempos Headline / Cormorant Garamond / Georgia, and Inter), all resolved locally so
 the tool works offline with no webfont fetch.
 
+## Storage
+
+Traces are persisted to SQLite (`node:sqlite` — no dependency, no native build) at
+`~/.agent-devtools/traces.db`. Disable with `--no-persist`.
+
+This is not primarily about surviving restarts. **One Claude Code turn ships ~233 kB of
+request body** — the whole transcript, resent every turn — and the in-memory record held
+both the raw string and its parsed object. The old count-based cap (1000 requests) said
+nothing about size, so a normal working session could exhaust memory long before hitting
+it.
+
+So the split is: **metadata stays resident, bodies live on disk and load only when the
+Inspector opens a request.** Measured over 150 requests of ~200 kB each: +27 MB resident
+with persistence on, +80 MB with `--no-persist`. Under an active retention cap, resident
+size plateaus instead of growing.
+
+Restarting resumes rather than resets: conversations, trace nodes and the reconstruction
+fingerprints are restored, so a still-running agent's next request **extends its existing
+trace** instead of opening a second one for the same session.
+
+| Setting | Default | Meaning |
+| ------- | ------- | ------- |
+| `AGENT_DEVTOOLS_DB` | `~/.agent-devtools/traces.db` | Database location |
+| `AGENT_DEVTOOLS_MAX_BYTES` | 1 GB | Stored body bytes before the oldest conversations are dropped |
+| `--no-persist` | off | Memory only; traces lost on restart |
+
+Retention is byte-based and evicts whole conversations, oldest first, never the one
+currently in flight. When a conversation is evicted, the trace builder forgets it too —
+otherwise a still-running agent session could keep matching against history the store no
+longer has, and its requests would accumulate unreachable and un-evictable.
+
+`node:sqlite` is still marked experimental in Node 22, so the entry points pass
+`--disable-warning=ExperimentalWarning` to keep the notice off the banner. Running
+`node dist/server/index.js` directly will print it; nothing else differs.
+
 ## Security
 
 Captured traffic contains live credentials and whole source files.
 
 - Both servers bind **127.0.0.1** only.
-- `authorization` / `x-api-key` / cookies are **masked** in every API response. The
-  Inspector's "secrets masked" toggle reveals them per request, on demand.
-- Nothing is written to disk and nothing is sent anywhere. Restarting clears everything.
+- **Credentials are never written to disk.** `authorization` / `x-api-key` / cookies are
+  masked *before* the record is stored, so a trace file that outlives its session cannot
+  leak a live token. The Inspector's reveal toggle returns the real value only for
+  requests still held in memory by the current process; reloaded ones stay masked.
+- The database is `0600` inside a `0700` directory.
+- Nothing is sent anywhere. `Clear` wipes memory and disk.
 
 ---
 
@@ -201,8 +240,8 @@ Known limits, honestly:
    response-end → next-request-start, so it also contains the agent's own bookkeeping and
    any permission prompt the human sat on. Parallel batches share one window and are
    marked `·batch`.
-4. **Memory only**, capped at `AGENT_DEVTOOLS_MAX_REQUESTS` (default 1000). No replay, no
-   persistence, no export yet.
+4. **No replay and no export yet.** Traces persist and reload, but you cannot re-issue a
+   captured request or hand a session file to someone else.
 5. `accept-encoding` is rewritten to `identity` upstream so bodies stay readable; the
    Headers tab shows what the agent actually sent and notes the rewrite.
 6. Only the Anthropic adapter exists. The seam for others is in place but unexercised.

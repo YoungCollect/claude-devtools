@@ -5,7 +5,9 @@ import type { Conversation, SseFrame, TokenUsage, TraceNode, TransportRecord } f
 
 const ADAPTERS: ProviderAdapter[] = [anthropicAdapter];
 
-interface ConversationState {
+/** Reconstruction state for one conversation. Persisted so a restart resumes
+ * an in-flight agent session instead of starting a second trace for it. */
+export interface ConversationState {
   id: string;
   /** The transcript we believe the agent is holding, as block fingerprints. */
   fps: string[];
@@ -44,6 +46,9 @@ export class TraceBuilder {
   /** tool_use_id → conversation that issued it, for subagent attribution. */
   private readonly pendingToolCalls = new Map<string, { conversationId: string; toolName: string }>();
   private counter = 0;
+  /** Ids touched since the last drain, so persistence writes only what changed. */
+  private readonly dirtyNodeIds = new Set<string>();
+  private readonly dirtyConversationIds = new Set<string>();
 
   constructor(private readonly store: Store) {}
 
@@ -128,6 +133,7 @@ export class TraceBuilder {
         state.fps.length = common;
       }
       state.updatedAt = record.timing.startedAt;
+      this.dirtyConversationIds.add(state.id);
       return state;
     }
 
@@ -171,6 +177,7 @@ export class TraceBuilder {
       parentToolUseId: parent?.toolUseId,
     };
     this.store.putConversation(conversation);
+    this.dirtyConversationIds.add(id);
     return state;
   }
 
@@ -353,6 +360,7 @@ export class TraceBuilder {
           if (!block) break;
           block.buffer += event.text ?? '';
           if (block.node.kind !== 'tool_call') block.node.text = block.buffer;
+          this.markDirty(block.node);
           break;
         }
 
@@ -395,6 +403,7 @@ export class TraceBuilder {
   ): void {
     const node = block.node;
     node.durationMs = Math.max(0, t - node.ts);
+    this.markDirty(node);
 
     if (node.kind === 'tool_call') {
       if (node.toolInput === undefined) {
@@ -431,7 +440,90 @@ export class TraceBuilder {
   private append(node: Omit<TraceNode, 'id'>): TraceNode {
     const full: TraceNode = { id: `node_${++this.counter}`, ...node };
     this.store.appendNode(full);
+    this.markDirty(full);
     return full;
+  }
+
+  private markDirty(node: TraceNode): void {
+    this.dirtyNodeIds.add(node.id);
+    this.dirtyConversationIds.add(node.conversationId);
+  }
+
+  /**
+   * Hands over everything that changed since the last call. Streaming mutates
+   * a node's text on every delta, so flushing per change would mean a disk
+   * write per token; the server drains once per completed exchange instead.
+   */
+  drain(): { nodes: TraceNode[]; conversations: { conversation: Conversation; state: ConversationState }[] } {
+    const nodes: TraceNode[] = [];
+    for (const id of this.dirtyNodeIds) {
+      const node = this.store.findNode((candidate) => candidate.id === id);
+      if (node) nodes.push(node);
+    }
+    const conversations: { conversation: Conversation; state: ConversationState }[] = [];
+    for (const id of this.dirtyConversationIds) {
+      const conversation = this.store.getConversation(id);
+      const state = this.conversations.get(id);
+      if (conversation && state) conversations.push({ conversation, state });
+    }
+    this.dirtyNodeIds.clear();
+    this.dirtyConversationIds.clear();
+    return { nodes, conversations };
+  }
+
+  /**
+   * Drops reconstruction state for conversations that retention has evicted.
+   *
+   * Without this the builder keeps matching new requests against a conversation
+   * the store no longer holds: the request gets a conversationId that resolves
+   * to nothing, so its transport row is written while its conversation row is
+   * not, and the row can never be evicted afterwards. Forgetting makes the next
+   * request from that session open a fresh trace — the honest outcome, since
+   * its history is genuinely gone.
+   */
+  forget(conversationIds: readonly string[]): void {
+    for (const id of conversationIds) {
+      this.conversations.delete(id);
+      this.dirtyConversationIds.delete(id);
+      for (const [toolUseId, info] of this.pendingToolCalls) {
+        if (info.conversationId === id) this.pendingToolCalls.delete(toolUseId);
+      }
+    }
+  }
+
+  /**
+   * Rehydrates reconstruction state after a restart, so the next request from a
+   * still-running agent extends its existing trace rather than opening a new one.
+   *
+   * Pending tool calls are derived from the nodes rather than stored: a
+   * tool_call whose tool_use_id has no matching tool_result is by definition
+   * still outstanding.
+   */
+  restore(
+    conversations: { conversation: Conversation; state: ConversationState }[],
+    nodes: TraceNode[],
+  ): void {
+    for (const { state } of conversations) this.conversations.set(state.id, state);
+
+    const resolved = new Set(
+      nodes.filter((n) => n.kind === 'tool_result' && n.toolUseId).map((n) => n.toolUseId),
+    );
+    for (const node of nodes) {
+      if (node.kind === 'tool_call' && node.toolUseId && !resolved.has(node.toolUseId)) {
+        this.pendingToolCalls.set(node.toolUseId, {
+          conversationId: node.conversationId,
+          toolName: node.toolName ?? '',
+        });
+      }
+    }
+
+    // Ids are `conv_N` / `node_N` off one counter; resume past the high-water
+    // mark so restored and fresh ids can never collide.
+    const ids = [...conversations.map((c) => c.conversation.id), ...nodes.map((n) => n.id)];
+    for (const id of ids) {
+      const n = Number.parseInt(id.slice(id.indexOf('_') + 1), 10);
+      if (Number.isFinite(n) && n > this.counter) this.counter = n;
+    }
   }
 }
 
