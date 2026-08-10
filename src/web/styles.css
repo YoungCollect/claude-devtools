@@ -379,6 +379,16 @@ button:not(:disabled),
   overflow-wrap: anywhere;
 }
 
+/* The user's own turn keeps the display face and larger size it has in a chat
+   surface even once its body is rendered as markdown — that type is what tells
+   the two sides of the conversation apart at a glance. */
+.markdown-body.markdown-lead {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 17px;
+  line-height: 1.4;
+}
+
 .markdown-body > :first-child {
   margin-top: 0;
 }

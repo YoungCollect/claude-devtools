@@ -6,6 +6,13 @@ import type { TraceNode } from '../../core/types.js';
 import { formatMs, formatTokens, summarizeToolInput, toolResultText, truncate } from '../format.js';
 import { Badge, Chevron, cx, Empty, TagLabel, type Tone } from './ui.js';
 
+/**
+ * Chat turns are prose. Module-level so every bubble shares one array — the
+ * viewer memoises its mode list on this identity, and a literal rebuilt per
+ * render would defeat that on every streamed frame.
+ */
+const PROSE_FORMATS: ContentFormat[] = ['markdown'];
+
 export interface TraceViewProps {
   nodes: TraceNode[];
   selectedNodeId?: string;
@@ -152,28 +159,59 @@ function UserNode({ node }: { node: TraceNode }) {
               sessionId={node.conversationId}
             />
           ) : (
-            <UserBubble key={`user-${index}`} text={segment.text} />
+            <UserBubble
+              key={`user-${index}`}
+              text={segment.text}
+              sourceId={`${node.id}:user:${index}`}
+              sessionId={node.conversationId}
+            />
           ),
         )}
       </div>
     );
   }
 
-  return <UserBubble text={segments[0]?.text ?? raw} />;
+  return (
+    <UserBubble
+      text={segments[0]?.text ?? raw}
+      sourceId={node.id}
+      sessionId={node.conversationId}
+    />
+  );
 }
 
-function UserBubble({ text }: { text: string }) {
+function UserBubble({
+  text,
+  sourceId,
+  sessionId,
+}: {
+  text: string;
+  sourceId: string;
+  sessionId: string;
+}) {
   return (
     <div>
       <Gutter label="user" tone="emph" align="end" />
-      <div className="display mt-1.5 rounded-2xl rounded-tr-sm bg-surface-card px-4 py-3 text-[17px] leading-[1.4] whitespace-pre-wrap text-ink">
-        {text || <span className="text-muted-soft italic">(no visible text)</span>}
+      <div className="mt-1.5 rounded-2xl rounded-tr-sm bg-surface-card px-4 py-3">
+        {text ? (
+          <ContentViewer
+            variant="bare"
+            text={text}
+            formats={PROSE_FORMATS}
+            maxHeightClass="max-h-none"
+            proseClassName="markdown-lead"
+            diffSource={{ sourceId, sessionId, label: 'user message' }}
+          />
+        ) : (
+          <span className="display text-[17px] text-muted-soft italic">(no visible text)</span>
+        )}
       </div>
     </div>
   );
 }
 
 function AssistantNode({ node }: { node: TraceNode }) {
+  const text = node.text ?? '';
   return (
     <div>
       <Gutter label="assistant" tone="success">
@@ -187,8 +225,14 @@ function AssistantNode({ node }: { node: TraceNode }) {
           </span>
         )}
       </Gutter>
-      <div className="mt-1.5 rounded-2xl rounded-tl-sm border border-hairline bg-surface-soft px-4 py-3 text-[14px] leading-[1.55] whitespace-pre-wrap text-body-strong">
-        {node.text}
+      <div className="mt-1.5 rounded-2xl rounded-tl-sm border border-hairline bg-surface-soft px-4 py-3">
+        <ContentViewer
+          variant="bare"
+          text={text}
+          formats={PROSE_FORMATS}
+          maxHeightClass="max-h-none"
+          diffSource={{ sourceId: node.id, sessionId: node.conversationId, label: 'assistant message' }}
+        />
       </div>
     </div>
   );
