@@ -101,13 +101,21 @@ function NodeBody({ node }: { node: TraceNode }) {
         <ContextNode
           text={node.text ?? ''}
           label={node.systemSource === 'prompt' ? 'system prompt' : 'system'}
+          sourceId={node.id}
+          sessionId={node.conversationId}
           tone="warning"
           preferMarkdown
         />
       );
     case 'context':
       return (
-        <ContextNode text={node.text ?? ''} label={node.contextTag ?? 'context'} tone="neutral" />
+        <ContextNode
+          text={node.text ?? ''}
+          label={node.contextTag ?? 'context'}
+          sourceId={node.id}
+          sessionId={node.conversationId}
+          tone="neutral"
+        />
       );
     case 'user':
       return <UserNode node={node} />;
@@ -140,6 +148,8 @@ function UserNode({ node }: { node: TraceNode }) {
               key={`${segment.contextTag ?? 'context'}-${index}`}
               text={segment.text}
               label={segment.contextTag ?? 'context'}
+              sourceId={`${node.id}:context:${index}`}
+              sessionId={node.conversationId}
             />
           ) : (
             <UserBubble key={`user-${index}`} text={segment.text} />
@@ -277,11 +287,15 @@ function ThinkingNode({ node }: { node: TraceNode }) {
 function ContextNode({
   text,
   label,
+  sourceId,
+  sessionId,
   tone = 'neutral',
   preferMarkdown = false,
 }: {
   text: string;
   label: string;
+  sourceId: string;
+  sessionId: string;
   tone?: Tone;
   /** System prompts are prose first; tag blocks are structure first. */
   preferMarkdown?: boolean;
@@ -323,6 +337,7 @@ function ContextNode({
           text={text}
           formats={formats}
           maxHeightClass="max-h-[50vh]"
+          diffSource={{ sourceId, sessionId, label }}
         />
       )}
     </div>

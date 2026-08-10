@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, subscribeToRevisions, type ServerConfig } from './api.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
 import { ConversationList } from './components/ConversationList.js';
+import { GitDiffDialog } from './components/GitDiffDialog.js';
 import { Inspector, INSPECTOR_WIDTH } from './components/Inspector.js';
 import { NetworkView } from './components/NetworkView.js';
 import { TraceView } from './components/TraceView.js';
 import { Badge, Button, cx, Empty, SpikeMark, Tabs, ThemeToggle } from './components/ui.js';
 import { useTheme } from './theme.js';
+import { clearGitDiff, setGitDiffOpen } from './git-diff.js';
 import { transportForConversation } from './transport.js';
 
 const VIEWS = [
@@ -116,7 +118,11 @@ export function App() {
         connected={connected}
         theme={theme}
         onToggleTheme={toggleTheme}
-        onClear={() => void api.clear().then(refresh)}
+        onClear={() => {
+          clearGitDiff();
+          void api.clear().then(refresh);
+        }}
+        onOpenDiff={() => setGitDiffOpen(true)}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -184,6 +190,7 @@ export function App() {
         rev={snapshot.rev}
         onClose={() => setSelection(undefined)}
       />
+      <GitDiffDialog theme={theme} />
     </div>
   );
 }
@@ -194,12 +201,14 @@ function Header({
   theme,
   onToggleTheme,
   onClear,
+  onOpenDiff,
 }: {
   config: ServerConfig | undefined;
   connected: boolean;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
   onClear: () => void;
+  onOpenDiff: () => void;
 }) {
   const command = config ? `ANTHROPIC_BASE_URL=${config.proxyUrl} claude` : '';
   return (
@@ -248,6 +257,7 @@ function Header({
         <Button onClick={onClear} tone="danger">
           Clear
         </Button>
+        <Button onClick={onOpenDiff}>Diff</Button>
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </div>
     </header>

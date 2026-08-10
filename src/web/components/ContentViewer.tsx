@@ -8,6 +8,8 @@ import {
   type XmlElementNode,
   type XmlNode,
 } from '../../core/xml-outline.js';
+import type { GitDiffFormat, GitDiffSourceIdentity } from '../git-diff.js';
+import { DiffSourceButtons } from './DiffSourceButtons.js';
 import { Chevron, CopyIconButton, cx, Empty } from './ui.js';
 
 export type ContentFormat = 'markdown' | 'xml';
@@ -20,6 +22,7 @@ export interface ContentViewerProps {
   /** Cap the rendered height; the panel scrolls past it. */
   maxHeightClass?: string;
   className?: string;
+  diffSource?: GitDiffSourceIdentity;
 }
 
 const LABELS: Record<ViewMode, string> = {
@@ -91,6 +94,7 @@ export function ContentViewer({
   formats,
   maxHeightClass = 'max-h-[60vh]',
   className,
+  diffSource,
 }: ContentViewerProps) {
   const modes = useMemo<ViewMode[]>(() => [...formats, 'raw'], [formats]);
   const preferred = useSyncExternalStore(subscribeToPreference, getPreference, getPreference);
@@ -102,6 +106,8 @@ export function ContentViewer({
   // that had not actually happened. Raw keeps the card: those are the literal
   // bytes off the wire, which is exactly what the dark surface is reserved for.
   const onCode = active === 'raw';
+  const diffFormat: GitDiffFormat =
+    active === 'markdown' || active === 'xml' ? active : (formats[0] ?? 'markdown');
 
   return (
     <div
@@ -126,6 +132,12 @@ export function ContentViewer({
           onCode ? 'border-code-divider' : 'border-hairline',
         )}
       >
+        {diffSource && (
+          <DiffSourceButtons
+            source={{ ...diffSource, text, format: diffFormat }}
+            surface={onCode ? 'code' : 'canvas'}
+          />
+        )}
         {modes.map((candidate) => (
           <button
             key={candidate}

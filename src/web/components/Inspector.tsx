@@ -5,6 +5,7 @@ import { hasXmlStructure } from '../../core/xml-outline.js';
 import type { SseFrame, TraceNode } from '../../core/types.js';
 import { ContentViewer, type ContentFormat } from './ContentViewer.js';
 import { JsonBodyViewer } from './JsonBodyViewer.js';
+import { DiffSourceButtons } from './DiffSourceButtons.js';
 import {
   Badge,
   Button,
@@ -345,13 +346,31 @@ function Payload({ record }: { record: TransportDetail }) {
           <ContentViewer
             text={inspection.systemText}
             formats={systemFormats}
+            diffSource={{
+              sourceId: `${record.id}:system-prompt`,
+              sessionId: record.conversationId ?? 'no-session',
+              label: 'system prompt',
+            }}
           />
         </Section>
       )}
 
       <Section
         title="Body"
-        action={<CopyButton text={record.requestBodyRaw ?? ''} label="Copy JSON" />}
+        action={
+          <div className="flex items-center gap-1.5">
+            <DiffSourceButtons
+              source={{
+                sourceId: `${record.id}:request-body`,
+                sessionId: record.conversationId ?? 'no-session',
+                label: 'request body',
+                text: record.requestBodyRaw ?? pretty(record.requestBody),
+                format: 'json',
+              }}
+            />
+            <CopyButton text={record.requestBodyRaw ?? ''} label="Copy JSON" />
+          </div>
+        }
         defaultOpen={inspection?.systemText === undefined}
       >
         <JsonBodyViewer value={record.requestBody} raw={record.requestBodyRaw} />
@@ -379,7 +398,23 @@ function Response({ record }: { record: TransportDetail }) {
   }
 
   return (
-    <Section title="Body" action={<CopyButton text={record.responseBodyRaw ?? ''} label="Copy" />}>
+    <Section
+      title="Body"
+      action={
+        <div className="flex items-center gap-1.5">
+          <DiffSourceButtons
+            source={{
+              sourceId: `${record.id}:response-body`,
+              sessionId: record.conversationId ?? 'no-session',
+              label: 'response body',
+              text: record.responseBodyRaw ?? pretty(record.responseBody),
+              format: 'json',
+            }}
+          />
+          <CopyButton text={record.responseBodyRaw ?? ''} label="Copy" />
+        </div>
+      }
+    >
       <JsonBodyViewer value={record.responseBody} raw={record.responseBodyRaw} />
     </Section>
   );
