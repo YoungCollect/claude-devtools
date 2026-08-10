@@ -171,7 +171,12 @@ export function App() {
         onToggleTheme={toggleTheme}
         onClear={() => {
           clearGitDiff();
-          void api.clear().then(refresh);
+          // A failed clear must not refresh and present unchanged data as if
+          // the wipe had worked; the connection indicator carries the failure.
+          void api
+            .clear()
+            .then(refresh)
+            .catch(() => setConnected(false));
         }}
         onOpenDiff={() => setGitDiffOpen(true)}
       />

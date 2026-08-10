@@ -196,3 +196,37 @@
 3. **CR-03** —— 一个 header 校验，消除本机浏览器可达的破坏性端点。
 4. **CR-05 / ST-01** —— 分别影响转发路径耗时与架构边界，改动范围中等。
 5. 其余低优先级项可并入日常清理。
+
+---
+
+## 修复记录（2026-08-10）
+
+本报告列出的问题已在 `claude/review-fixes-2026-08-10` 分支统一处理。
+
+| 编号 | 状态 | 修复摘要 |
+| --- | --- | --- |
+| CR-01 | 已修复 | `SseParser` 新增 `pushBytes()`，用 `TextDecoder` 流式解码跨 chunk 的多字节序列；proxy 改为传字节而非 `chunk.toString()`。选用 Web API 而非 `node:string_decoder`，以保持 `src/core` 对浏览器可用。 |
+| CR-02 | 已修复（方案调整） | 卸载与 drain 移出持久化分支。**未采用报告建议的「无条件卸载」**：那会让 `--no-persist` 完全无法查看任何已完成请求的 body，而查 payload 正是本工具的存在理由。改为有界驻留——最新的 body 留在内存中，受与磁盘相同的 `AGENT_DEVTOOLS_MAX_BYTES` 约束，超出后释放最旧的，并始终保留最近一次交换。 |
+| CR-03 | 已修复 | `POST /api/clear` 与 `DELETE /api/conversations/:id` 要求 `x-agent-devtools` 头。该头不是密钥，作用是让请求不再属于 CORS simple request，从而必须走预检——而本 API 不应答预检。 |
+| CR-04 | 已修复 | utility 判定收敛为「`count_tokens` 路径」或「无工具 且 单条消息 且 `max_tokens` ≤ 1024」。一次性 SDK 调用与第二轮对话不再被吞掉，Claude Code 的标题/配额调用仍然命中。 |
+| CR-05 | 已修复 | 附件改为按 `type` + `media_type` + 长度 + 首尾各 64 字符指纹，不再序列化并逐字符哈希整个 base64。 |
+| CR-06 | 已修复 | 响应已开始后 upstream 出错时只 `res.end()`，不再把错误 JSON 追加到已发出的 SSE 流尾部。 |
+| CR-07 | 已修复 | 静态根目录前缀校验补上路径分隔符，不再依赖上游 `normalize` 的具体行为。 |
+| CR-08 | 已修复 | 会话列表改为递归渲染 `Branch`，任意深度的子 agent 都可见；父级缺失者提升到顶层而非消失。 |
+| CR-09 | 已修复 | `api.clear()` 与 `deleteConversation()` 统一走 `mutate()`，失败即抛；`App` 不再在失败后刷新出原样数据。 |
+| CR-10 | 已修复 | 敏感 header 在固定名单之外增加形态兜底（`api-key` / `auth` / `token` / `secret` / `credential` / `password` / `session`）。 |
+| CR-11 | 已修复 | diff 选中态只比较 `sourceId` + `format`，不再比较流式变化中的 `text`。 |
+| ST-01 | 已修复 | `'Task'` 下沉为 `ProviderAdapter.isSubagentTool()`；`deriveTitle` 改为依赖 adapter 已完成的结构化 segment 拆分，删去 `<system-reminder>` 字面量。`src/core` 中不再有 agent 专有标识符。 |
+| ST-02 | 已修复 | 删除未被引用的 `resolveInitialTheme`，并注明 `index.html` 的内联脚本是首屏主题的唯一来源。 |
+| ST-03 | 已修复 | `Persistence.transaction()` 把整轮 drain 的节点/会话写入包进单个事务。 |
+| ST-04 | 已修复 | `dropConversation` 先收集待删 id，再对 `transportOrder` 做一次 filter，消除循环内 `indexOf`。 |
+
+### 验证
+
+- `pnpm typecheck` / `pnpm build`：通过
+- `pnpm test`：57/57 通过（新增 9 项，覆盖跨 chunk 的 UTF-8 解码、逐字节流、有界驻留与 Clear 释放、CSRF 头、utility 判定边界、附件指纹与其耗时上界、敏感 header 形态匹配）
+- **CR-01 端到端**：改造假上游按 7 字节切片发送 SSE，通过真实代理灌入两轮流量。assistant 文本 `我先看一下仓库结构。…` 完整无损，SSE `raw` 帧不含替换字符，未出现「History rewound」横幅，两轮归入同一会话。
+- **CR-01 对照**：同一份 14×7 字节切片，旧路径 `push(chunk.toString('utf8'))` 得到 `我��看一下仓���结�� — ����`，新路径 `pushBytes()` 得到 `我先看一下仓库结构 — 🌏`。
+- **CR-02 端到端**：`--no-persist` 下已完成请求的 `requestBodyRaw` 与 9 个 SSE 帧仍可通过 `/api/transport/:id` 读取，确认修复没有以牺牲 payload 查看为代价。
+
+**未端到端验证的部分**：CR-08 的多层子 agent 嵌套需要子 agent 再发起子 agent 的抓包，本次未构造该数据，仅靠代码审阅确认递归正确。CR-06 的 upstream 中途错误路径同样未构造真实触发条件。

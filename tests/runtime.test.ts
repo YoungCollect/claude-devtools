@@ -5,9 +5,13 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { assembleStreamResponse } from '../src/core/adapters/index.js';
+import { anthropicAdapter } from '../src/core/adapters/anthropic.js';
+import { isSensitiveHeader, redactHeaders } from '../src/core/redact.js';
+import { SseParser } from '../src/core/sse.js';
 import { Store } from '../src/core/store.js';
 import { TraceBuilder } from '../src/core/trace-builder.js';
 import type { TransportRecord } from '../src/core/types.js';
+import { createApi } from '../src/server/api.js';
 import { loadConfig } from '../src/server/config.js';
 import { Persistence } from '../src/server/persistence.js';
 import { CaptureRuntime } from '../src/server/runtime.js';
@@ -367,4 +371,196 @@ test('conversations without a run id still match on the system prompt', () => {
   ]);
   assert.equal(second.conversationId, first.conversationId);
   assert.equal(store.snapshot().conversations.length, 1);
+});
+
+test('SSE frames survive a multi-byte character split across chunks', () => {
+  const frame = Buffer.from(
+    'event: content_block_delta\ndata: {"delta":{"text":"你好世界"}}\n\n',
+    'utf8',
+  );
+  const insideFirstChar = frame.indexOf(Buffer.from('你', 'utf8')) + 1;
+
+  const parser = new SseParser();
+  const frames = [
+    ...parser.pushBytes(frame.subarray(0, insideFirstChar), 1),
+    ...parser.pushBytes(frame.subarray(insideFirstChar), 2),
+    ...parser.end(3),
+  ];
+
+  assert.equal(frames.length, 1);
+  const data = frames[0]?.data as { delta: { text: string } };
+  assert.equal(data.delta.text, '你好世界');
+  // The Raw view has to show the real bytes too, not a repaired copy of them.
+  assert.ok(frames[0]?.raw.includes('你好世界'));
+});
+
+test('a byte-at-a-time stream still parses identically', () => {
+  const bytes = Buffer.from('data: {"text":"héllo — 世界 🌏"}\n\n', 'utf8');
+  const parser = new SseParser();
+  const frames = [];
+  for (const byte of bytes) frames.push(...parser.pushBytes(Uint8Array.of(byte), 0));
+  frames.push(...parser.end(0));
+
+  assert.equal(frames.length, 1);
+  assert.deepEqual(frames[0]?.data, { text: 'héllo — 世界 🌏' });
+});
+
+test('credential headers are masked by name and by shape', () => {
+  // Named, and the ones no list anticipated.
+  for (const name of ['authorization', 'x-api-key', 'x-goog-api-key', 'x-acme-auth-token', 'session-secret']) {
+    assert.equal(isSensitiveHeader(name), true, `${name} must be masked`);
+  }
+  for (const name of ['content-type', 'user-agent', 'anthropic-version', 'accept']) {
+    assert.equal(isSensitiveHeader(name), false, `${name} must not be masked`);
+  }
+
+  const masked = redactHeaders({ 'x-acme-auth-token': 'sk-live-abcdefghijklmnop' }, false);
+  assert.ok(!masked['x-acme-auth-token']?.includes('efghijklm'));
+  assert.equal(redactHeaders({ 'x-acme-auth-token': 'v' }, true)['x-acme-auth-token'], 'v');
+});
+
+test('a tool-less request is only utility when it looks like a side call', () => {
+  const kind = (body: unknown, path = '/v1/messages') =>
+    anthropicAdapter.parseRequest({
+      id: 'r', provider: 'anthropic', kind: 'other', method: 'POST', path,
+      url: `https://api.anthropic.com${path}`, requestHeaders: {}, requestBody: body,
+      isStream: false, sseFrames: [], timing: { startedAt: 0 },
+    }).kind;
+
+  // Claude Code's side calls: one message, no tools, barely any budget.
+  assert.equal(kind({ max_tokens: 512, messages: [{ role: 'user', content: 'name this' }] }), 'utility');
+  assert.equal(kind({ messages: [] }, '/v1/messages/count_tokens'), 'utility');
+
+  // A one-shot SDK call asks for room to answer, and must reach the trace.
+  assert.equal(kind({ max_tokens: 4096, messages: [{ role: 'user', content: 'hi' }] }), 'conversation');
+  // So must a second turn, which the old message-count rule also swallowed.
+  assert.equal(
+    kind({ max_tokens: 512, messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }] }),
+    'conversation',
+  );
+  // Tools are still decisive on their own.
+  assert.equal(kind({ max_tokens: 8, tools: [{ name: 'Bash' }], messages: [{ role: 'user', content: 'x' }] }), 'conversation');
+});
+
+test('an attachment is fingerprinted without hashing its payload', () => {
+  const image = (data: string) => ({
+    role: 'user',
+    content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }],
+  });
+  const parse = (message: unknown) =>
+    anthropicAdapter.parseRequest({
+      id: 'r', provider: 'anthropic', kind: 'other', method: 'POST', path: '/v1/messages',
+      url: 'https://api.anthropic.com/v1/messages', requestHeaders: {},
+      requestBody: { messages: [message] }, isStream: false, sseFrames: [], timing: { startedAt: 0 },
+    }).history;
+
+  const big = 'A'.repeat(4_000_000);
+  const started = Date.now();
+  const first = parse(image(big))[0]?.fp;
+  const elapsed = Date.now() - started;
+
+  // Same bytes, same id; different bytes, different id.
+  assert.equal(parse(image(big))[0]?.fp, first);
+  assert.notEqual(parse(image(`${big}B`))[0]?.fp, first);
+  assert.notEqual(parse(image('A'.repeat(4_000_000 - 1) + 'B'))[0]?.fp, first);
+
+  // Hashing the payload itself took ~4M character iterations per turn, on the
+  // synchronous path that forwards the request.
+  assert.ok(elapsed < 250, `fingerprinting a 4 MB attachment took ${elapsed}ms`);
+});
+
+test('--no-persist bounds resident bodies instead of keeping or dropping them all', () => {
+  const store = new Store();
+  const builder = new TraceBuilder(store);
+  // A budget two bodies wide, so the third arrival has to release the first.
+  const runtime = new CaptureRuntime({ store, builder, maxResidentBodyBytes: 240 });
+
+  const complete = (id: string, startedAt: number) => {
+    const record = request(id, `message ${id}`, startedAt);
+    record.requestBodyRaw = 'x'.repeat(100);
+    record.responseBodyRaw = 'y'.repeat(20);
+    runtime.hooks.onRequestStart(record);
+    runtime.hooks.onRequestBody(record);
+    record.status = 200;
+    record.timing.endedAt = startedAt + 1;
+    runtime.hooks.onResponseStart(record);
+    runtime.hooks.onComplete(record);
+    return record;
+  };
+
+  const first = complete('body_1', 1);
+  const second = complete('body_2', 3);
+  // Still inside the budget: both remain openable in the Inspector.
+  assert.equal(first.requestBodyRaw?.length, 100);
+  assert.equal(second.requestBodyRaw?.length, 100);
+
+  const third = complete('body_3', 5);
+  // Over budget — the oldest gives up its body, the newest keeps it.
+  assert.equal(first.requestBodyRaw, undefined);
+  assert.equal(first.responseBodyRaw, undefined);
+  assert.equal(second.requestBodyRaw?.length, 100);
+  assert.equal(third.requestBodyRaw?.length, 100);
+
+  // Nothing claims to be recoverable, because no database was written.
+  assert.equal(first.bodiesOffloaded, undefined);
+
+  // The drain ran every time, so the dirty sets are not growing unbounded.
+  assert.deepEqual(builder.drain(), { nodes: [], conversations: [] });
+
+  // Metadata is untouched: the trace stays readable, only old bodies are gone.
+  assert.equal(store.snapshot().transport.length, 3);
+});
+
+test('clear releases every resident body', () => {
+  const store = new Store();
+  const runtime = new CaptureRuntime({
+    store,
+    builder: new TraceBuilder(store),
+    maxResidentBodyBytes: 1_000_000,
+  });
+  const record = request('kept_in_memory');
+  record.requestBodyRaw = 'sensitive prompt text';
+  runtime.hooks.onRequestStart(record);
+  runtime.hooks.onRequestBody(record);
+  record.status = 200;
+  record.timing.endedAt = 2;
+  runtime.hooks.onResponseStart(record);
+  runtime.hooks.onComplete(record);
+  assert.ok(record.requestBodyRaw);
+
+  runtime.clear();
+  // Clear is expected to remove captured material, not just unlink it.
+  assert.equal(record.requestBodyRaw, undefined);
+});
+
+test('state-changing endpoints reject a request that did not come from the UI', async () => {
+  let cleared = 0;
+  const app = createApi({
+    store: new Store(),
+    config: loadConfig([], {}),
+    clearState: () => {
+      cleared += 1;
+    },
+    deleteConversation: () => true,
+  });
+
+  // A cross-origin page can send this much without a preflight.
+  const bare = await app.request('/api/clear', { method: 'POST' });
+  assert.equal(bare.status, 403);
+  assert.equal(cleared, 0);
+
+  const bareDelete = await app.request('/api/conversations/conv_1', { method: 'DELETE' });
+  assert.equal(bareDelete.status, 403);
+
+  // The header is not a secret; carrying it is what forces a preflight, and a
+  // preflight is what this API never answers.
+  const fromUi = await app.request('/api/clear', {
+    method: 'POST',
+    headers: { 'x-agent-devtools': '1' },
+  });
+  assert.equal(fromUi.status, 200);
+  assert.equal(cleared, 1);
+
+  // Reads stay open — without CORS headers a cross-origin caller cannot read them.
+  assert.equal((await app.request('/api/state')).status, 200);
 });

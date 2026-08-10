@@ -2,13 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 
 export type Theme = 'light' | 'dark';
 
+/** Must match the key the pre-paint script in index.html reads. */
 const STORAGE_KEY = 'agent-devtools:theme';
-
-export function resolveInitialTheme(): Theme {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === 'light' || stored === 'dark') return stored;
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
 
 function apply(theme: Theme): void {
   document.documentElement.dataset.theme = theme;

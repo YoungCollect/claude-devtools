@@ -308,8 +308,13 @@ it.
 
 So the split is: **metadata stays resident, bodies live on disk and load only when the
 Inspector opens a request.** Measured over 150 requests of ~200 kB each: +27 MB resident
-with persistence on, +80 MB with `--no-persist`. Under an active retention cap, resident
-size plateaus instead of growing.
+with persistence on. Under an active retention cap, resident size plateaus instead of
+growing.
+
+`--no-persist` has no disk to move bodies to, so it keeps the newest ones in memory under
+the same `AGENT_DEVTOOLS_MAX_BYTES` budget and releases the oldest past it. Payload
+inspection still works for recent requests; older ones show metadata only. The most
+recent exchange is always kept, whatever its size.
 
 Restarting resumes rather than resets: conversations, trace nodes and the reconstruction
 fingerprints are restored, so a still-running agent's next request **extends its existing
@@ -319,7 +324,7 @@ trace** instead of opening a second one for the same session.
 | ------- | ------- | ------- |
 | `AGENT_DEVTOOLS_DB` | `~/.agent-devtools/traces.db` | Database location |
 | `AGENT_DEVTOOLS_MAX_BYTES` | 1 GB | Stored body bytes before the oldest conversations are dropped |
-| `--no-persist` | off | Memory only; traces lost on restart |
+| `--no-persist` | off | Memory only, bodies capped by `AGENT_DEVTOOLS_MAX_BYTES`; traces lost on restart |
 
 Retention is byte-based and evicts whole conversations, oldest first, while protecting
 every conversation currently in flight. If protected conversations alone exceed the

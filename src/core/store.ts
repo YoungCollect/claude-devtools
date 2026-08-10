@@ -122,13 +122,18 @@ export class Store {
   dropConversation(id: string): void {
     this.conversations.delete(id);
     this.nodesByConversation.delete(id);
+    // Collect first, then rewrite the order list once. Splicing per removal
+    // meant an indexOf scan for every evicted request, which at the default cap
+    // of 5000 is quadratic work on a path retention runs routinely.
+    const removed = new Set<string>();
     for (const [recordId, record] of this.transport) {
-      if (record.conversationId === id) {
-        this.transport.delete(recordId);
-        const index = this.transportOrder.indexOf(recordId);
-        if (index !== -1) this.transportOrder.splice(index, 1);
-      }
+      if (record.conversationId === id) removed.add(recordId);
     }
+    if (removed.size === 0) return;
+    for (const recordId of removed) this.transport.delete(recordId);
+    const kept = this.transportOrder.filter((recordId) => !removed.has(recordId));
+    this.transportOrder.length = 0;
+    this.transportOrder.push(...kept);
   }
 
   clear(): void {

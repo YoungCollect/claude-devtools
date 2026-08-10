@@ -9,15 +9,26 @@
 const SENSITIVE_HEADERS = new Set([
   'authorization',
   'x-api-key',
+  'api-key',
   'proxy-authorization',
   'cookie',
   'set-cookie',
   'anthropic-auth-token',
   'openai-api-key',
+  'x-goog-api-key',
 ]);
 
+/**
+ * Catches the credential headers no list anticipated — a new provider, a
+ * corporate gateway, a bespoke agent runtime. A named list alone fails open,
+ * which is the wrong direction for a value that gets written to disk: masking
+ * something harmless costs a reveal click, missing something real leaks a key.
+ */
+const SENSITIVE_PATTERN = /(^|[-_])(api[-_]?key|auth|authorization|token|secret|credential|password|session)([-_]|$)/i;
+
 export function isSensitiveHeader(name: string): boolean {
-  return SENSITIVE_HEADERS.has(name.toLowerCase());
+  const lower = name.toLowerCase();
+  return SENSITIVE_HEADERS.has(lower) || SENSITIVE_PATTERN.test(lower);
 }
 
 /** `sk-ant-oat01-abc…xyz` — enough to tell two keys apart, not enough to use one. */

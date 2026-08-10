@@ -21,33 +21,72 @@ export function ConversationList({
   }
 
   // Subagent traces are rendered under the conversation that spawned them.
-  const roots = conversations.filter((c) => !c.parentConversationId);
-  const childrenOf = (id: string) => conversations.filter((c) => c.parentConversationId === id);
-  const orphans = conversations.filter(
-    (c) => c.parentConversationId && !conversations.some((p) => p.id === c.parentConversationId),
+  // A conversation whose parent is gone — evicted by retention, or deleted —
+  // is shown at the top level rather than disappearing with it.
+  const byId = new Set(conversations.map((c) => c.id));
+  const tops = conversations.filter(
+    (c) => !c.parentConversationId || !byId.has(c.parentConversationId),
   );
+  const childrenOf = (id: string) => conversations.filter((c) => c.parentConversationId === id);
 
   return (
     <div className="flex flex-col divide-y divide-hairline-soft">
-      {[...roots, ...orphans].map((conversation) => (
-        <div key={conversation.id}>
-          <Row
-            conversation={conversation}
-            selected={conversation.id === selectedId}
-            onSelect={onSelect}
-            onDelete={onDelete}
-          />
-          {childrenOf(conversation.id).map((child) => (
-            <Row
-              key={child.id}
-              conversation={child}
-              selected={child.id === selectedId}
-              onSelect={onSelect}
-              onDelete={onDelete}
-              nested
-            />
-          ))}
-        </div>
+      {tops.map((conversation) => (
+        <Branch
+          key={conversation.id}
+          conversation={conversation}
+          childrenOf={childrenOf}
+          depth={0}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          onDelete={onDelete}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One conversation and everything spawned beneath it, to any depth.
+ *
+ * Rendering only direct children lost a subagent's own subagent entirely: its
+ * parent was present, so it was not an orphan, but nothing ever asked the
+ * parent for its children once the parent was itself a child.
+ */
+function Branch({
+  conversation,
+  childrenOf,
+  depth,
+  selectedId,
+  onSelect,
+  onDelete,
+}: {
+  conversation: Conversation;
+  childrenOf: (id: string) => Conversation[];
+  depth: number;
+  selectedId?: string;
+  onSelect: (id: string) => void;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  return (
+    <div>
+      <Row
+        conversation={conversation}
+        selected={conversation.id === selectedId}
+        onSelect={onSelect}
+        onDelete={onDelete}
+        nested={depth > 0}
+      />
+      {childrenOf(conversation.id).map((child) => (
+        <Branch
+          key={child.id}
+          conversation={child}
+          childrenOf={childrenOf}
+          depth={depth + 1}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          onDelete={onDelete}
+        />
       ))}
     </div>
   );

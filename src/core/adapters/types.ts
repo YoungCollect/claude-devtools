@@ -94,4 +94,13 @@ export interface ProviderAdapter {
   parseResponseBody(record: TransportRecord): StreamBlockEvent[];
   /** Fingerprint an assembled assistant block so it matches the same block in later history. */
   fingerprintBlock(event: StreamBlockEvent): string;
+  /**
+   * Does a call to this tool run a nested agent with its own conversation?
+   *
+   * The builder links a trace that appears while such a call is outstanding to
+   * the call that spawned it, but which tool does that is a runtime's own
+   * convention — as much a wire detail as a header name — so the adapter
+   * answers rather than the builder guessing.
+   */
+  isSubagentTool(toolName: string): boolean;
 }

@@ -32,21 +32,35 @@ async function getJson<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * Marks a request as coming from this UI rather than from some other page the
+ * browser has open. The header itself is not a secret — its job is to be
+ * non-simple, so a cross-origin caller has to pass a preflight that this API
+ * never answers. The server rejects state-changing requests without it.
+ */
+const MUTATION_HEADERS = { 'x-agent-devtools': '1' };
+
+async function mutate(path: string, method: string): Promise<void> {
+  const res = await fetch(path, { method, headers: MUTATION_HEADERS });
+  if (!res.ok) throw new Error(`${method} ${path}: ${res.status}`);
+}
+
 export const api = {
   config: () => getJson<ServerConfig>('/api/config'),
   state: () => getJson<StateSnapshot>('/api/state'),
   nodes: (conversationId: string) =>
-    getJson<{ nodes: TraceNode[] }>(`/api/conversations/${conversationId}/nodes`),
-  deleteConversation: (conversationId: string) =>
-    fetch(`/api/conversations/${encodeURIComponent(conversationId)}`, { method: 'DELETE' }).then(
-      async (res) => {
-        if (!res.ok) throw new Error(`delete conversation: ${res.status}`);
-        return (await res.json()) as { ok: true };
-      },
+    getJson<{ nodes: TraceNode[] }>(
+      `/api/conversations/${encodeURIComponent(conversationId)}/nodes`,
     ),
+  deleteConversation: (conversationId: string) =>
+    mutate(`/api/conversations/${encodeURIComponent(conversationId)}`, 'DELETE'),
   transport: (id: string, reveal: boolean) =>
-    getJson<{ record: TransportDetail }>(`/api/transport/${id}${reveal ? '?reveal=1' : ''}`),
-  clear: () => fetch('/api/clear', { method: 'POST' }),
+    getJson<{ record: TransportDetail }>(
+      `/api/transport/${encodeURIComponent(id)}${reveal ? '?reveal=1' : ''}`,
+    ),
+  // Throws on a failed clear, so the caller does not refresh and present
+  // unchanged data as if the wipe had succeeded.
+  clear: () => mutate('/api/clear', 'POST'),
 };
 
 /**

@@ -37,7 +37,13 @@ if (persistence) {
   }
 }
 
-const runtime = new CaptureRuntime({ store, builder, persistence });
+const runtime = new CaptureRuntime({
+  store,
+  builder,
+  persistence,
+  // Without a database the same byte budget bounds what stays resident.
+  maxResidentBodyBytes: config.maxBytes,
+});
 
 createProxy({
   upstream: config.upstream,
@@ -101,7 +107,7 @@ const uiLine = devMode
 const storageLine = persistence
   ? `${config.dbFile}  (${formatBytes(persistence.totalBytes())} of ${formatBytes(config.maxBytes)}` +
     `${restored.conversations > 0 ? `, restored ${restored.conversations} conversations / ${restored.requests} requests` : ''})`
-  : 'off (--no-persist) — traces are lost on restart';
+  : `off (--no-persist) — bodies stay in memory under ${formatBytes(config.maxBytes)}, lost on restart`;
 
 console.log(`
   agent-devtools${devMode ? '  ·  dev' : ''}

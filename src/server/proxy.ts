@@ -104,7 +104,10 @@ export function createProxy(options: ProxyOptions): http.Server {
 
           if (parser) {
             const now = Date.now();
-            const frames = parser.push(chunk.toString('utf8'), now);
+            // Bytes, not `chunk.toString()`: the parser decodes across chunk
+            // boundaries so a multi-byte character split by the network is not
+            // destroyed on the way into the capture.
+            const frames = parser.pushBytes(chunk, now);
             if (frames.length > 0) {
               record.sseFrames.push(...frames);
               options.hooks.onStreamFrames(record, frames);
@@ -141,10 +144,18 @@ export function createProxy(options: ProxyOptions): http.Server {
     upstreamReq.on('error', (error: Error) => {
       record.error = `upstream request: ${error.message}`;
       record.timing.endedAt = Date.now();
-      if (!res.headersSent) {
+      if (res.headersSent) {
+        // The agent is already reading a response — very likely an open SSE
+        // stream. Appending a JSON error object to it would hand the client a
+        // malformed frame on top of whatever went wrong upstream, so the
+        // connection just ends and the failure lives on the record instead.
+        res.end();
+      } else {
         res.writeHead(502, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({ error: { type: 'agent_devtools_proxy_error', message: error.message } }),
+        );
       }
-      res.end(JSON.stringify({ error: { type: 'agent_devtools_proxy_error', message: error.message } }));
       options.hooks.onComplete(record);
     });
 
