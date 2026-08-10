@@ -34,9 +34,15 @@ export interface ContentViewerProps {
   proseClassName?: string;
 }
 
+/**
+ * Both rendered views carry the same first word, so the toggle reads as one
+ * control with a qualifier rather than two unrelated names you have to
+ * remember. `Structure` said nothing that `Rendered · XML` does not, and it
+ * only ever appeared next to `Rendered` on the blocks that have both.
+ */
 const LABELS: Record<ViewMode, string> = {
-  markdown: 'Rendered',
-  xml: 'Structure',
+  markdown: 'Rendered · MD',
+  xml: 'Rendered · XML',
   raw: 'Raw',
 };
 

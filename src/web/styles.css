@@ -48,7 +48,7 @@
   --color-code-error: #f0a0a0;
 
   /*
-   * Markup syntax roles for the Structure outline.
+   * Markup syntax roles for the Rendered · XML outline.
    *
    * These are deliberately separate from the `json-*` and `code-*` roles above:
    * those describe syntax printed on the dark code card, while the tag outline
