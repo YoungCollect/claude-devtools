@@ -178,7 +178,11 @@ export function App() {
 
       <div className="flex min-h-0 flex-1">
         <nav className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-hairline">
-          <div className="border-b border-hairline px-4 py-3 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase">
+          {/* h-12 on both this and the view tabs opposite it. Left to size
+              themselves, the two bars derive different heights from different
+              type scales (12px label vs 14px tab), and the rules that separate
+              them from the content below stop meeting at the divider. */}
+          <div className="flex h-12 shrink-0 items-center border-b border-hairline px-4 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase">
             Conversations
           </div>
           <ConversationList
@@ -196,7 +200,7 @@ export function App() {
         </nav>
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center border-b border-hairline py-2">
+          <div className="flex h-12 shrink-0 items-center border-b border-hairline">
             <Tabs
               tabs={[
                 { id: 'trace' as const, label: 'Chat Trace', count: nodes.length },
