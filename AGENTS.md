@@ -36,6 +36,7 @@ pnpm start
 
 - Keep `src/core/types.ts` as the unified provider-neutral model.
 - Add provider behavior through a `ProviderAdapter`; do not duplicate provider event switches in server or UI code.
+- Preserve the distinction between top-level `system`, tag-wrapped injected `context`, and ordinary `user` text. Context detection is structural (`<tag>...</tag>`), never based on prompt wording.
 - Preserve ESM conventions and include `.js` extensions in relative TypeScript imports that execute under NodeNext.
 - Keep strict TypeScript settings intact. Avoid `any`, unchecked casts, or silently swallowing malformed provider data without an explicit fallback.
 - A transport exchange, its trace nodes, conversation metadata, builder state, and persisted rows form one logical state transition. Clear, retention, restart, abort, and concurrent-stream changes must keep those layers consistent.

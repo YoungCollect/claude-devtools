@@ -1,10 +1,17 @@
 import { fingerprint } from '../fingerprint.js';
 import type { SseFrame, TokenUsage, TransportRecord } from '../types.js';
-import type { HistoryItem, ParsedRequest, ProviderAdapter, StreamBlockEvent } from './types.js';
+import type {
+  HistoryItem,
+  HistorySegment,
+  ParsedRequest,
+  ProviderAdapter,
+  StreamBlockEvent,
+} from './types.js';
 
 // Fingerprint recipes. The streaming path and the history path must agree
 // exactly, so both sides go through these helpers and nowhere else.
 const fpUser = (text: string) => fingerprint('user', text);
+const fpSystemText = (text: string) => fingerprint('system_message', text);
 const fpAssistant = (text: string) => fingerprint('assistant', text);
 const fpThinking = (text: string) => fingerprint('thinking', text);
 const fpToolCall = (id: string, name: string, input: unknown) =>
@@ -237,9 +244,7 @@ function readMessage(raw: unknown): HistoryItem[] {
 
   if (typeof content === 'string') {
     if (!content.trim()) return [];
-    return role === 'assistant'
-      ? [{ fp: fpAssistant(content), kind: 'assistant', text: content }]
-      : [{ fp: fpUser(content), kind: 'user', text: content }];
+    return [textHistoryItem(role, content)];
   }
   if (!Array.isArray(content)) return [];
 
@@ -254,11 +259,7 @@ function readMessage(raw: unknown): HistoryItem[] {
         // Empty text blocks are dropped on both sides of the fingerprint
         // comparison; the API is inconsistent about echoing them back.
         if (!text.trim()) break;
-        items.push(
-          role === 'assistant'
-            ? { fp: fpAssistant(text), kind: 'assistant', text }
-            : { fp: fpUser(text), kind: 'user', text },
-        );
+        items.push(textHistoryItem(role, text));
         break;
       }
       case 'thinking': {
@@ -301,6 +302,49 @@ function readMessage(raw: unknown): HistoryItem[] {
     }
   }
   return items;
+}
+
+function textHistoryItem(role: string | undefined, text: string): HistoryItem {
+  if (role === 'assistant') return { fp: fpAssistant(text), kind: 'assistant', text };
+  if (role === 'system') {
+    return {
+      fp: fpSystemText(text),
+      kind: 'system',
+      text,
+      segments: [{ kind: 'system', text }],
+    };
+  }
+  return {
+    // Keep the fingerprint on the original provider block. Display segmentation
+    // must not break matching against conversation state persisted by older builds.
+    fp: fpUser(text),
+    kind: 'user',
+    text,
+    segments: splitTaggedUserContent(text),
+  };
+}
+
+/** Splits balanced `<tag>...</tag>` wrappers from ordinary user-authored text. */
+export function splitTaggedUserContent(text: string): HistorySegment[] {
+  const taggedBlock = /<([A-Za-z][\w:.-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1\s*>/g;
+  const segments: HistorySegment[] = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(taggedBlock)) {
+    const index = match.index ?? 0;
+    pushPlainSegment(segments, text.slice(cursor, index));
+    const wrapped = match[0].trim();
+    const tag = match[1];
+    if (wrapped && tag) segments.push({ kind: 'context', contextTag: tag, text: wrapped });
+    cursor = index + match[0].length;
+  }
+  pushPlainSegment(segments, text.slice(cursor));
+  return segments;
+}
+
+function pushPlainSegment(segments: HistorySegment[], text: string): void {
+  const plain = text.trim();
+  if (plain) segments.push({ kind: 'user', text: plain });
 }
 
 function blockKind(type: unknown): StreamBlockEvent['kind'] {

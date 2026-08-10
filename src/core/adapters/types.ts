@@ -18,13 +18,24 @@ import type {
 export interface HistoryItem {
   /** Content hash. Equal fingerprints mean "the same thing in the transcript". */
   fp: string;
-  kind: Extract<TraceNodeKind, 'user' | 'assistant' | 'thinking' | 'tool_call' | 'tool_result'>;
+  kind: Extract<
+    TraceNodeKind,
+    'system' | 'context' | 'user' | 'assistant' | 'thinking' | 'tool_call' | 'tool_result'
+  >;
   text?: string;
+  /** Display-only split of one provider block; `fp` still represents the original block. */
+  segments?: HistorySegment[];
   toolName?: string;
   toolUseId?: string;
   toolInput?: unknown;
   toolResult?: unknown;
   isError?: boolean;
+}
+
+export interface HistorySegment {
+  kind: Extract<TraceNodeKind, 'system' | 'context' | 'user'>;
+  text: string;
+  contextTag?: string;
 }
 
 export interface ParsedRequest {

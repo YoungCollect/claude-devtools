@@ -97,6 +97,56 @@ test('provider adapter assembles a neutral streamed response for the UI', () => 
   });
 });
 
+test('trace separates system, tagged context, and real user text by payload structure', () => {
+  const store = new Store();
+  const builder = new TraceBuilder(store);
+  const first = request('structured_roles');
+  first.requestBody = {
+    model: 'test-model',
+    system: 'You are the runtime system prompt.',
+    tools: [{ name: 'Bash' }],
+    messages: [
+      {
+        role: 'user',
+        content:
+          '<system-reminder priority="high">injected</system-reminder>\n' +
+          'hello from the human\n' +
+          '<command-name>/review</command-name>',
+      },
+    ],
+  };
+
+  builder.onRequestBody(first);
+  const conversationId = first.conversationId ?? '';
+  assert.deepEqual(
+    store.getNodes(conversationId).map(({ kind, contextTag, text }) => ({
+      kind,
+      contextTag,
+      text,
+    })),
+    [
+      { kind: 'system', contextTag: undefined, text: 'You are the runtime system prompt.' },
+      {
+        kind: 'context',
+        contextTag: 'system-reminder',
+        text: '<system-reminder priority="high">injected</system-reminder>',
+      },
+      { kind: 'user', contextTag: undefined, text: 'hello from the human' },
+      {
+        kind: 'context',
+        contextTag: 'command-name',
+        text: '<command-name>/review</command-name>',
+      },
+    ],
+  );
+  assert.equal(store.getConversation(conversationId)?.title, 'hello from the human');
+
+  const repeated = { ...first, id: 'structured_roles_repeated', conversationId: undefined };
+  builder.onRequestBody(repeated);
+  assert.equal(repeated.conversationId, conversationId);
+  assert.equal(store.getNodes(conversationId).length, 4);
+});
+
 function request(id: string, message = 'hello', startedAt = 1): TransportRecord {
   return {
     id,

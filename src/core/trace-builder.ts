@@ -71,7 +71,13 @@ export class TraceBuilder {
       return;
     }
 
-    const state = this.attachToConversation(parsed.history, parsed.systemFp, record, parsed.agent);
+    const state = this.attachToConversation(
+      parsed.history,
+      parsed.systemFp,
+      parsed.system,
+      record,
+      parsed.agent,
+    );
     record.conversationId = state.id;
     record.turnIndex = state.turnCount++;
 
@@ -92,6 +98,7 @@ export class TraceBuilder {
   private attachToConversation(
     history: HistoryItem[],
     systemFp: string,
+    system: string | undefined,
     record: TransportRecord,
     agent: string,
   ): ConversationState {
@@ -135,12 +142,13 @@ export class TraceBuilder {
       return state;
     }
 
-    return this.createConversation(history, systemFp, record, agent);
+    return this.createConversation(history, systemFp, system, record, agent);
   }
 
   private createConversation(
     history: HistoryItem[],
     systemFp: string,
+    system: string | undefined,
     record: TransportRecord,
     agent: string,
   ): ConversationState {
@@ -175,6 +183,15 @@ export class TraceBuilder {
       parentToolUseId: parent?.toolUseId,
     };
     this.store.putConversation(conversation);
+    if (system?.trim()) {
+      this.append({
+        conversationId: id,
+        kind: 'system',
+        ts: record.timing.startedAt,
+        text: system,
+        revealedByRequestId: record.id,
+      });
+    }
     this.dirtyConversationIds.add(id);
     return state;
   }
@@ -210,6 +227,20 @@ export class TraceBuilder {
 
       if (item.kind === 'tool_result') {
         this.appendToolResult(state, item, record);
+        continue;
+      }
+
+      if (item.segments) {
+        for (const segment of item.segments) {
+          this.append({
+            conversationId: state.id,
+            kind: segment.kind,
+            ts: record.timing.startedAt,
+            text: segment.text,
+            contextTag: segment.contextTag,
+            revealedByRequestId: record.id,
+          });
+        }
         continue;
       }
 
@@ -580,8 +611,10 @@ function mergeUsage(
  */
 function deriveTitle(history: HistoryItem[]): string | undefined {
   for (const item of history) {
-    if (item.kind !== 'user' || !item.text) continue;
-    const cleaned = item.text
+    if (item.kind !== 'user') continue;
+    const userText = item.segments?.find(({ kind }) => kind === 'user')?.text ?? item.text;
+    if (!userText) continue;
+    const cleaned = userText
       .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')

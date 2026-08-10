@@ -112,6 +112,7 @@ export interface TokenUsage {
 
 export type TraceNodeKind =
   | 'system'
+  | 'context'
   | 'user'
   | 'assistant'
   | 'thinking'
@@ -129,6 +130,9 @@ export interface TraceNode {
 
   /** Plain-text content for system/user/assistant/thinking nodes. */
   text?: string;
+
+  /** Wrapper tag for context injected inside a user-role content block. */
+  contextTag?: string;
 
   /** tool_call / tool_result. */
   toolName?: string;

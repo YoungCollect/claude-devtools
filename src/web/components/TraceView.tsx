@@ -60,6 +60,12 @@ function TraceRow({
 
 function NodeBody({ node }: { node: TraceNode }) {
   switch (node.kind) {
+    case 'system':
+      return <ContextNode text={node.text ?? ''} label="system" tone="warning" />;
+    case 'context':
+      return (
+        <ContextNode text={node.text ?? ''} label={node.contextTag ?? 'context'} tone="neutral" />
+      );
     case 'user':
       return <UserNode node={node} />;
     case 'assistant':
@@ -234,11 +240,19 @@ function ThinkingNode({ node }: { node: TraceNode }) {
   );
 }
 
-function ContextNode({ text, label }: { text: string; label: string }) {
+function ContextNode({
+  text,
+  label,
+  tone = 'neutral',
+}: {
+  text: string;
+  label: string;
+  tone?: Tone;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="flex items-baseline gap-2.5">
-      <TagLabel tone="neutral">{label}</TagLabel>
+      <TagLabel tone={tone}>{label}</TagLabel>
       <button
         type="button"
         onClick={(event) => {

@@ -88,6 +88,19 @@ That split matters, because chat events and HTTP requests are not 1:1:
   If a `Task` tool call is still outstanding when one appears, it is linked as that
   subagent's trace and nested under its parent.
 
+### Trace roles
+
+The trace distinguishes transport roles from injected context without matching specific
+prompt wording:
+
+- The request's top-level `system` content is shown as `system`.
+- Inside a `user` text block, balanced `<tag>...</tag>` wrappers are split into
+  `context` nodes labelled with their tag name, such as `system-reminder`,
+  `local-command-caveat`, or `command-name`.
+- Text outside those wrappers remains `user`, representing the human-authored message.
+- The original provider block still contributes one conversation fingerprint, so this
+  display-only split does not change transcript matching.
+
 ### Tool execution time, for free
 
 The gap between *the end of the response that requested a tool* and *the start of the

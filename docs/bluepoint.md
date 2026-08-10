@@ -1,0 +1,4 @@
+- [ ] 现在的 `chat trace` 页面，按照 chat 布局改造，右侧展示 user 信息，左侧是 assistant 信息。
+- [ ] 然后现在的 system prompt 也展示在了 user
+- [ ] system prompt 支持 md 形式渲染，并且支持在 `source text` 和 `markdown` 二者间进行切换
+- [ ] 

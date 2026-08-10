@@ -117,9 +117,9 @@
 | ST-02 | 已修复 | 实现与文档统一为只允许 `127.0.0.1`。 |
 | ST-03 | 已修复 | README 改为“内容组件不作颜色决策，仅主题控件读取当前主题”。 |
 
-新增 6 个回归测试，覆盖旧 seq 迁移、重启追加顺序、受保护会话 retention、超限 body 裁剪、Clear 期间在途请求、并发会话、loopback 配置及 provider-neutral 响应组装。修复后的验证结果：
+新增 7 个回归测试，覆盖旧 seq 迁移、重启追加顺序、受保护会话 retention、超限 body 裁剪、Clear 期间在途请求、并发会话、loopback 配置、provider-neutral 响应组装，以及 system/context/user 结构化角色拆分。修复后的验证结果：
 
-- `pnpm test`：6/6 通过。
+- `pnpm test`：7/7 通过。
 - `pnpm typecheck`：通过。
 - `pnpm build`：通过。
 - 运行时冒烟：成功启动代理/API，`GET /api/state`、`POST /api/clear`和 `GET /api/storage` 均成功。
