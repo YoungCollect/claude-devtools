@@ -247,7 +247,11 @@ every rendered view has to be checkable against the bytes on the wire.
 - **`<tag>…</tag>` blocks** — Claude Code's `<system-reminder>`, `<env>` and friends —
   lead with the tag outline.
 - **Chat bubbles** — user and assistant turns — render markdown on the bubble's own
-  fill, with the same toggles and the git-diff source buttons on top.
+  fill, with the same toggles and the git-diff source buttons on top. They keep the
+  line breaks they were sent with, which markdown would otherwise fold into spaces:
+  the multi-line things people send an agent are stack traces and log excerpts, and
+  one reflowed onto a single line is unreadable. Documents (system prompts, tag
+  blocks) do not, since those are routinely hard-wrapped at 80 columns.
 
 The choice is one shared, persisted setting rather than per-block state: with several
 blocks open at once, having them disagree about whether you are reading source or prose

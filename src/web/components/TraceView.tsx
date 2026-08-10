@@ -199,7 +199,7 @@ function UserBubble({
             text={text}
             formats={PROSE_FORMATS}
             maxHeightClass="max-h-none"
-            proseClassName="markdown-lead"
+            proseClassName="markdown-chat markdown-lead"
             diffSource={{ sourceId, sessionId, label: 'user message' }}
           />
         ) : (
@@ -231,6 +231,7 @@ function AssistantNode({ node }: { node: TraceNode }) {
           text={text}
           formats={PROSE_FORMATS}
           maxHeightClass="max-h-none"
+          proseClassName="markdown-chat"
           diffSource={{ sourceId: node.id, sessionId: node.conversationId, label: 'assistant message' }}
         />
       </div>
