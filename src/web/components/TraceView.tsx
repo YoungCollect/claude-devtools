@@ -28,10 +28,7 @@ export interface TraceViewProps {
 export function TraceView({ nodes, selectedNodeId, onInspect }: TraceViewProps) {
   // `groupTrace` walks the whole list, so it must not re-run per render — the
   // store bumps its revision on every streamed frame.
-  const items = useMemo(
-    () => groupTrace(nodes.filter((node) => node.kind !== 'assistant' || (node.text ?? '').trim())),
-    [nodes],
-  );
+  const items = useMemo(() => groupTrace(nodes), [nodes]);
   if (items.length === 0) {
     return <Empty>No trace events yet. Point an agent at the proxy and send a message.</Empty>;
   }

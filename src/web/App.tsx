@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, subscribeToRevisions, type ServerConfig } from './api.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
 import { ConversationList } from './components/ConversationList.js';
@@ -6,7 +6,18 @@ import { GitDiffDialog } from './components/GitDiffDialog.js';
 import { Inspector } from './components/Inspector.js';
 import { NetworkView } from './components/NetworkView.js';
 import { TraceView } from './components/TraceView.js';
-import { Badge, Button, cx, Empty, SpikeMark, Tabs, ThemeToggle } from './components/ui.js';
+import {
+  Badge,
+  Button,
+  cx,
+  Empty,
+  SpikeMark,
+  tabPanelProps,
+  Tabs,
+  ThemeToggle,
+  useCopy,
+} from './components/ui.js';
+import { groupTrace } from './trace-groups.js';
 import { useTheme } from './theme.js';
 import { clearGitDiff, setGitDiffOpen } from './git-diff.js';
 import { transportForConversation } from './transport.js';
@@ -156,6 +167,10 @@ export function App() {
   const conversation = snapshot.conversations.find((c) => c.id === conversationId);
   const conversationTransport = transportForConversation(snapshot.transport, conversationId);
 
+  // What the trace actually renders, so the tab badge and the Network badge
+  // mean the same thing.
+  const traceItemCount = useMemo(() => groupTrace(nodes).length, [nodes]);
+
   const trace = useFollowNewest({
     content: nodes,
     resetKey: conversationId,
@@ -169,14 +184,12 @@ export function App() {
         connected={connected}
         theme={theme}
         onToggleTheme={toggleTheme}
-        onClear={() => {
+        onClear={async () => {
           clearGitDiff();
-          // A failed clear must not refresh and present unchanged data as if
-          // the wipe had worked; the connection indicator carries the failure.
-          void api
-            .clear()
-            .then(refresh)
-            .catch(() => setConnected(false));
+          // Rejects on failure so the button can show it; refreshing on a failed
+          // clear would present unchanged data as if the wipe had worked.
+          await api.clear();
+          await refresh();
         }}
         onOpenDiff={() => setGitDiffOpen(true)}
       />
@@ -208,11 +221,18 @@ export function App() {
           <div className="flex h-12 shrink-0 items-center border-b border-hairline">
             <Tabs
               tabs={[
-                { id: 'trace' as const, label: 'Chat Trace', count: nodes.length },
+                // Both counts are "rows this view renders". `nodes.length` was
+                // the node total, which stopped matching the trace when a
+                // response and its tool round folded into one turn — and read as
+                // a different kind of number than the badge beside it. The node
+                // total is still on the conversation card in the sidebar.
+                { id: 'trace' as const, label: 'Chat Trace', count: traceItemCount },
                 { id: 'network' as const, label: 'Network', count: conversationTransport.length },
               ]}
               active={view}
               onChange={setView}
+              idPrefix="view"
+              label="Views"
             />
             {view === 'trace' && conversation && (
               <div className="ml-auto flex items-center gap-2 px-4">
@@ -222,7 +242,12 @@ export function App() {
             )}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto" ref={trace.ref} onScroll={trace.onScroll}>
+          <div
+            className="min-h-0 flex-1 overflow-y-auto"
+            ref={trace.ref}
+            onScroll={trace.onScroll}
+            {...tabPanelProps('view', view)}
+          >
             {view === 'trace' ? (
               conversation ? (
                 <TraceView nodes={nodes} selectedNodeId={selection?.node?.id} onInspect={inspectNode} />
@@ -253,6 +278,56 @@ export function App() {
   );
 }
 
+/**
+ * Clear, behind the same two-step the far less destructive action already has.
+ *
+ * Deleting one conversation takes two deliberate acts — open its menu, then
+ * confirm — and reports progress and failure. Clear wipes every conversation,
+ * every trace and the database, cannot be undone, and sat one stray click away
+ * between `Diff` and the theme toggle. The protection was inverted relative to
+ * the damage.
+ *
+ * An in-place arm rather than a modal: it matches the weight of the existing
+ * delete flow, and it disarms itself so a click you thought better of does not
+ * stay loaded.
+ */
+const CLEAR_ARMED_MS = 4000;
+
+function ClearButton({ onClear }: { onClear: () => Promise<void> | void }) {
+  const [state, setState] = useState<'idle' | 'armed' | 'clearing' | 'failed'>('idle');
+
+  useEffect(() => {
+    if (state !== 'armed') return;
+    const timer = setTimeout(() => setState('idle'), CLEAR_ARMED_MS);
+    return () => clearTimeout(timer);
+  }, [state]);
+
+  const label =
+    state === 'clearing' ? 'Clearing…' : state === 'armed' ? 'Confirm clear' : state === 'failed' ? 'Retry clear' : 'Clear';
+
+  return (
+    <Button
+      tone="danger"
+      active={state === 'armed'}
+      title={state === 'armed' ? 'Removes every trace from memory and disk' : 'Clear all captured traces'}
+      onClick={() => {
+        if (state === 'clearing') return;
+        if (state !== 'armed') {
+          setState('armed');
+          return;
+        }
+        setState('clearing');
+        void Promise.resolve(onClear()).then(
+          () => setState('idle'),
+          () => setState('failed'),
+        );
+      }}
+    >
+      {label}
+    </Button>
+  );
+}
+
 function Header({
   config,
   connected,
@@ -265,10 +340,11 @@ function Header({
   connected: boolean;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
-  onClear: () => void;
+  onClear: () => Promise<void> | void;
   onOpenDiff: () => void;
 }) {
   const command = config ? `ANTHROPIC_BASE_URL=${config.proxyUrl} claude` : '';
+  const [commandCopied, copyCommand] = useCopy();
   return (
     <header className="flex h-16 shrink-0 items-center gap-4 border-b border-hairline px-4">
       {/* Spike mark + wordmark, per the system's brand lockup. The lockup never
@@ -281,7 +357,16 @@ function Header({
         </span>
       </div>
 
-      <span className={cx('flex shrink-0 items-center gap-1.5 text-[13px]', connected ? 'text-success-fg' : 'text-muted-soft')}>
+      {/* A status region: losing the change feed means the page has quietly
+          stopped updating, which is exactly the kind of thing a screen reader
+          user must not have to notice by re-reading the page. */}
+      <span
+        role="status"
+        className={cx(
+          'flex shrink-0 items-center gap-1.5 text-[13px]',
+          connected ? 'text-success-fg' : 'text-muted-soft',
+        )}
+      >
         <span
           className={cx('h-1.5 w-1.5 rounded-full', connected ? 'bg-success' : 'bg-hairline')}
           aria-hidden
@@ -295,26 +380,32 @@ function Header({
       */}
       {config && (
         <div className="ml-2 flex min-w-0 items-center gap-2.5 rounded-lg border border-code-border bg-code py-1.5 pr-1.5 pl-3.5">
-          <code className="truncate font-mono text-[12.5px] text-code-fg">{command}</code>
+          {/* The command truncates from ~1024px down, and Copy still takes the
+              whole string — so the title is the only way to read what you are
+              about to copy. */}
+          <code title={command} className="truncate font-mono text-[12.5px] text-code-fg">
+            {command}
+          </code>
           <button
             type="button"
-            onClick={() => void navigator.clipboard.writeText(command)}
+            onClick={() => copyCommand(command)}
             className="shrink-0 rounded-md bg-code-elevated px-2.5 py-1 text-[12px] font-medium text-code-fg hover:bg-primary hover:text-primary-foreground"
           >
-            Copy
+            {commandCopied ? 'Copied' : 'Copy'}
           </button>
         </div>
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-3">
         {config && (
-          <span className="max-w-[220px] truncate font-mono text-[12.5px] text-muted-soft">
+          <span
+            title={config.upstream}
+            className="max-w-[220px] truncate font-mono text-[12.5px] text-muted-soft"
+          >
             → {config.upstream}
           </span>
         )}
-        <Button onClick={onClear} tone="danger">
-          Clear
-        </Button>
+        <ClearButton onClear={onClear} />
         <Button onClick={onOpenDiff}>Diff</Button>
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </div>

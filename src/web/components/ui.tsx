@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type KeyboardEvent, type ReactNode } from 'react';
 
 export function cx(...parts: (string | false | undefined | null)[]): string {
   return parts.filter(Boolean).join(' ');
@@ -58,21 +58,81 @@ export function TagLabel({ children, tone = 'emph' }: { children: ReactNode; ton
   );
 }
 
+/** Ids shared by a tab and the panel it controls. */
+export const tabId = (prefix: string, id: string) => `${prefix}-tab-${id}`;
+export const tabPanelId = (prefix: string, id: string) => `${prefix}-panel-${id}`;
+
+/** Props for the region a `Tabs` switches between. */
+export function tabPanelProps(prefix: string, active: string) {
+  return {
+    role: 'tabpanel',
+    id: tabPanelId(prefix, active),
+    'aria-labelledby': tabId(prefix, active),
+  } as const;
+}
+
+/**
+ * A set of mutually exclusive views.
+ *
+ * The ARIA roles and the keyboard model are one decision, not two. These were
+ * plain buttons marked `aria-current="page"` — the semantic for "the current
+ * page among a set of links" — so assistive technology heard two buttons and
+ * nothing about them being alternatives. Adding the roles without arrow-key
+ * navigation would be worse than leaving them off: it announces a contract the
+ * widget does not honour. So both arrive together, with the roving tabindex the
+ * pattern requires (only the active tab is in the tab order; arrows move within
+ * the set).
+ */
 export function Tabs<T extends string>({
   tabs,
   active,
   onChange,
+  idPrefix,
+  label,
 }: {
   tabs: readonly { id: T; label: string; count?: number }[];
   active: T;
   onChange: (id: T) => void;
+  /** Namespaces the tab/panel ids; must match the `tabPanelProps` call. */
+  idPrefix: string;
+  /** Names the set for assistive technology, e.g. "Views". */
+  label: string;
 }) {
+  const move = (event: KeyboardEvent<HTMLDivElement>) => {
+    const keys: Record<string, number | 'first' | 'last'> = {
+      ArrowRight: 1,
+      ArrowLeft: -1,
+      Home: 'first',
+      End: 'last',
+    };
+    const step = keys[event.key];
+    if (step === undefined) return;
+    event.preventDefault();
+    const index = tabs.findIndex((tab) => tab.id === active);
+    const next =
+      step === 'first'
+        ? 0
+        : step === 'last'
+          ? tabs.length - 1
+          : // Wraps, which is what the pattern specifies for a horizontal set.
+            (index + step + tabs.length) % tabs.length;
+    const target = tabs[next];
+    if (!target) return;
+    onChange(target.id);
+    event.currentTarget.querySelector<HTMLButtonElement>(`#${CSS.escape(tabId(idPrefix, target.id))}`)?.focus();
+  };
+
   return (
-    <div className="flex items-center gap-1 px-3">
+    <div role="tablist" aria-label={label} onKeyDown={move} className="flex items-center gap-1 px-3">
       {tabs.map((tab) => (
         <button
           key={tab.id}
+          id={tabId(idPrefix, tab.id)}
           type="button"
+          role="tab"
+          aria-selected={active === tab.id}
+          aria-controls={tabPanelId(idPrefix, tab.id)}
+          tabIndex={active === tab.id ? 0 : -1}
           onClick={() => onChange(tab.id)}
           className={cx(
             'rounded-md px-3 py-1.5 text-[14px] font-medium transition-colors',
@@ -80,7 +140,6 @@ export function Tabs<T extends string>({
               ? 'bg-surface-card text-ink'
               : 'text-muted-foreground hover:bg-surface-soft hover:text-body-strong',
           )}
-          aria-current={active === tab.id ? 'page' : undefined}
         >
           {tab.label}
           {tab.count !== undefined && (
@@ -220,8 +279,15 @@ export function Button({
   );
 }
 
-/** Copy plus the short-lived "it worked" state, shared by both copy buttons. */
-function useCopy(): [copied: boolean, copy: (text: string) => void] {
+/**
+ * Copy plus the short-lived "it worked" state, shared by every copy control.
+ *
+ * Exported so nothing has to reimplement it: a hand-rolled
+ * `void navigator.clipboard.writeText(x)` loses both halves — the feedback and
+ * the rejection handling — and a refused clipboard then surfaces as an
+ * unhandled rejection.
+ */
+export function useCopy(): [copied: boolean, copy: (text: string) => void] {
   const [copied, setCopied] = useState(false);
   return [
     copied,

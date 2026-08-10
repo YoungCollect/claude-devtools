@@ -39,6 +39,10 @@ export type TraceItem = { type: 'node'; key: string; node: TraceNode } | TraceTu
  *
  * Nodes that belong to no turn (user messages, system prompts, context blocks,
  * thinking, banners) pass through untouched and keep their own rows.
+ *
+ * An assistant block with no text is dropped here rather than by the caller:
+ * this function is the single answer to "what does the trace show", and the tab
+ * badge counts its result.
  */
 export function groupTrace(nodes: readonly TraceNode[]): TraceItem[] {
   const items: TraceItem[] = [];
@@ -82,6 +86,10 @@ export function groupTrace(nodes: readonly TraceNode[]): TraceItem[] {
   };
 
   for (const node of nodes) {
+    // The API emits an assistant node as soon as a block opens; until the first
+    // delta lands it has nothing to render.
+    if (node.kind === 'assistant' && !(node.text ?? '').trim()) continue;
+
     switch (node.kind) {
       case 'assistant':
         turnFor(node).messages.push(node);

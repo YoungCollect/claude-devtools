@@ -16,6 +16,7 @@ import {
   Empty,
   KeyValue,
   Section,
+  tabPanelProps,
   Tabs,
 } from './ui.js';
 import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from './ui/drawer.js';
@@ -143,10 +144,10 @@ function InspectorPanel({
       </header>
 
       <div className="shrink-0 border-b border-hairline py-2">
-        <Tabs tabs={TABS} active={tab} onChange={setTab} />
+        <Tabs tabs={TABS} active={tab} onChange={setTab} idPrefix="inspector" label="Request detail" />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto" {...tabPanelProps('inspector', tab)}>
         {!record ? (
           <Empty>Request not found — it may have been evicted from the buffer.</Empty>
         ) : (

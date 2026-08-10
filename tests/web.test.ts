@@ -143,9 +143,9 @@ test('a mid-conversation attach still groups history-revealed turns', () => {
 
 test('a node between two responses closes the turn', () => {
   const items = groupTrace([
-    traceNode('assistant', { id: 'a1', producedByRequestId: 'r1' }),
+    traceNode('assistant', { id: 'a1', producedByRequestId: 'r1', text: 'before' }),
     traceNode('user', { id: 'u1' }),
-    traceNode('assistant', { id: 'a2', producedByRequestId: 'r1' }),
+    traceNode('assistant', { id: 'a2', producedByRequestId: 'r1', text: 'after' }),
   ]);
   // Same request id on both sides, but the user message is a real boundary.
   assert.deepEqual(items.map((i) => i.type), ['turn', 'node', 'turn']);
@@ -180,4 +180,26 @@ test('no tool node ever escapes grouping into a standalone row', () => {
     items.filter((i) => i.type === 'node').map((i) => (i.type === 'node' ? i.node.id : '')),
     ['think', 'banner'],
   );
+});
+
+test('an assistant block with no text yet is not a row', () => {
+  // The API opens a block before any delta lands. Dropping it here rather than
+  // in the view keeps `groupTrace` the single answer to "what does the trace
+  // show" — the Chat Trace tab badge counts exactly this result.
+  const items = groupTrace([
+    traceNode('user', { id: 'u1', text: 'hi' }),
+    traceNode('assistant', { id: 'empty', producedByRequestId: 'r1' }),
+    traceNode('assistant', { id: 'blank', producedByRequestId: 'r1', text: '   \n ' }),
+  ]);
+  assert.deepEqual(items.map((i) => (i.type === 'node' ? i.node.id : i.key)), ['u1']);
+
+  // ...but a tool call from that same response still opens its turn, so an
+  // agent that goes straight to a tool is never invisible.
+  const withTool = groupTrace([
+    traceNode('assistant', { id: 'empty', producedByRequestId: 'r1' }),
+    traceNode('tool_call', { id: 'c1', producedByRequestId: 'r1', toolUseId: 't1', toolName: 'Bash' }),
+  ]);
+  assert.equal(withTool.length, 1);
+  assert.equal(withTool[0]?.type === 'turn' ? withTool[0].messages.length : -1, 0);
+  assert.equal(withTool[0]?.type === 'turn' ? withTool[0].tools[0]?.call?.id : '', 'c1');
 });
