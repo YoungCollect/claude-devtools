@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { splitTaggedUserContent } from '../../core/tagged-content.js';
+import { hasXmlStructure } from '../../core/xml-outline.js';
+import { ContentViewer, type ContentFormat } from './ContentViewer.js';
 import type { TraceNode } from '../../core/types.js';
 import { formatMs, formatTokens, summarizeToolInput, toolResultText, truncate } from '../format.js';
 import { Badge, Chevron, cx, Empty, TagLabel, type Tone } from './ui.js';
@@ -45,34 +47,47 @@ function TraceRow({
 }) {
   const rightAligned =
     node.kind === 'system' || node.kind === 'context' || node.kind === 'user';
+  // System and context blocks hold rendered markdown and tag outlines. Those are
+  // documents, not chat turns: constraining them to a bubble width reflows code
+  // and tables for no reason, so they take the full column.
   const contentWidth =
-    node.kind === 'system' || node.kind === 'context'
-      ? 'w-[82%]'
-      : node.kind === 'user' || node.kind === 'assistant'
-        ? 'max-w-[72%]'
-        : 'w-full';
+    node.kind === 'user' || node.kind === 'assistant' ? 'max-w-[72%]' : 'w-full';
   return (
     <div
-      onClick={() => onInspect(node)}
+      // Equal padding on both sides, not just the gutter one. The inspect button
+      // is absolutely positioned, so only one edge strictly needs the room — but
+      // a full-width block inset further on one side than the other reads as
+      // misaligned, and the trace is scanned down its edges.
       className={cx(
-        'group relative flex w-full cursor-pointer py-4 transition-colors',
-        rightAligned
-          ? 'justify-end border-r-2 pr-4 pl-10'
-          : 'justify-start border-l-2 pr-10 pl-4',
+        'group relative flex w-full px-4 py-4 transition-colors',
+        rightAligned ? 'justify-end border-r-2' : 'justify-start border-l-2',
         selected ? 'border-primary bg-surface-soft' : 'border-transparent hover:bg-surface-soft/60',
       )}
     >
       <div className={cx('min-w-0', contentWidth)}>
         <NodeBody node={node} />
       </div>
-      <span
+      {/*
+        Inspecting is its own button, not a click anywhere on the row. Rows carry
+        their own controls — expanding a context block, folding a tag, selecting
+        text out of a payload — and a row-wide handler made every one of those a
+        near miss that threw the side panel open.
+      */}
+      <button
+        type="button"
+        onClick={() => onInspect(node)}
+        title="Inspect the HTTP exchange behind this event"
         className={cx(
-          'pointer-events-none absolute top-3 hidden text-[12px] font-medium text-primary group-hover:block',
+          // Revealed on hover so a scanned list stays quiet. Kept in the DOM
+          // rather than swapped with `hidden`, so it is still reachable by
+          // keyboard — focus brings it back on its own.
+          'absolute top-3 text-[12px] font-medium text-primary opacity-0 transition-opacity',
+          'group-hover:opacity-100 focus-visible:opacity-100',
           rightAligned ? 'left-4' : 'right-4',
         )}
       >
         inspect →
-      </span>
+      </button>
     </div>
   );
 }
@@ -80,11 +95,14 @@ function TraceRow({
 function NodeBody({ node }: { node: TraceNode }) {
   switch (node.kind) {
     case 'system':
+      // A system prompt is a markdown document that happens to embed a few tag
+      // blocks, so it leads with the prose view and offers the outline second.
       return (
         <ContextNode
           text={node.text ?? ''}
           label={node.systemSource === 'prompt' ? 'system prompt' : 'system'}
           tone="warning"
+          preferMarkdown
         />
       );
     case 'context':
@@ -214,16 +232,9 @@ function ToolResultNode({ node }: { node: TraceNode }) {
           </Badge>
         )}
       </Gutter>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        className="mt-1.5 block w-full text-left"
-      >
+      <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1.5 block w-full text-left">
         {/* Tool output is terminal output — it belongs on the dark surface. */}
-        <div className="on-code overflow-hidden rounded-lg bg-code">
+        <div className="overflow-hidden rounded-lg bg-code">
           <pre
             className={cx(
               'overflow-x-auto px-3 py-2.5 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap',
@@ -254,14 +265,7 @@ function ThinkingNode({ node }: { node: TraceNode }) {
           <span className="font-mono text-[12px] text-muted-soft">{formatMs(node.durationMs)}</span>
         )}
       </Gutter>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        className="mt-1.5 block w-full text-left"
-      >
+      <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1.5 block w-full text-left">
         <div className="border-l-2 border-hairline pl-3 text-[13.5px] leading-[1.55] whitespace-pre-wrap text-muted italic">
           {open ? text : truncate(text.replace(/\s+/g, ' '), 160)}
         </div>
@@ -274,35 +278,53 @@ function ContextNode({
   text,
   label,
   tone = 'neutral',
+  preferMarkdown = false,
 }: {
   text: string;
   label: string;
   tone?: Tone;
+  /** System prompts are prose first; tag blocks are structure first. */
+  preferMarkdown?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  // `hasXmlStructure` parses the whole block, so it must not run per render.
+  const formats = useMemo<ContentFormat[]>(
+    () =>
+      preferMarkdown ? (hasXmlStructure(text) ? ['markdown', 'xml'] : ['markdown']) : ['xml'],
+    [text, preferMarkdown],
+  );
   return (
-    <div className="w-full">
+    <div className="flex w-full flex-col">
+      {/*
+        The title is the only control, in both states. Wrapping the collapsed
+        preview in the button too made the target change shape as you used it —
+        click anywhere to open, then only the header to close — and once open it
+        would have fought the mode toggles and text selection inside the body.
+      */}
       <button
         type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        className="block w-full text-left"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 self-end"
       >
-        <span className="flex items-center justify-end gap-1.5">
-          <Chevron open={open} />
-          <TagLabel tone={tone}>{label}</TagLabel>
-        </span>
-        <div
-          className={cx(
-            'mt-1.5 rounded-xl border border-hairline bg-surface-soft px-3 py-2.5 text-[12.5px] text-muted-soft',
-            open ? 'font-mono whitespace-pre-wrap' : 'truncate text-right',
-          )}
-        >
-          {open ? text : text.replace(/\s+/g, ' ').trim()}
-        </div>
+        <Chevron open={open} />
+        <TagLabel tone={tone}>{label}</TagLabel>
       </button>
+      {!open && (
+        <div className="mt-1.5 truncate rounded-xl border border-hairline bg-surface-soft px-3 py-2.5 text-right text-[12.5px] text-muted-soft">
+          {text.replace(/\s+/g, ' ').trim()}
+        </div>
+      )}
+      {/* Expanded, a context block is structure: show the tag outline, with the
+          exact source a click away. */}
+      {open && (
+        <ContentViewer
+          className="mt-1.5"
+          text={text}
+          formats={formats}
+          maxHeightClass="max-h-[50vh]"
+        />
+      )}
     </div>
   );
 }

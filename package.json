@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "DevTools for AI Agents \u2014 Chat Trace with drill-down into the underlying HTTP/SSE.",
+  "description": "DevTools for AI Agents — Chat Trace with drill-down into the underlying HTTP/SSE.",
   "engines": {
     "node": ">=22.5.0"
   },
@@ -23,7 +23,10 @@
     "@hono/node-server": "^1.13.7",
     "hono": "^4.6.14",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-json-view-lite": "2.5.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

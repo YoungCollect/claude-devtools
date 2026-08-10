@@ -523,6 +523,9 @@ export class TraceBuilder {
     for (const id of conversationIds) {
       this.conversations.delete(id);
       this.dirtyConversationIds.delete(id);
+      for (const [requestId, stream] of this.streams) {
+        if (stream.conversationId === id) this.streams.delete(requestId);
+      }
       for (const [toolUseId, info] of this.pendingToolCalls) {
         if (info.conversationId === id) this.pendingToolCalls.delete(toolUseId);
       }

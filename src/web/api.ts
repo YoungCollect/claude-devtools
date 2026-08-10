@@ -37,6 +37,13 @@ export const api = {
   state: () => getJson<StateSnapshot>('/api/state'),
   nodes: (conversationId: string) =>
     getJson<{ nodes: TraceNode[] }>(`/api/conversations/${conversationId}/nodes`),
+  deleteConversation: (conversationId: string) =>
+    fetch(`/api/conversations/${encodeURIComponent(conversationId)}`, { method: 'DELETE' }).then(
+      async (res) => {
+        if (!res.ok) throw new Error(`delete conversation: ${res.status}`);
+        return (await res.json()) as { ok: true };
+      },
+    ),
   transport: (id: string, reveal: boolean) =>
     getJson<{ record: TransportDetail }>(`/api/transport/${id}${reveal ? '?reveal=1' : ''}`),
   clear: () => fetch('/api/clear', { method: 'POST' }),

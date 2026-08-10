@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, type TransportDetail } from '../api.js';
 import { formatBytes, formatClock, formatMs, formatTokens, pretty, truncate } from '../format.js';
+import { hasXmlStructure } from '../../core/xml-outline.js';
 import type { SseFrame, TraceNode } from '../../core/types.js';
+import { ContentViewer, type ContentFormat } from './ContentViewer.js';
+import { JsonBodyViewer } from './JsonBodyViewer.js';
 import {
   Badge,
   Button,
@@ -243,6 +246,14 @@ function HeaderTable({ headers }: { headers: Record<string, string> }) {
 
 function Payload({ record }: { record: TransportDetail }) {
   const inspection = record.requestInspection;
+  const systemText = inspection?.systemText;
+  const systemFormats = useMemo<ContentFormat[]>(
+    () =>
+      systemText !== undefined && hasXmlStructure(systemText)
+        ? ['markdown', 'xml']
+        : ['markdown'],
+    [systemText],
+  );
 
   return (
     <>
@@ -265,7 +276,12 @@ function Payload({ record }: { record: TransportDetail }) {
 
       {inspection?.systemText !== undefined && (
         <Section title="System prompt" defaultOpen={false}>
-          <CodeBlock text={inspection.systemText} />
+          {/* System prompts are markdown that also carries tag blocks, so both
+              rendered views are offered alongside the source. */}
+          <ContentViewer
+            text={inspection.systemText}
+            formats={systemFormats}
+          />
         </Section>
       )}
 
@@ -274,9 +290,7 @@ function Payload({ record }: { record: TransportDetail }) {
         action={<CopyButton text={record.requestBodyRaw ?? ''} label="Copy JSON" />}
         defaultOpen={inspection?.systemText === undefined}
       >
-        <CodeBlock
-          text={record.requestBody ? pretty(record.requestBody) : (record.requestBodyRaw ?? '')}
-        />
+        <JsonBodyViewer value={record.requestBody} raw={record.requestBodyRaw} />
       </Section>
     </>
   );
@@ -302,9 +316,7 @@ function Response({ record }: { record: TransportDetail }) {
 
   return (
     <Section title="Body" action={<CopyButton text={record.responseBodyRaw ?? ''} label="Copy" />}>
-      <CodeBlock
-        text={record.responseBody ? pretty(record.responseBody) : (record.responseBodyRaw ?? '')}
-      />
+      <JsonBodyViewer value={record.responseBody} raw={record.responseBodyRaw} />
     </Section>
   );
 }
@@ -320,7 +332,7 @@ function Stream({ record }: { record: TransportDetail }) {
       <div className="mb-3 text-[13px] text-muted">
         {frames.length} raw frames
       </div>
-      <div className="on-code overflow-hidden rounded-lg bg-code">
+      <div className="overflow-hidden rounded-lg bg-code">
         <div className="divide-y divide-code-divider">
           {frames.slice(0, 800).map((frame, i) => (
             <FrameRow key={i} frame={frame} offsetMs={frame.t - start} />

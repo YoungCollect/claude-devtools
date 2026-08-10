@@ -67,12 +67,35 @@ test('retention protects active conversations and trims bodies before metadata',
   persistence.close();
 });
 
+test('deleting one conversation removes only its durable rows', () => {
+  const persistence = new Persistence({ file: temporaryDatabase(), maxBytes: 1_000_000 });
+  persistence.saveConversation(conversation('conv_1', 1), state('conv_1', 1));
+  persistence.saveConversation(conversation('conv_2', 2), state('conv_2', 2));
+  persistence.saveNode(node('node_1', 'conv_1'));
+  persistence.saveNode(node('node_2', 'conv_2'));
+  persistence.saveTransport(transport('request_1', 'conv_1', 1));
+  persistence.saveTransport(transport('request_2', 'conv_2', 2));
+
+  persistence.deleteConversation('conv_1');
+  const loaded = persistence.loadAll();
+
+  assert.deepEqual(
+    loaded.conversations.map(({ conversation: item }) => item.id),
+    ['conv_2'],
+  );
+  assert.deepEqual(loaded.nodes.map(({ id }) => id), ['node_2']);
+  assert.deepEqual(loaded.transport.map(({ id }) => id), ['request_2']);
+  assert.equal(persistence.loadBodies('request_1'), undefined);
+  assert.ok(persistence.loadBodies('request_2'));
+  persistence.close();
+});
+
 function temporaryDatabase(): string {
   return join(mkdtempSync(join(tmpdir(), 'agent-devtools-test-')), 'traces.db');
 }
 
-function node(id: string): TraceNode {
-  return { id, conversationId: 'conv_1', kind: 'user', ts: 1, text: id };
+function node(id: string, conversationId = 'conv_1'): TraceNode {
+  return { id, conversationId, kind: 'user', ts: 1, text: id };
 }
 
 function conversation(id: string, updatedAt: number): Conversation {

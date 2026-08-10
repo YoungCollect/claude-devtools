@@ -7,6 +7,7 @@ import { NetworkView } from './components/NetworkView.js';
 import { TraceView } from './components/TraceView.js';
 import { Badge, Button, cx, Empty, SpikeMark, Tabs, ThemeToggle } from './components/ui.js';
 import { useTheme } from './theme.js';
+import { transportForConversation } from './transport.js';
 
 const VIEWS = [
   { id: 'trace', label: 'Chat Trace' },
@@ -87,6 +88,12 @@ export function App() {
     };
   }, [conversationId, snapshot.rev]);
 
+  // A transport selection belongs to one conversation. Do not leave another
+  // chat's Inspector open after the user switches the conversation scope.
+  useEffect(() => {
+    setSelection(undefined);
+  }, [conversationId]);
+
   const inspectNode = useCallback((node: TraceNode) => {
     const transportId = node.producedByRequestId ?? node.revealedByRequestId;
     if (!transportId) return;
@@ -94,6 +101,7 @@ export function App() {
   }, []);
 
   const conversation = snapshot.conversations.find((c) => c.id === conversationId);
+  const conversationTransport = transportForConversation(snapshot.transport, conversationId);
 
   return (
     <div className="flex h-full flex-col bg-canvas">
@@ -117,6 +125,10 @@ export function App() {
               pinned.current = true;
               setConversationId(id);
             }}
+            onDelete={async (id) => {
+              await api.deleteConversation(id);
+              await refresh();
+            }}
           />
         </nav>
 
@@ -125,7 +137,7 @@ export function App() {
             <Tabs
               tabs={[
                 { id: 'trace' as const, label: 'Chat Trace', count: nodes.length },
-                { id: 'network' as const, label: 'Network', count: snapshot.transport.length },
+                { id: 'network' as const, label: 'Network', count: conversationTransport.length },
               ]}
               active={view}
               onChange={setView}
@@ -149,7 +161,7 @@ export function App() {
               )
             ) : (
               <NetworkView
-                transport={snapshot.transport}
+                transport={conversationTransport}
                 selectedId={selection?.transportId}
                 onSelect={(id) => setSelection({ transportId: id })}
               />

@@ -31,6 +31,27 @@ test('clear prevents an in-flight request from repopulating the store', () => {
   assert.deepEqual(store.snapshot().transport, []);
 });
 
+test('deleting a conversation prevents its in-flight request from repopulating the store', () => {
+  const store = new Store();
+  const runtime = new CaptureRuntime({ store, builder: new TraceBuilder(store) });
+  const record = request('request_before_delete');
+
+  runtime.hooks.onRequestStart(record);
+  runtime.hooks.onRequestBody(record);
+  const conversationId = record.conversationId ?? '';
+  assert.ok(conversationId);
+  assert.equal(runtime.deleteConversation(conversationId), true);
+  assert.equal(runtime.deleteConversation(conversationId), false);
+
+  record.status = 200;
+  record.timing.endedAt = 2;
+  runtime.hooks.onResponseStart(record);
+  runtime.hooks.onComplete(record);
+
+  assert.deepEqual(store.snapshot().conversations, []);
+  assert.deepEqual(store.snapshot().transport, []);
+});
+
 test('retention does not evict another conversation that is still in flight', () => {
   const store = new Store();
   const persistence = new Persistence({

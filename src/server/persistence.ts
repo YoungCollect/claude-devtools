@@ -320,6 +320,22 @@ export class Persistence {
     return this.storedBytes;
   }
 
+  /** Permanently removes one conversation and every row owned by it. */
+  deleteConversation(id: string): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM transport WHERE conversation_id = ?').run(id);
+      this.db.prepare('DELETE FROM nodes WHERE conversation_id = ?').run(id);
+      this.db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    this.storedBytes = this.sumBytes();
+    this.db.exec('PRAGMA incremental_vacuum');
+  }
+
   private sumBytes(): number {
     const row = this.db.prepare('SELECT COALESCE(SUM(bytes), 0) AS total FROM transport').get() as
       | { total: number }

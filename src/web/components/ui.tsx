@@ -103,7 +103,7 @@ export function CodeBlock({ text, className }: { text: string; className?: strin
   if (!text) return <Empty>No content</Empty>;
   return (
     <div
-      className={cx('on-code overflow-hidden rounded-lg border border-code-border bg-code', className)}
+      className={cx('overflow-hidden rounded-lg border border-code-border bg-code', className)}
     >
       <pre className="overflow-x-auto p-4 font-mono text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap text-code-fg">
         {text}
@@ -206,19 +206,106 @@ export function Button({
   );
 }
 
-export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+/** Copy plus the short-lived "it worked" state, shared by both copy buttons. */
+function useCopy(): [copied: boolean, copy: (text: string) => void] {
   const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
+  return [
+    copied,
+    (text: string) => {
+      void navigator.clipboard.writeText(text).then(
+        () => {
           setCopied(true);
           setTimeout(() => setCopied(false), 1200);
-        });
-      }}
+        },
+        // A refused clipboard (permission denied, no user gesture) must not
+        // surface as an unhandled rejection. The button simply stays unchanged,
+        // which is the honest signal: nothing was copied.
+        () => {},
+      );
+    },
+  ];
+}
+
+export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [copied, copy] = useCopy();
+  return <Button onClick={() => copy(text)}>{copied ? 'Copied' : label}</Button>;
+}
+
+/**
+ * Square copy button, sized to sit in a row of view-mode toggles.
+ *
+ * It carries no label because it sits directly beside the mode buttons, where a
+ * word would read as a fourth mode. The tick replaces the icon rather than
+ * appearing next to it, so the button never changes width mid-interaction.
+ */
+export function CopyIconButton({
+  text,
+  title = 'Copy source',
+  surface = 'canvas',
+}: {
+  text: string;
+  title?: string;
+  /** Which surface the button sits on — the dark code card inverts its palette. */
+  surface?: 'canvas' | 'code';
+}) {
+  const [copied, copy] = useCopy();
+  const label = copied ? 'Copied' : title;
+  const onCode = surface === 'code';
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={() => copy(text)}
+      className={cx(
+        'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md border transition-colors',
+        copied
+          ? 'border-success text-success-fg'
+          : onCode
+            ? 'border-code-elevated bg-code-elevated text-code-fg-soft hover:text-code-fg'
+            : 'border-hairline bg-canvas text-muted hover:border-muted-soft hover:text-ink',
+        copied && (onCode ? 'bg-code-elevated' : 'bg-canvas'),
+      )}
     >
-      {copied ? 'Copied' : label}
-    </Button>
+      {copied ? <CheckIcon /> : <CopyIcon />}
+    </button>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="9" y="9" width="12" height="12" rx="2.5" />
+      <path d="M5.5 15H4.5A1.5 1.5 0 0 1 3 13.5V4.5A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5v1" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4.5 12.5 9.5 17.5 19.5 6.5" />
+    </svg>
   );
 }
 

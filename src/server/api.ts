@@ -19,6 +19,8 @@ export interface ApiOptions {
   persistence?: Persistence;
   /** Clears memory, reconstruction state, and disk as one lifecycle operation. */
   clearState: () => void;
+  /** Deletes one conversation from memory, reconstruction state, and disk. */
+  deleteConversation: (id: string) => boolean;
   /**
    * Dev only: where Vite is serving the UI. Non-API requests are redirected
    * there, so opening the usual port during `pnpm dev` still lands on the UI
@@ -33,6 +35,7 @@ export function createApi({
   webRoot,
   persistence,
   clearState,
+  deleteConversation,
   devUiUrl,
 }: ApiOptions): Hono {
   const app = new Hono();
@@ -51,6 +54,11 @@ export function createApi({
     const id = c.req.param('id');
     if (!store.getConversation(id)) return c.json({ error: 'not found' }, 404);
     return c.json({ nodes: store.getNodes(id) });
+  });
+
+  app.delete('/api/conversations/:id', (c) => {
+    const deleted = deleteConversation(c.req.param('id'));
+    return deleted ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
   });
 
   app.get('/api/transport/:id', (c) => {

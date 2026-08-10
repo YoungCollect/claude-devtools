@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { TransportSummary } from '../../core/types.js';
 import { formatBytes, formatClock, formatMs, formatTokens } from '../format.js';
-import { Badge, Button, cx, Empty } from './ui.js';
+import { Badge, cx, Empty } from './ui.js';
 
 export interface NetworkViewProps {
   transport: TransportSummary[];
@@ -10,16 +10,14 @@ export interface NetworkViewProps {
 }
 
 /**
- * The flat request list — the same traffic the Chat Trace summarises, including
- * the utility calls the trace hides. Selecting a row opens the same Inspector,
- * so the two views are two entrances to one dataset.
+ * The selected conversation's request list. Selecting a row opens the same
+ * Inspector, so Chat Trace and Network are two entrances to the same scoped
+ * dataset.
  */
 export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProps) {
   const [query, setQuery] = useState('');
-  const [showUtility, setShowUtility] = useState(true);
 
   const rows = transport
-    .filter((row) => showUtility || row.kind === 'conversation')
     .filter((row) =>
       query
         ? `${row.path} ${row.model ?? ''} ${row.status ?? ''} ${row.kind}`
@@ -39,9 +37,6 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
           placeholder="Filter path, model, status…"
           className="h-9 w-64 rounded-md border border-hairline bg-canvas px-3.5 text-[14px] text-ink outline-none placeholder:text-muted-soft focus:border-primary focus:ring-3 focus:ring-primary/15"
         />
-        <Button onClick={() => setShowUtility((v) => !v)} active={!showUtility}>
-          {showUtility ? 'all requests' : 'conversation only'}
-        </Button>
         <span className="ml-auto text-[13px] text-muted">{rows.length} requests</span>
       </div>
 

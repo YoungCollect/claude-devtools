@@ -23,6 +23,8 @@ export class CaptureRuntime {
   private readonly activeConversationByRequest = new WeakMap<TransportRecord, string>();
   private readonly activeConversationCounts = new Map<string, number>();
   private readonly completedRequests = new WeakSet<TransportRecord>();
+  /** Prevents a deleted conversation's in-flight callbacks from restoring it. */
+  private readonly deletedConversationIds = new Set<string>();
 
   constructor(private readonly options: CaptureRuntimeOptions) {
     this.hooks = {
@@ -37,9 +39,23 @@ export class CaptureRuntime {
   clear(): void {
     this.generation += 1;
     this.activeConversationCounts.clear();
+    this.deletedConversationIds.clear();
     this.options.builder.reset();
     this.options.store.clear();
     this.options.persistence?.clear();
+  }
+
+  deleteConversation(id: string): boolean {
+    if (!this.options.store.getConversation(id)) return false;
+    // Delete durable state first: a disk failure must not leave memory claiming
+    // the operation succeeded while the chat returns after restart.
+    this.options.persistence?.deleteConversation(id);
+    this.deletedConversationIds.add(id);
+    this.activeConversationCounts.delete(id);
+    this.options.builder.forget([id]);
+    this.options.store.dropConversation(id);
+    this.options.store.touch();
+    return true;
   }
 
   private onRequestStart(record: TransportRecord): void {
@@ -112,6 +128,9 @@ export class CaptureRuntime {
   }
 
   private isCurrent(record: TransportRecord): boolean {
-    return this.requestGeneration.get(record) === this.generation;
+    return (
+      this.requestGeneration.get(record) === this.generation &&
+      (!record.conversationId || !this.deletedConversationIds.has(record.conversationId))
+    );
   }
 }

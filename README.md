@@ -106,6 +106,17 @@ prompt wording:
 - The original provider block still contributes one conversation fingerprint, so this
   display-only split does not change transcript matching.
 
+System and context nodes span the full column rather than sitting in a chat bubble:
+what they hold is a rendered document — markdown, code fences, tag outlines — and a
+bubble width reflows that for no reason. Only the human's and the assistant's own
+messages keep the narrow conversational measure.
+
+Opening the Inspector is an explicit `inspect →` button, revealed in the row's gutter on
+hover, rather than a click anywhere on the row. Rows carry their own controls —
+expanding a context block, folding a tag, selecting text out of a payload — and a
+row-wide handler turned every one of those into a near miss that threw the side panel
+open. The button fades rather than unmounting, so it stays reachable by keyboard.
+
 ### Tool execution time, for free
 
 The gap between *the end of the response that requested a tool* and *the start of the
@@ -116,9 +127,10 @@ instrumentation on either side.
 ### Utility traffic
 
 Claude Code interleaves real turns with side calls (`count_tokens`, a small no-tools
-Haiku call that names the conversation). They stay in the Network view but are kept off
-the Chat Trace; the reliable signal is the tool set — an agent turn always ships its
-tools, a utility call never does.
+Haiku call that names the conversation). They remain captured in the transport store,
+but are kept out of the conversation-scoped Network and Chat Trace unless they can be
+attributed to that conversation. The reliable signal is the tool set — an agent turn
+always ships its tools, a utility call never does.
 
 ---
 
@@ -132,6 +144,7 @@ src/
     store.ts                in-memory store + change feed
     sse.ts                  incremental SSE frame parser
     fingerprint.ts          stable stringify + hash (isomorphic)
+    xml-outline.ts          lenient, lossless tag parser for pseudo-XML content
     redact.ts               credential masking
     adapters/
       types.ts              ProviderAdapter seam
@@ -166,6 +179,12 @@ Every colour in `src/web/styles.css` names a **role**, never a hue: `canvas`, `c
 themes is a CSS-variable swap on `<html data-theme>` — content components contain no
 colour decision. Only the theme control reads the active theme to render its state.
 
+Scrollbars are hidden globally rather than styled. The view is dense by design — trace
+column, payload card, SSE frame list and Inspector can all scroll at once, and a bar on
+each was carving the layout into strips. Scrolling itself is untouched (verified: wheel
+and scroll gesture both move the trace column with a 0px scrollbar gutter). The trade:
+markdown code fences and wide tables still scroll sideways without advertising it.
+
 The interesting role is `code`. In light it is the system's `code-window-card` — a dark
 navy card on cream. In dark that same card would be near-black on near-black, so the
 role inverts to a *raised* panel with a visible border. Same name, opposite mechanics;
@@ -195,6 +214,59 @@ surface tone; dark maps the same roles onto its green and purple.
 Copernicus and StyreneB are licensed; the app uses the substitutes the system documents
 (Tiempos Headline / Cormorant Garamond / Georgia, and Inter), all resolved locally so
 the tool works offline with no webfont fetch.
+
+## Content rendering
+
+Agent text is shown three ways, switchable per block: **Rendered** (markdown),
+**Structure** (tag outline) and **Raw**. The raw view is not a nicety — rendering is
+interpretation, and this is a tool for finding out what the model was actually sent, so
+every rendered view has to be checkable against the bytes on the wire.
+
+- **System prompts** lead with markdown (`src/web/components/ContentViewer.tsx`).
+- **`<tag>…</tag>` blocks** — Claude Code's `<system-reminder>`, `<env>` and friends —
+  lead with the structure outline.
+
+The choice is one shared, persisted setting rather than per-block state: with several
+blocks open at once, having them disagree about whether you are reading source or prose
+is the confusing state. Switching one switches the rest live (via `useSyncExternalStore`),
+and a block that cannot honour the choice — a tag block has no markdown view — falls back
+to its own default instead of going blank.
+
+The toggle stays *inside* the expanded region, in the panel card's own header, right
+aligned, alongside a copy-source button. A view switch cannot show anything while the
+block is collapsed, so hoisting the buttons out would put dead controls on every row of
+a list whose job is to be scanned — and floating them above the card read as chrome
+belonging to the trace row rather than to the panel. The header does not scroll with the
+body.
+
+**Rendered and Structure share the canvas; only Raw gets the dark code card.** Both of
+the first two are renderings, and flipping the whole panel dark when switching between
+them read as a mode change that had not happened. Raw keeps the card because those are
+the literal bytes off the wire, which is what the dark surface is reserved for. The
+outline therefore needs syntax colours for the *canvas*, so `markup-*` roles exist
+separately from the `code-*`/`json-*` roles that print on navy (all four clear WCAG AA
+against the canvas in both themes: 4.66–10.34 light, 5.38–10.57 dark).
+
+Rendered panels are memoised. The trace refetches its nodes on every store revision, so
+during a streaming response an open markdown panel was re-parsing its whole source about
+every 80ms — measured at 1207ms of script time across one 3s turn for a 20 kB system
+prompt, versus 27ms after memoising.
+
+Markdown uses **`react-markdown` + `remark-gfm`**. Deliberately without `rehype-raw`:
+this text is whatever the agent sent, so embedded HTML must stay inert, and the library's
+default is to escape it (its URL transform already drops `javascript:` links).
+
+The tag outline is **hand-written** (`src/core/xml-outline.ts`), which needs justifying
+given `react-xml-viewer` exists. That library requires well-formed XML, and this content
+is not XML — it is prose wrapped in tags. Fed `if (a < b && c > d) return;` it silently
+reparses the text as a tag with attributes `b="true" &&="true" c="true"`. For a debugging
+tool, quietly displaying something the agent never sent is worse than displaying nothing.
+
+So the parser recognises *structure* and leaves everything else alone: a tag opens only
+if a matching close exists, an unmatched `<` stays literal, attributes are captured
+verbatim. Its safety property is `serialize(parse(x)) === x` for all inputs — structure
+may go unrecognised, content is never altered — enforced in `tests/xml-outline.test.ts`,
+including 3000 randomly assembled fragments.
 
 ## Storage
 
@@ -243,7 +315,8 @@ Captured traffic contains live credentials and whole source files.
   leak a live token. The Inspector's reveal toggle returns the real value only for
   requests still held in memory by the current process; reloaded ones stay masked.
 - The database is `0600` inside a `0700` directory.
-- Nothing is sent anywhere. `Clear` wipes memory and disk.
+- Nothing is sent anywhere. `Clear` wipes memory and disk; deleting a conversation
+  removes only that chat's trace nodes and transport rows from both layers.
 
 ---
 

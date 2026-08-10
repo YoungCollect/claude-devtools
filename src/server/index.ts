@@ -78,6 +78,7 @@ serve({
     webRoot,
     persistence,
     clearState: () => runtime.clear(),
+    deleteConversation: (id) => runtime.deleteConversation(id),
     devUiUrl: devMode ? viteUrl : undefined,
   }).fetch,
   hostname: config.host,
