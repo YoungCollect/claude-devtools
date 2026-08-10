@@ -9,10 +9,17 @@ export default defineConfig({
   root: 'src/web',
   plugins: [react(), tailwindcss()],
   server: {
+    // Pinned to IPv4 loopback: Vite's default `localhost` resolves to ::1 on
+    // macOS, which the server's dev redirect (and every other port in this
+    // tool) would fail to reach.
+    host: '127.0.0.1',
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': {
+      // Anchored regex, not the bare '/api' prefix: that form also matches
+      // `/api.ts` — this app's own `src/web/api.ts` module — and proxies the
+      // frontend's source file to the backend, which never resolves.
+      '^/api/': {
         target: 'http://127.0.0.1:4142',
         changeOrigin: false,
       },

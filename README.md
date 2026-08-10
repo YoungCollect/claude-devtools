@@ -32,17 +32,26 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:4141 claude
 
 Open <http://127.0.0.1:4142>. Traffic appears live.
 
-For development (Vite HMR on :5173, API on :4142):
+### Developing on it
 
 ```bash
-npm run dev
+pnpm dev
 ```
+
+Starts the proxy and API with `tsx watch`, and Vite with React Fast Refresh. **Open
+<http://127.0.0.1:5173>** — that is the UI that hot-reloads; :4142 redirects there so
+either port works. The agent still points at :4141 exactly as in production, so you can
+edit the UI mid-session and watch the trace re-render without touching the agent.
+
+One caveat worth knowing: editing anything under `src/server` or `src/core` restarts the
+process, which **clears every captured trace** (the store is memory-only) and briefly
+drops :4141. Editing `src/web` never does — that is pure Fast Refresh.
 
 | Port | What |
 | ---- | ---- |
 | 4141 | Capture proxy — the agent's `ANTHROPIC_BASE_URL` |
-| 4142 | UI + API |
-| 5173 | Vite dev server (dev only) |
+| 4142 | API; serves the built UI in production, redirects to Vite in dev |
+| 5173 | Vite dev server — **the URL to open during `pnpm dev`** |
 
 Environment overrides: `AGENT_DEVTOOLS_PROXY_PORT`, `AGENT_DEVTOOLS_UI_PORT`,
 `AGENT_DEVTOOLS_UPSTREAM`, `AGENT_DEVTOOLS_HOST`, `AGENT_DEVTOOLS_MAX_REQUESTS`.

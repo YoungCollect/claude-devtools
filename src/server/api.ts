@@ -13,9 +13,15 @@ export interface ApiOptions {
   config: Config;
   /** Absolute path to the built SPA, or undefined in dev (Vite serves it). */
   webRoot?: string;
+  /**
+   * Dev only: where Vite is serving the UI. Non-API requests are redirected
+   * there, so opening the usual port during `pnpm dev` still lands on the UI
+   * that hot-reloads instead of a stale bundle or a blank page.
+   */
+  devUiUrl?: string;
 }
 
-export function createApi({ store, config, webRoot }: ApiOptions): Hono {
+export function createApi({ store, config, webRoot, devUiUrl }: ApiOptions): Hono {
   const app = new Hono();
 
   app.get('/api/config', (c) =>
@@ -90,7 +96,15 @@ export function createApi({ store, config, webRoot }: ApiOptions): Hono {
     }),
   );
 
-  if (webRoot) {
+  if (devUiUrl) {
+    app.get('*', (c) => {
+      // Never bounce an /api path back to Vite: Vite proxies /api here, so a
+      // path that reached this catch-all would ping-pong until the browser
+      // gives up with ERR_TOO_MANY_REDIRECTS.
+      if (c.req.path.startsWith('/api')) return c.json({ error: 'unknown api route' }, 404);
+      return c.redirect(`${devUiUrl}${c.req.path}`, 302);
+    });
+  } else if (webRoot) {
     app.get('*', async (c) => {
       const served = await serveStatic(webRoot, c.req.path);
       if (served) return new Response(served.body, { headers: { 'content-type': served.type } });

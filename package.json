@@ -3,13 +3,13 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "DevTools for AI Agents — Chat Trace with drill-down into the underlying HTTP/SSE.",
+  "description": "DevTools for AI Agents \u2014 Chat Trace with drill-down into the underlying HTTP/SSE.",
   "bin": {
     "agent-devtools": "./bin/agent-devtools.js"
   },
   "scripts": {
-    "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
-    "dev:server": "tsx watch src/server/index.ts",
+    "dev": "concurrently -n server,web -c cyan,magenta \"pnpm dev:server\" \"pnpm dev:web\"",
+    "dev:server": "tsx watch src/server/index.ts --dev",
     "dev:web": "vite",
     "build": "vite build && tsc -p tsconfig.server.json",
     "start": "node dist/server/index.js",
