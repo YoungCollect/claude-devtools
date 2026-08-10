@@ -4,6 +4,7 @@ import test from 'node:test';
 import { transportForConversation } from '../src/web/transport.js';
 import { jsonContainer } from '../src/web/json.js';
 import { focusBodyField } from '../src/web/inspect-focus.js';
+import { groupTrace, turnNodes } from '../src/web/trace-groups.js';
 import { anthropicAdapter } from '../src/core/adapters/anthropic.js';
 import type { TraceNode, TraceNodeKind } from '../src/core/types.js';
 
@@ -79,4 +80,104 @@ test('the Anthropic adapter names only the body fields the request actually sent
   });
   assert.deepEqual(inspect({ messages: [] }), { history: 'messages' });
   assert.deepEqual(inspect({}), {});
+});
+
+test('a turn folds its assistant text, tool calls and their results into one item', () => {
+  const nodes: TraceNode[] = [
+    traceNode('user', { id: 'n1' }),
+    traceNode('assistant', { id: 'n2', producedByRequestId: 'r1', text: 'checking' }),
+    traceNode('tool_call', { id: 'n3', producedByRequestId: 'r1', toolUseId: 't1', toolName: 'Bash' }),
+    traceNode('tool_call', { id: 'n4', producedByRequestId: 'r1', toolUseId: 't2', toolName: 'Read' }),
+    // Results arrive one request later, which is why they sit after the calls.
+    traceNode('tool_result', { id: 'n5', revealedByRequestId: 'r2', toolUseId: 't1' }),
+    traceNode('tool_result', { id: 'n6', revealedByRequestId: 'r2', toolUseId: 't2' }),
+    traceNode('assistant', { id: 'n7', producedByRequestId: 'r2', text: 'done' }),
+  ];
+
+  const items = groupTrace(nodes);
+  assert.deepEqual(
+    items.map((item) => (item.type === 'turn' ? `turn:${item.key}` : `node:${item.node.id}`)),
+    ['node:n1', 'turn:turn:n2', 'turn:turn:n7'],
+  );
+
+  const first = items[1];
+  assert.equal(first?.type, 'turn');
+  if (first?.type !== 'turn') return;
+  assert.deepEqual(first.messages.map((n) => n.id), ['n2']);
+  assert.deepEqual(
+    first.tools.map(({ call, result }) => [call?.id, result?.id]),
+    [
+      ['n3', 'n5'],
+      ['n4', 'n6'],
+    ],
+  );
+  // Everything the turn renders stays reachable for selection and drill-down.
+  assert.deepEqual(turnNodes(first).map((n) => n.id), ['n2', 'n3', 'n5', 'n4', 'n6']);
+});
+
+test('a mid-conversation attach still groups history-revealed turns', () => {
+  // Nothing here was seen on a stream: the proxy attached late and read the
+  // whole transcript out of one request's history, so no node has a
+  // producedByRequestId to group on.
+  const revealed = (kind: TraceNodeKind, extra: Partial<TraceNode>) =>
+    traceNode(kind, { revealedByRequestId: 'rN', ...extra });
+
+  const items = groupTrace([
+    revealed('assistant', { id: 'a1', text: 'first' }),
+    revealed('tool_call', { id: 'c1', toolUseId: 't1', toolName: 'Bash' }),
+    revealed('tool_result', { id: 'r1', toolUseId: 't1' }),
+    revealed('assistant', { id: 'a2', text: 'second' }),
+    revealed('tool_call', { id: 'c2', toolUseId: 't2', toolName: 'Read' }),
+  ]);
+
+  // Two turns, not five rows and not one turn swallowing the whole transcript.
+  assert.equal(items.length, 2);
+  const [first, second] = items;
+  assert.equal(first?.type === 'turn' ? first.messages[0]?.id : '', 'a1');
+  assert.deepEqual(
+    first?.type === 'turn' ? first.tools.map(({ call, result }) => [call?.id, result?.id]) : [],
+    [['c1', 'r1']],
+  );
+  assert.equal(second?.type === 'turn' ? second.messages[0]?.id : '', 'a2');
+});
+
+test('a node between two responses closes the turn', () => {
+  const items = groupTrace([
+    traceNode('assistant', { id: 'a1', producedByRequestId: 'r1' }),
+    traceNode('user', { id: 'u1' }),
+    traceNode('assistant', { id: 'a2', producedByRequestId: 'r1' }),
+  ]);
+  // Same request id on both sides, but the user message is a real boundary.
+  assert.deepEqual(items.map((i) => i.type), ['turn', 'node', 'turn']);
+});
+
+test('no tool node ever escapes grouping into a standalone row', () => {
+  const nodes: TraceNode[] = [
+    // A call with no result yet, a result whose call was never captured, and a
+    // response that went straight to a tool without saying anything first.
+    traceNode('tool_result', { id: 'orphan', toolUseId: 'gone' }),
+    traceNode('tool_call', { id: 'silent', producedByRequestId: 'r9', toolUseId: 't9', toolName: 'Grep' }),
+    traceNode('thinking', { id: 'think' }),
+    traceNode('compaction', { id: 'banner' }),
+  ];
+
+  const items = groupTrace(nodes);
+  const loose = items.filter(
+    (item) => item.type === 'node' && (item.node.kind === 'tool_call' || item.node.kind === 'tool_result'),
+  );
+  assert.deepEqual(loose, [], 'tool nodes must always be folded into a turn');
+
+  // The orphaned result still renders, in a turn of its own.
+  const orphanTurn = items.find((item) => item.type === 'turn' && item.tools[0]?.result?.id === 'orphan');
+  assert.ok(orphanTurn, 'an unmatched tool result must not be dropped');
+
+  // A tool-only turn carries no assistant text but is still a turn.
+  const silentTurn = items.find((item) => item.type === 'turn' && item.tools[0]?.call?.id === 'silent');
+  assert.equal(silentTurn?.type === 'turn' ? silentTurn.messages.length : -1, 0);
+
+  // Non-tool nodes keep their own rows.
+  assert.deepEqual(
+    items.filter((i) => i.type === 'node').map((i) => (i.type === 'node' ? i.node.id : '')),
+    ['think', 'banner'],
+  );
 });
