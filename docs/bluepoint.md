@@ -2,7 +2,7 @@
 - [x] 然后现在的 system prompt 也展示在了 user
 - [x] system prompt 支持 md 形式渲染，并且支持在 `source text` 和 `markdown` 二者间进行切换
 - [ ] inspect drawer 中按照 SUMMARY/BODY/SYSTEM PROMPT/TOOLS 这四个模块的顺序进行展示
-- [ ] inspect drawer 中的 TOOLS 模块由目前 SUMMARY 中迁移而来
+- [x] inspect drawer 中的 TOOLS 模块由目前 SUMMARY 中迁移而来
 - [ ] SUMMARY/BODY/SYSTEM PROMPT/TOOLS 这四个模块 默认收缩关闭
 - [ ] BODY 的 json 项也默认全部收起
 - [ ] 在 chat trace 中点击 inspect 时，展开 inspect drawer 且同时选中 payload 并展开 payload 下的 BODY ，然后对应展开 json 项（譬如在 chat trace 中的 SYSTEM PROMPT 点击 inspect 按钮时，展开 inspect drawer 且选中 payload 展开其下的 BODY，然后只展开 json中的 SYSTEM PROMPT 项[ 对应的是 body.system， 只展开这一级就可以， body.system其下的子项不展开]）

@@ -307,14 +307,24 @@ function Payload({ record }: { record: TransportDetail }) {
           <KeyValue
             rows={inspection.summary.map(({ label, value }) => [label, value])}
           />
-          {inspection.toolNames.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
+        </Section>
+      )}
+
+      {/* The declared tool set is its own module, not a footnote under Summary.
+          It is the longest thing on this tab for an agent with 20 tools, and
+          folding it away independently is the whole reason it moved out. */}
+      {inspection && (
+        <Section title="Tools">
+          {inspection.toolNames.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
               {inspection.toolNames.map((toolName, i) => (
                 <Badge key={i} tone="tool">
                   {toolName}
                 </Badge>
               ))}
             </div>
+          ) : (
+            <Empty>No tools declared on this request</Empty>
           )}
         </Section>
       )}
