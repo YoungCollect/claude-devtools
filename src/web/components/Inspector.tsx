@@ -310,41 +310,6 @@ function Payload({ record }: { record: TransportDetail }) {
         </Section>
       )}
 
-      {/* The declared tool set is its own module, not a footnote under Summary.
-          It is the longest thing on this tab for an agent with 20 tools, and
-          folding it away independently is the whole reason it moved out. */}
-      {inspection && (
-        <Section title="Tools">
-          {inspection.toolNames.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {inspection.toolNames.map((toolName, i) => (
-                <Badge key={i} tone="tool">
-                  {toolName}
-                </Badge>
-              ))}
-            </div>
-          ) : (
-            <Empty>No tools declared on this request</Empty>
-          )}
-        </Section>
-      )}
-
-      {inspection?.systemText !== undefined && (
-        <Section title="System prompt" defaultOpen={false}>
-          {/* System prompts are markdown that also carries tag blocks, so both
-              rendered views are offered alongside the source. */}
-          <ContentViewer
-            text={inspection.systemText}
-            formats={systemFormats}
-            diffSource={{
-              sourceId: `${record.id}:system-prompt`,
-              sessionId: record.conversationId ?? 'no-session',
-              label: 'system prompt',
-            }}
-          />
-        </Section>
-      )}
-
       <Section
         title="Body"
         action={
@@ -365,6 +330,41 @@ function Payload({ record }: { record: TransportDetail }) {
       >
         <JsonBodyViewer value={record.requestBody} raw={record.requestBodyRaw} />
       </Section>
+
+      {inspection?.systemText !== undefined && (
+        <Section title="System prompt" defaultOpen={false}>
+          {/* System prompts are markdown that also carries tag blocks, so both
+              rendered views are offered alongside the source. */}
+          <ContentViewer
+            text={inspection.systemText}
+            formats={systemFormats}
+            diffSource={{
+              sourceId: `${record.id}:system-prompt`,
+              sessionId: record.conversationId ?? 'no-session',
+              label: 'system prompt',
+            }}
+          />
+        </Section>
+      )}
+
+      {/* The declared tool set is its own module, not a footnote under Summary.
+          It is the longest thing on this tab for an agent with 20 tools, and
+          folding it away independently is the whole reason it moved out. */}
+      {inspection && (
+        <Section title="Tools">
+          {inspection.toolNames.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {inspection.toolNames.map((toolName, i) => (
+                <Badge key={i} tone="tool">
+                  {toolName}
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <Empty>No tools declared on this request</Empty>
+          )}
+        </Section>
+      )}
     </>
   );
 }
