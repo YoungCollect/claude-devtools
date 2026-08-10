@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, subscribeToRevisions, type ServerConfig } from './api.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
 import { ConversationList } from './components/ConversationList.js';
@@ -21,6 +21,57 @@ type ViewId = (typeof VIEWS)[number]['id'];
 interface Selection {
   transportId: string;
   node?: TraceNode;
+}
+
+/**
+ * Sub-pixel layout means a pane parked at the bottom rarely reports an exact
+ * zero, and a row can grow by a hair between frames. Anything inside this much
+ * of the end still counts as "reading the newest event".
+ */
+const BOTTOM_SLACK_PX = 48;
+
+/**
+ * Follows the newest trace event as a response streams in.
+ *
+ * Only while the reader is already at the bottom. Scrolling up to re-read an
+ * earlier turn is deliberate, and a trace that yanked the viewport back down on
+ * every frame would be unreadable for the whole length of a response — so the
+ * pane stops following the moment you leave the end, and picks it up again when
+ * you return.
+ */
+function useFollowNewest({
+  content,
+  resetKey,
+  enabled,
+}: {
+  /** Changes whenever new content may have been appended. */
+  content: unknown;
+  /** Changing this jumps back to the end — a different trace starts at its end. */
+  resetKey: unknown;
+  enabled: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+
+  const onScroll = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    following.current = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK_PX;
+  }, []);
+
+  // Declared before the scroll effect so that on a conversation switch — where
+  // both fire — following is restored first and the new trace opens at its end.
+  useLayoutEffect(() => {
+    following.current = true;
+  }, [resetKey]);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !enabled || !following.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [content, resetKey, enabled]);
+
+  return { ref, onScroll };
 }
 
 export function App() {
@@ -105,6 +156,12 @@ export function App() {
   const conversation = snapshot.conversations.find((c) => c.id === conversationId);
   const conversationTransport = transportForConversation(snapshot.transport, conversationId);
 
+  const trace = useFollowNewest({
+    content: nodes,
+    resetKey: conversationId,
+    enabled: view === 'trace',
+  });
+
   return (
     <div className="flex h-full flex-col bg-canvas">
       <Header
@@ -156,7 +213,7 @@ export function App() {
             )}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto" ref={trace.ref} onScroll={trace.onScroll}>
             {view === 'trace' ? (
               conversation ? (
                 <TraceView nodes={nodes} selectedNodeId={selection?.node?.id} onInspect={inspectNode} />

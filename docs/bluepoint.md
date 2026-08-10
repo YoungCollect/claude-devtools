@@ -6,7 +6,7 @@
 - [x] SUMMARY/BODY/SYSTEM PROMPT/TOOLS 这四个模块 默认收缩关闭
 - [x] BODY 的 json 项也默认全部收起
 - [x] 在 chat trace 中点击 inspect 时，展开 inspect drawer 且同时选中 payload 并展开 payload 下的 BODY ，然后对应展开 json 项（譬如在 chat trace 中的 SYSTEM PROMPT 点击 inspect 按钮时，展开 inspect drawer 且选中 payload 展开其下的 BODY，然后只展开 json中的 SYSTEM PROMPT 项[ 对应的是 body.system， 只展开这一级就可以， body.system其下的子项不展开]）
-- [ ] 在监听到信息推送时，chat trace 追加信息后，自动触发 DOM 向上滚动，以保证最新信息在视口内可观测到（ux 优化）。
+- [x] 在监听到信息推送时，chat trace 追加信息后，自动触发 DOM 向上滚动，以保证最新信息在视口内可观测到（ux 优化）。
 - [ ] chat trace 中的 user 和 assistant，其 chat 气泡信息在保持信息背景色不变的情况下支持 markdown 渲染，并且同样在顶部添加 Diff Left/Diff Right/Rendered/Raw/Copy 按钮并实现相关功能
 - [ ] 目前 markdown 的按钮定义为了 Rendered，而 xml 的按钮定义了 Structure，我认为统一成 `Rendered` 即可，不然有记忆成本。
 - [ ] ~~chat trace 页面中的 network 选项板的表格 增加一个升降序排列图标~~
