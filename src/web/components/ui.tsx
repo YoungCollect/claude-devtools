@@ -15,7 +15,7 @@ export type Tone = 'neutral' | 'emph' | 'primary' | 'success' | 'tool' | 'warnin
 const TONES: Record<Tone, string> = {
   neutral: 'bg-neutral-bg text-neutral-fg',
   emph: 'bg-emph-bg text-emph-fg',
-  primary: 'bg-primary text-primary-fg',
+  primary: 'bg-primary text-primary-foreground',
   success: 'bg-assistant-bg text-assistant-fg',
   tool: 'bg-tool-bg text-tool-fg',
   warning: 'bg-warning-bg text-warning-fg',
@@ -78,7 +78,7 @@ export function Tabs<T extends string>({
             'rounded-md px-3 py-1.5 text-[14px] font-medium transition-colors',
             active === tab.id
               ? 'bg-surface-card text-ink'
-              : 'text-muted hover:bg-surface-soft hover:text-body-strong',
+              : 'text-muted-foreground hover:bg-surface-soft hover:text-body-strong',
           )}
           aria-current={active === tab.id ? 'page' : undefined}
         >
@@ -134,7 +134,7 @@ export function Section({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-2 text-[12px] font-medium tracking-[1.5px] text-muted uppercase hover:text-ink"
+          className="flex items-center gap-2 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase hover:text-ink"
         >
           <Chevron open={open} />
           {title}
@@ -165,7 +165,7 @@ export function KeyValue({ rows }: { rows: [string, ReactNode][] }) {
     <dl className="grid grid-cols-[minmax(96px,auto)_1fr] gap-x-4 gap-y-2 text-[13px]">
       {rows.map(([key, value], i) => (
         <div key={`${key}-${i}`} className="contents">
-          <dt className="truncate text-muted">{key}</dt>
+          <dt className="truncate text-muted-foreground">{key}</dt>
           <dd className="font-mono text-[12.5px] break-all text-body-strong">{value}</dd>
         </div>
       ))}
@@ -195,9 +195,9 @@ export function Button({
       className={cx(
         'rounded-md border px-3 py-1 text-[13px] font-medium transition-colors',
         active
-          ? 'border-primary bg-primary text-primary-fg'
+          ? 'border-primary bg-primary text-primary-foreground'
           : tone === 'danger'
-            ? 'border-hairline bg-canvas text-muted hover:border-error-fg hover:text-error-fg'
+            ? 'border-hairline bg-canvas text-muted-foreground hover:border-error-fg hover:text-error-fg'
             : 'border-hairline bg-canvas text-body hover:border-muted-soft hover:text-ink',
       )}
     >
@@ -263,7 +263,7 @@ export function CopyIconButton({
           ? 'border-success text-success-fg'
           : onCode
             ? 'border-code-elevated bg-code-elevated text-code-fg-soft hover:text-code-fg'
-            : 'border-hairline bg-canvas text-muted hover:border-muted-soft hover:text-ink',
+            : 'border-hairline bg-canvas text-muted-foreground hover:border-muted-soft hover:text-ink',
         copied && (onCode ? 'bg-code-elevated' : 'bg-canvas'),
       )}
     >
@@ -322,7 +322,7 @@ export function ThemeToggle({ theme, onToggle }: { theme: 'light' | 'dark'; onTo
       onClick={onToggle}
       title={`Switch to ${next} theme`}
       aria-label={`Switch to ${next} theme`}
-      className="flex h-8 w-8 items-center justify-center rounded-full border border-hairline bg-canvas text-muted transition-colors hover:border-muted-soft hover:text-ink"
+      className="flex h-8 w-8 items-center justify-center rounded-full border border-hairline bg-canvas text-muted-foreground transition-colors hover:border-muted-soft hover:text-ink"
     >
       {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
     </button>

@@ -1,4 +1,15 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+/*
+ * shadcn/ui ships its dark tokens under a `.dark` class. This app has always
+ * switched palettes with `<html data-theme>` (see theme.ts, and the pre-paint
+ * script in index.html that avoids a flash of the wrong palette), so the
+ * variant is repointed rather than the app being changed to match. Without
+ * this, `dark:` utilities inside shadcn components never fire.
+ */
+@custom-variant dark (&:is([data-theme='dark'] *));
 
 /*
  * Two themes, one set of semantic tokens.
@@ -65,16 +76,17 @@
   --color-ink: #141413;
   --color-body-strong: #252523;
   --color-body: #3d3d3a;
-  --color-muted: #6c6a64;
+  /* The muted *text* role is shadcn's `--muted-foreground` (declared on :root
+     below), because shadcn claims the bare `muted` name for a surface. */
   --color-muted-soft: #8e8b82;
 
   /* Lines */
   --color-hairline: #e6dfd8;
   --color-hairline-soft: #ebe6df;
 
-  /* Brand / state */
-  --color-primary: #cc785c;
-  --color-primary-fg: #ffffff;
+  /* Brand / state. The accent itself lives on `--primary` / `--primary-foreground`
+     (declared on :root below) and is republished here as `--color-primary` by
+     `@theme inline`; defining it in both places would be a reference cycle. */
   --color-success: #5db872;
   --color-success-fg: #3f8f5f;
 
@@ -144,14 +156,17 @@
   --color-ink: #e6eaef;
   --color-body-strong: #d5dbe2;
   --color-body: #a3adb8;
-  --color-muted: #7c8894;
   --color-muted-soft: #616d78;
+
+  /* The two shadcn aliases with no `--color-*` role to follow: they are the
+     source for `--color-muted-foreground` / `--color-primary` respectively. */
+  --muted-foreground: #7c8894;
+  --primary: #7aa2f7;
+  --primary-foreground: #0b0d10;
 
   --color-hairline: #1f252d;
   --color-hairline-soft: #171c22;
 
-  --color-primary: #7aa2f7;
-  --color-primary-fg: #0b0d10;
   --color-success: #6bd39a;
   --color-success-fg: #6bd39a;
 
@@ -171,8 +186,48 @@
   color-scheme: dark;
 }
 
+/*
+ * shadcn/ui's semantic layer, expressed in this project's roles.
+ *
+ * The CLI seeds these as a standalone neutral palette (white / zinc / near-black
+ * `--primary`). Left that way it does not merely sit beside the palette above —
+ * the `@theme inline` block at the foot of this file republishes each one as a
+ * Tailwind colour, and several names collide with roles this app already owns:
+ * `--color-primary` would flip from the system's coral to near-black across
+ * every selected row and active control, and `--color-muted` would flip from a
+ * *foreground* to a near-white *background*, erasing 20-odd labels.
+ *
+ * So shadcn's names are aliases onto the existing roles, never a second source
+ * of truth. Both themes stay defined in exactly one place — the two blocks
+ * above — and a `shadcn add` inherits this system's colour automatically.
+ */
 :root {
   color-scheme: light;
+
+  --background: var(--color-canvas);
+  --foreground: var(--color-ink);
+  --card: var(--color-surface-card);
+  --card-foreground: var(--color-ink);
+  --popover: var(--color-canvas);
+  --popover-foreground: var(--color-ink);
+  /* The accent stays scarce and stays coral — see the note on Tone above. */
+  --primary: #cc785c;
+  --primary-foreground: #ffffff;
+  --secondary: var(--color-surface-card);
+  --secondary-foreground: var(--color-body-strong);
+  /* shadcn's `muted` is a surface; its *text* role is `muted-foreground`. */
+  --muted: var(--color-surface-soft);
+  --muted-foreground: #6c6a64;
+  --accent: var(--color-surface-card);
+  --accent-foreground: var(--color-ink);
+  --destructive: var(--color-error-fg);
+  --border: var(--color-hairline);
+  --input: var(--color-hairline);
+  --ring: var(--primary);
+
+  /* Kept for components that read `var(--radius)` directly; the px scale in
+     `@theme` above remains the authority for `rounded-*`. */
+  --radius: 8px;
 }
 
 html,
@@ -394,7 +449,7 @@ button:not(:disabled),
   margin: 0.8em 0;
   padding: 0.1em 0 0.1em 0.9em;
   border-left: 2px solid var(--color-hairline);
-  color: var(--color-muted);
+  color: var(--muted-foreground);
 }
 
 .markdown-body hr {
@@ -462,4 +517,61 @@ button:not(:disabled),
 
 ::selection {
   background: color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+/*
+ ---break---
+ */
+/*
+ * Republishes the aliases above as Tailwind colours, so `bg-background` and
+ * friends work inside shadcn components.
+ *
+ * Three groups the CLI writes here are deliberately absent:
+ *
+ *   `--font-sans`   the CLI points this at Geist and adds a `@fontsource`
+ *                   import. Type is not themed in this system (see the note in
+ *                   `@theme`), and Inter is the sanctioned substitute, so the
+ *                   override and its font package are both dropped.
+ *   `--radius-*`    the CLI recomputes the whole scale off `--radius`, which
+ *                   would quietly move every existing corner (`rounded-lg`
+ *                   12px → 10px). The px scale in `@theme` stays authoritative
+ *                   and shadcn components inherit it.
+ *   sidebar/chart   no component here uses them; they come back with the first
+ *                   `shadcn add` that needs them.
+ */
+@theme inline {
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+}
+
+/*
+ * The CLI's companion `.dark { … }` block is intentionally gone. Every alias
+ * above resolves through a `--color-*` role, and those roles are already
+ * re-pointed by `:root[data-theme='dark']` — so the shadcn layer follows the
+ * theme toggle for free. A second literal palette here would be a copy that
+ * drifts.
+ *
+ * `body` and `html` rules the CLI adds here are dropped for the same reason:
+ * this file already sets the canvas, the body colour and the sans stack, and
+ * `@layer base` would only restate them in weaker cascade terms.
+ */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
 }

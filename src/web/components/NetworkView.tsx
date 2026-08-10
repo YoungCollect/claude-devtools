@@ -37,7 +37,7 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
           placeholder="Filter path, model, status…"
           className="h-9 w-64 rounded-md border border-hairline bg-canvas px-3.5 text-[14px] text-ink outline-none placeholder:text-muted-soft focus:border-primary focus:ring-3 focus:ring-primary/15"
         />
-        <span className="ml-auto text-[13px] text-muted">{rows.length} requests</span>
+        <span className="ml-auto text-[13px] text-muted-foreground">{rows.length} requests</span>
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -45,7 +45,7 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
           <Empty>No requests captured yet.</Empty>
         ) : (
           <table className="w-full border-collapse text-[13px]">
-            <thead className="sticky top-0 z-10 bg-surface-soft text-muted">
+            <thead className="sticky top-0 z-10 bg-surface-soft text-muted-foreground">
               <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:text-left [&>th]:text-[12px] [&>th]:font-medium [&>th]:tracking-[1.5px] [&>th]:uppercase">
                 <th>time</th>
                 <th>path</th>
@@ -71,7 +71,7 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
                     row.kind !== 'conversation' && 'text-muted-soft',
                   )}
                 >
-                  <td className="font-mono whitespace-nowrap text-muted">
+                  <td className="font-mono whitespace-nowrap text-muted-foreground">
                     {formatClock(row.startedAt)}
                   </td>
                   <td className="max-w-[240px] truncate">
@@ -94,7 +94,7 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
                   </td>
                   <td className="text-right font-mono text-[12.5px]">{formatMs(row.ttfbMs)}</td>
                   <td className="text-right font-mono text-[12.5px]">{formatMs(row.durationMs)}</td>
-                  <td className="text-right font-mono text-[12.5px] text-muted">
+                  <td className="text-right font-mono text-[12.5px] text-muted-foreground">
                     {formatBytes(row.responseBytes)}
                   </td>
                   <td className="text-right font-mono text-[12.5px]">
@@ -102,7 +102,7 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
                       ? `${formatTokens(row.usage.inputTokens)}/${formatTokens(row.usage.outputTokens)}`
                       : '—'}
                   </td>
-                  <td className="font-mono text-[12.5px] text-muted">
+                  <td className="font-mono text-[12.5px] text-muted-foreground">
                     {row.turnIndex !== undefined ? `#${row.turnIndex + 1}` : '—'}
                   </td>
                 </tr>

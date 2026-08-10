@@ -11,7 +11,16 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+
+    // `@/` points at the SPA root (`src/web`), which is also Vite's `root`.
+    // shadcn/ui generates components that import `@/lib/utils`, so the alias has
+    // to resolve identically in tsc and in Vite — see `resolve.alias` in
+    // vite.config.ts.
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/web/*"]
+    }
   },
   "include": ["src/web", "src/core", "vite.config.ts"]
 }

@@ -115,7 +115,7 @@ export function App() {
 
       <div className="flex min-h-0 flex-1">
         <nav className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-hairline">
-          <div className="border-b border-hairline px-4 py-3 text-[12px] font-medium tracking-[1.5px] text-muted uppercase">
+          <div className="border-b border-hairline px-4 py-3 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase">
             Conversations
           </div>
           <ConversationList
@@ -145,7 +145,7 @@ export function App() {
             {view === 'trace' && conversation && (
               <div className="ml-auto flex items-center gap-2 px-4">
                 <Badge tone="emph">{conversation.agent}</Badge>
-                <span className="font-mono text-[12.5px] text-muted">{conversation.model}</span>
+                <span className="font-mono text-[12.5px] text-muted-foreground">{conversation.model}</span>
               </div>
             )}
           </div>
@@ -222,7 +222,7 @@ function Header({
           <button
             type="button"
             onClick={() => void navigator.clipboard.writeText(command)}
-            className="rounded-md bg-code-elevated px-2.5 py-1 text-[12px] font-medium text-code-fg hover:bg-primary hover:text-primary-fg"
+            className="rounded-md bg-code-elevated px-2.5 py-1 text-[12px] font-medium text-code-fg hover:bg-primary hover:text-primary-foreground"
           >
             Copy
           </button>

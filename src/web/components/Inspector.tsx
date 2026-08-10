@@ -78,7 +78,7 @@ export function Inspector({ transportId, focusNode, rev, onClose }: InspectorPro
           <button
             type="button"
             onClick={onClose}
-            className="px-1 text-muted hover:text-ink"
+            className="px-1 text-muted-foreground hover:text-ink"
             aria-label="Close inspector"
           >
             ✕
@@ -220,7 +220,7 @@ function Headers({ record }: { record: TransportDetail }) {
     <>
       <Section title="Request headers">
         <HeaderTable headers={record.requestHeaders} />
-        <p className="mt-3 text-[13px] leading-[1.55] text-muted">
+        <p className="mt-3 text-[13px] leading-[1.55] text-muted-foreground">
           These are the headers the agent sent. The proxy forwards them unchanged except{' '}
           <code className="font-mono text-[12.5px] text-body-strong">accept-encoding</code>, which it
           rewrites to <code className="font-mono text-[12.5px] text-body-strong">identity</code> so
@@ -329,7 +329,7 @@ function Stream({ record }: { record: TransportDetail }) {
 
   return (
     <div className="p-4">
-      <div className="mb-3 text-[13px] text-muted">
+      <div className="mb-3 text-[13px] text-muted-foreground">
         {frames.length} raw frames
       </div>
       <div className="overflow-hidden rounded-lg bg-code">
@@ -466,7 +466,7 @@ function Bar({
 }) {
   return (
     <div>
-      <div className="mb-1 flex justify-between text-[12.5px] text-muted">
+      <div className="mb-1 flex justify-between text-[12.5px] text-muted-foreground">
         <span>{label}</span>
         <span className="font-mono">{formatMs(value)}</span>
       </div>

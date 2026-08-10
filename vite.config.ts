@@ -1,3 +1,4 @@
+import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -8,6 +9,14 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   root: 'src/web',
   plugins: [react(), tailwindcss()],
+  resolve: {
+    // Mirrors the `@/*` path mapping in tsconfig.json. Vite's `root` is already
+    // `src/web`, but `root` is not an import alias — without this, shadcn/ui's
+    // generated `@/lib/utils` imports fail to resolve at build time.
+    alias: {
+      '@': fileURLToPath(new URL('./src/web', import.meta.url)),
+    },
+  },
   server: {
     // Pinned to IPv4 loopback: Vite's default `localhost` resolves to ::1 on
     // macOS, which the server's dev redirect (and every other port in this

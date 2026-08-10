@@ -135,10 +135,10 @@ export function ContentViewer({
             className={cx(
               'h-[26px] rounded-md border px-2.5 text-[12px] font-medium transition-colors',
               candidate === active
-                ? 'border-primary bg-primary text-primary-fg'
+                ? 'border-primary bg-primary text-primary-foreground'
                 : onCode
                   ? 'border-code-elevated bg-code-elevated text-code-fg-soft hover:text-code-fg'
-                  : 'border-hairline bg-canvas text-muted hover:border-muted-soft hover:text-ink',
+                  : 'border-hairline bg-canvas text-muted-foreground hover:border-muted-soft hover:text-ink',
             )}
           >
             {LABELS[candidate]}

@@ -167,7 +167,7 @@ function AssistantNode({ node }: { node: TraceNode }) {
   return (
     <div>
       <Gutter label="assistant" tone="success">
-        {node.model && <span className="font-mono text-[12px] text-muted">{node.model}</span>}
+        {node.model && <span className="font-mono text-[12px] text-muted-foreground">{node.model}</span>}
         {node.durationMs !== undefined && (
           <span className="font-mono text-[12px] text-muted-soft">{formatMs(node.durationMs)}</span>
         )}
@@ -245,7 +245,7 @@ function ToolResultNode({ node }: { node: TraceNode }) {
           </pre>
         </div>
         {lines.length > 3 && (
-          <span className="mt-1 inline-flex items-center gap-1.5 text-[12px] font-medium text-muted hover:text-ink">
+          <span className="mt-1 inline-flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground hover:text-ink">
             <Chevron open={open} />
             {open ? 'collapse' : `${lines.length - 3} more lines`}
           </span>
@@ -266,7 +266,7 @@ function ThinkingNode({ node }: { node: TraceNode }) {
         )}
       </Gutter>
       <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1.5 block w-full text-left">
-        <div className="border-l-2 border-hairline pl-3 text-[13.5px] leading-[1.55] whitespace-pre-wrap text-muted italic">
+        <div className="border-l-2 border-hairline pl-3 text-[13.5px] leading-[1.55] whitespace-pre-wrap text-muted-foreground italic">
           {open ? text : truncate(text.replace(/\s+/g, ' '), 160)}
         </div>
       </button>
