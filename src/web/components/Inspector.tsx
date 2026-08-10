@@ -303,7 +303,7 @@ function Payload({ record }: { record: TransportDetail }) {
   return (
     <>
       {inspection && (
-        <Section title="Summary">
+        <Section title="Summary" defaultOpen={false}>
           <KeyValue
             rows={inspection.summary.map(({ label, value }) => [label, value])}
           />
@@ -326,7 +326,7 @@ function Payload({ record }: { record: TransportDetail }) {
             <CopyButton text={record.requestBodyRaw ?? ''} label="Copy JSON" />
           </div>
         }
-        defaultOpen={inspection?.systemText === undefined}
+        defaultOpen={false}
       >
         <JsonBodyViewer value={record.requestBody} raw={record.requestBodyRaw} />
       </Section>
@@ -351,7 +351,7 @@ function Payload({ record }: { record: TransportDetail }) {
           It is the longest thing on this tab for an agent with 20 tools, and
           folding it away independently is the whole reason it moved out. */}
       {inspection && (
-        <Section title="Tools">
+        <Section title="Tools" defaultOpen={false}>
           {inspection.toolNames.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {inspection.toolNames.map((toolName, i) => (
