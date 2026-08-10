@@ -32,6 +32,16 @@ export interface ContentViewerProps {
   variant?: 'card' | 'bare';
   /** Extra classes for the rendered prose, e.g. a bubble's own type scale. */
   proseClassName?: string;
+  /**
+   * Which edge the control row hangs off.
+   *
+   * `end` is the default and suits anything right-aligned or full-width. `start`
+   * mirrors the row for a left-hand bubble: the controls move to the left edge
+   * *and* reverse, so Copy — the outermost control on the right-hand side —
+   * stays outermost on the left. A row that only moved would put Copy in the
+   * middle of the bubble and break the symmetry between the two speakers.
+   */
+  controlsAlign?: 'start' | 'end';
 }
 
 /**
@@ -112,6 +122,7 @@ export function ContentViewer({
   diffSource,
   variant = 'card',
   proseClassName,
+  controlsAlign = 'end',
 }: ContentViewerProps) {
   const modes = useMemo<ViewMode[]>(() => [...formats, 'raw'], [formats]);
   const preferred = useSyncExternalStore(subscribeToPreference, getPreference, getPreference);
@@ -153,7 +164,11 @@ export function ContentViewer({
       */}
       <div
         className={cx(
-          'flex items-center justify-end gap-1.5',
+          'flex items-center gap-1.5',
+          // `flex-row-reverse` runs the main axis right-to-left, so `justify-end`
+          // packs the row against the left edge with the DOM order reversed —
+          // one declaration pair gives both halves of the mirror.
+          controlsAlign === 'start' ? 'flex-row-reverse justify-end' : 'justify-end',
           // Bare has no card edge for a rule to sit on, so the controls are
           // separated by space instead of a line they would otherwise draw
           // across the middle of a chat bubble.

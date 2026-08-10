@@ -444,6 +444,8 @@ function AssistantNode({ node }: { node: TraceNode }) {
           formats={PROSE_FORMATS}
           maxHeightClass="max-h-none"
           proseClassName="markdown-chat"
+          // The assistant sits on the left, so its controls mirror the user's.
+          controlsAlign="start"
           diffSource={{ sourceId: node.id, sessionId: node.conversationId, label: 'assistant message' }}
         />
       </div>
