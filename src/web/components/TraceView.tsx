@@ -245,7 +245,7 @@ function ToolPane({
       <div className="mb-1 text-[11px] font-medium tracking-[1.5px] text-muted-soft uppercase">
         {label}
       </div>
-      <div className="max-h-[260px] overflow-auto rounded-md bg-code">
+      <div className="max-h-[260px] overflow-auto rounded-md border border-code-border bg-code">
         <pre
           className={cx(
             'px-3 py-2.5 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap',

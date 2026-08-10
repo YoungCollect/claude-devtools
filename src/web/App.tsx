@@ -294,7 +294,7 @@ function Header({
         dark code-window treatment rather than being another line of cream text.
       */}
       {config && (
-        <div className="ml-2 flex min-w-0 items-center gap-2.5 rounded-lg bg-code py-1.5 pr-1.5 pl-3.5">
+        <div className="ml-2 flex min-w-0 items-center gap-2.5 rounded-lg border border-code-border bg-code py-1.5 pr-1.5 pl-3.5">
           <code className="truncate font-mono text-[12.5px] text-code-fg">{command}</code>
           <button
             type="button"
