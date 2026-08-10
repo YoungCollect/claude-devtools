@@ -3,7 +3,7 @@ import { api, subscribeToRevisions, type ServerConfig } from './api.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
 import { ConversationList } from './components/ConversationList.js';
 import { GitDiffDialog } from './components/GitDiffDialog.js';
-import { Inspector, INSPECTOR_WIDTH } from './components/Inspector.js';
+import { Inspector } from './components/Inspector.js';
 import { NetworkView } from './components/NetworkView.js';
 import { TraceView } from './components/TraceView.js';
 import { Badge, Button, cx, Empty, SpikeMark, Tabs, ThemeToggle } from './components/ui.js';
@@ -106,13 +106,7 @@ export function App() {
   const conversationTransport = transportForConversation(snapshot.transport, conversationId);
 
   return (
-    // The Inspector drawer is fixed-position, so the shell gives back exactly
-    // the room it occupies. Easing matches the drawer's own slide, so the two
-    // read as one movement rather than a panel landing on shifting content.
-    <div
-      className="flex h-full flex-col bg-canvas transition-[padding] duration-450 ease-[cubic-bezier(0.22,1,0.36,1)]"
-      style={{ paddingRight: selection ? INSPECTOR_WIDTH : 0 }}
-    >
+    <div className="flex h-full flex-col bg-canvas">
       <Header
         config={config}
         connected={connected}
@@ -182,8 +176,6 @@ export function App() {
         </main>
       </div>
 
-      {/* The Inspector is a drawer: it portals out of the layout and floats over
-          the view it was opened from, so it claims no column here. */}
       <Inspector
         transportId={selection?.transportId}
         focusNode={selection?.node}

@@ -31,6 +31,10 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]['id'];
 
+const INSPECTOR_DRAWER_STYLE: CSSProperties & Record<'--drawer-content-width', string> = {
+  '--drawer-content-width': 'max(440px, 46%)',
+};
+
 export interface InspectorProps {
   /** The request under inspection; `undefined` closes the drawer. */
   transportId?: string;
@@ -40,25 +44,6 @@ export interface InspectorProps {
   onClose: () => void;
 }
 
-/**
- * How much horizontal room the open drawer needs.
- *
- * Exported because the app shell reserves exactly this much padding while the
- * drawer is open. The drawer itself is `position: fixed`, so without that
- * reservation it would sit *on top of* the Network table and the header
- * controls rather than beside them — and reading a request while comparing it
- * against the rows behind it is the point of the panel.
- */
-export const INSPECTOR_WIDTH = 'max(440px, 46%)';
-
-/**
- * The drawer shell.
- *
- * It is deliberately *non-modal* and not dismissed by outside presses: the whole
- * point of this panel is to read a request while clicking the next row in the
- * Chat Trace or Network list behind it. A modal drawer would make picking the
- * next request a close-then-reopen round trip. Escape and the ✕ still close it.
- */
 export function Inspector({ transportId, focusNode, rev, onClose }: InspectorProps) {
   // The selection is cleared the moment the user closes the drawer, but the
   // panel is still on screen sliding out. Holding the last request here keeps it
@@ -79,16 +64,11 @@ export function Inspector({ transportId, focusNode, rev, onClose }: InspectorPro
         if (!open) setShown(undefined);
       }}
       swipeDirection="right"
-      modal={false}
-      disablePointerDismissal
     >
       <DrawerContent
         aria-label="Request inspector"
         className="border-hairline bg-canvas"
-        // The popup sizes itself from this variable. Setting it inline rather
-        // than through a `w-*` utility keeps the drawer's own responsive width
-        // rules from winning on specificity.
-        style={{ '--drawer-content-width': INSPECTOR_WIDTH } as CSSProperties}
+        style={INSPECTOR_DRAWER_STYLE}
       >
         {shown && <InspectorPanel transportId={shown.transportId} focusNode={shown.focusNode} rev={rev} />}
       </DrawerContent>
