@@ -1,27 +1,141 @@
 @import 'tailwindcss';
 
 /*
- * Dark-only on purpose: this is a debugging surface that sits next to a
- * terminal, and a single palette keeps the syntax colours predictable.
+ * Two themes, one set of semantic tokens.
+ *
+ * Every token below names a *role* (canvas, code, tool, muted…), never a hue.
+ * That is what lets the two palettes coexist: light follows the Claude design
+ * system (cream / coral / dark navy, see design.md/design-claude.md) while dark
+ * restores the original terminal-adjacent palette (near-black / blue / purple).
+ * Components reference roles only, so switching themes touches no component.
+ *
+ * The `code` role is the interesting one. In light it is the system's
+ * code-window-card — a dark navy card on cream, which is exactly the
+ * cream-to-dark pacing the system asks for. In dark it becomes a *raised* panel
+ * (slightly lighter than the canvas, with a visible border), because
+ * near-black on near-black would erase the boundary the card exists to draw.
+ * Same role, opposite mechanics.
+ *
+ * Light is the default so a fresh visitor lands on the designed look.
  */
 @theme {
-  --color-ink-950: #0b0d10;
-  --color-ink-900: #101317;
-  --color-ink-850: #14181d;
-  --color-ink-800: #1a1f26;
-  --color-ink-700: #252c35;
-  --color-ink-600: #3a444f;
-  --color-ink-400: #7c8894;
-  --color-ink-300: #a3adb8;
-  --color-ink-100: #e6eaef;
+  /* Surfaces */
+  --color-canvas: #faf9f5;
+  --color-surface-soft: #f5f0e8;
+  --color-surface-card: #efe9de;
+  --color-surface-strong: #e8e0d2;
 
-  --color-accent: #7aa2f7;
-  --color-tool: #c99bf5;
-  --color-ok: #6bd39a;
-  --color-warn: #e0af68;
-  --color-danger: #f77878;
+  /* Code window */
+  --color-code: #181715;
+  --color-code-soft: #1f1e1b;
+  --color-code-elevated: #252320;
+  --color-code-border: #181715; /* invisible in light — the card needs no edge */
+  --color-code-divider: #2a2723; /* but rows *inside* a card still need separating */
+  --color-code-fg: #faf9f5;
+  --color-code-fg-soft: #a09d96;
+  --color-code-accent: #e8a55a;
+  --color-code-error: #f0a0a0;
 
-  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
+  /* Text */
+  --color-ink: #141413;
+  --color-body-strong: #252523;
+  --color-body: #3d3d3a;
+  --color-muted: #6c6a64;
+  --color-muted-soft: #8e8b82;
+
+  /* Lines */
+  --color-hairline: #e6dfd8;
+  --color-hairline-soft: #ebe6df;
+
+  /* Brand / state */
+  --color-primary: #cc785c;
+  --color-primary-fg: #ffffff;
+  --color-success: #5db872;
+  --color-success-fg: #3f8f5f;
+
+  /* Badge tone pairs — solid fills, so contrast is explicit in both themes */
+  --color-neutral-bg: #efe9de;
+  --color-neutral-fg: #6c6a64;
+  --color-emph-bg: #e8e0d2;
+  --color-emph-fg: #141413;
+  --color-assistant-bg: #dcefea;
+  --color-assistant-fg: #2f7d6e;
+  --color-tool-bg: #f7e6cf;
+  --color-tool-fg: #96601f;
+  --color-warning-bg: #f6ecd0;
+  --color-warning-fg: #8a6a0d;
+  --color-error-bg: #f7e0e0;
+  --color-error-fg: #c64545;
+
+  /*
+   * Copernicus and StyreneB are licensed; the system documents Tiempos Headline
+   * / Cormorant Garamond and Inter as the sanctioned substitutes. Everything
+   * resolves locally — no webfont fetch, so the tool works offline.
+   *
+   * Type and density are deliberately NOT themed. A theme toggle that reflowed
+   * the page would make comparing the two a different task every time.
+   */
+  --font-display:
+    'Tiempos Headline', 'Cormorant Garamond', 'EB Garamond', Georgia, 'Times New Roman', serif;
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}
+
+/* The original dark palette, re-mapped onto the same roles. */
+:root[data-theme='dark'] {
+  --color-canvas: #0b0d10;
+  --color-surface-soft: #101317;
+  --color-surface-card: #1a1f26;
+  --color-surface-strong: #252c35;
+
+  --color-code: #101317;
+  --color-code-soft: #0b0d10;
+  --color-code-elevated: #1a1f26;
+  --color-code-border: #232a33;
+  --color-code-divider: #1c222a;
+  --color-code-fg: #e6eaef;
+  --color-code-fg-soft: #a3adb8;
+  --color-code-accent: #c99bf5;
+  --color-code-error: #f77878;
+
+  --color-ink: #e6eaef;
+  --color-body-strong: #d5dbe2;
+  --color-body: #a3adb8;
+  --color-muted: #7c8894;
+  --color-muted-soft: #616d78;
+
+  --color-hairline: #1f252d;
+  --color-hairline-soft: #171c22;
+
+  --color-primary: #7aa2f7;
+  --color-primary-fg: #0b0d10;
+  --color-success: #6bd39a;
+  --color-success-fg: #6bd39a;
+
+  --color-neutral-bg: #1a1f26;
+  --color-neutral-fg: #a3adb8;
+  --color-emph-bg: #252c35;
+  --color-emph-fg: #e6eaef;
+  --color-assistant-bg: #14261f;
+  --color-assistant-fg: #6bd39a;
+  --color-tool-bg: #241f2e;
+  --color-tool-fg: #c99bf5;
+  --color-warning-bg: #2a2318;
+  --color-warning-fg: #e0af68;
+  --color-error-bg: #2b1a1a;
+  --color-error-fg: #f77878;
+
+  color-scheme: dark;
+}
+
+:root {
+  color-scheme: light;
 }
 
 html,
@@ -32,23 +146,41 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-ink-950);
-  color: var(--color-ink-100);
-  font-family:
-    ui-sans-serif, -apple-system, 'Segoe UI', system-ui, 'Helvetica Neue', sans-serif;
-  font-size: 13px;
+  background: var(--color-canvas);
+  color: var(--color-body);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
 
+/* Display type is serif at weight 400 with negative tracking — non-negotiable
+   in this system; bolding it reads as off-brand. */
+.display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.3px;
+}
+
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-ink-700);
-  border-radius: 6px;
-  border: 2px solid var(--color-ink-950);
+  background: var(--color-surface-strong);
+  border-radius: 9999px;
+  border: 3px solid var(--color-canvas);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Scrollbars inside code cards follow the card, not the canvas. */
+.on-code ::-webkit-scrollbar-thumb {
+  background: var(--color-code-elevated);
+  border-color: var(--color-code);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-primary) 25%, transparent);
 }

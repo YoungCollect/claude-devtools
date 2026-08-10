@@ -2,7 +2,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, type TransportDetail } from '../api.js';
 import { formatBytes, formatClock, formatMs, formatTokens, pretty, truncate } from '../format.js';
 import type { SseFrame, TraceNode } from '../../core/types.js';
-import { Badge, CodeBlock, CopyButton, cx, Empty, KeyValue, Section, Tabs } from './ui.js';
+import {
+  Badge,
+  Button,
+  CodeBlock,
+  CopyButton,
+  cx,
+  Empty,
+  KeyValue,
+  Section,
+  Tabs,
+} from './ui.js';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -45,33 +55,27 @@ export function Inspector({ transportId, focusNode, rev, onClose }: InspectorPro
   }, [transportId, reveal, rev]);
 
   return (
-    <aside className="flex h-full w-[46%] min-w-[420px] flex-col border-l border-ink-800 bg-ink-950">
-      <header className="flex items-center gap-2 border-b border-ink-800 px-3 py-2">
-        <span className="font-mono text-[11px] text-ink-400">
-          {record ? `${record.method} ${truncate(record.path, 40)}` : 'loading…'}
+    <aside className="flex h-full w-[46%] min-w-[440px] flex-col border-l border-hairline bg-canvas">
+      <header className="flex items-center gap-2.5 border-b border-hairline px-4 py-3">
+        <span className="font-mono text-[12.5px] text-body">
+          {record ? `${record.method} ${truncate(record.path, 36)}` : 'loading…'}
         </span>
         {record?.status !== undefined && (
-          <Badge tone={record.status >= 400 ? 'danger' : 'ok'}>{record.status}</Badge>
+          <Badge tone={record.status >= 400 ? 'error' : 'success'}>{record.status}</Badge>
         )}
-        {record?.isStream && <Badge tone="accent">stream</Badge>}
+        {record?.isStream && <Badge tone="emph">stream</Badge>}
         <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
+          <Button
             onClick={() => setReveal((v) => !v)}
+            active={reveal}
             title="Reveal credentials in headers"
-            className={cx(
-              'rounded border px-1.5 py-0.5 font-mono text-[10px]',
-              reveal
-                ? 'border-warn/40 bg-warn/10 text-warn'
-                : 'border-ink-700 text-ink-400 hover:text-ink-100',
-            )}
           >
             {reveal ? 'secrets shown' : 'secrets masked'}
-          </button>
+          </Button>
           <button
             type="button"
             onClick={onClose}
-            className="px-1 text-ink-400 hover:text-ink-100"
+            className="px-1 text-muted hover:text-ink"
             aria-label="Close inspector"
           >
             ✕
@@ -79,7 +83,9 @@ export function Inspector({ transportId, focusNode, rev, onClose }: InspectorPro
         </div>
       </header>
 
-      <Tabs tabs={TABS} active={tab} onChange={setTab} />
+      <div className="border-b border-hairline py-2">
+        <Tabs tabs={TABS} active={tab} onChange={setTab} />
+      </div>
 
       <div className="flex-1 overflow-y-auto">
         {!record ? (
@@ -159,7 +165,10 @@ function Overview({ record, focusNode }: { record: TransportDetail; focusNode?: 
             ['provider', record.provider],
             ['kind', record.kind],
             ['model', record.model ?? '—'],
-            ['status', record.status !== undefined ? `${record.status} ${record.statusText ?? ''}` : '—'],
+            [
+              'status',
+              record.status !== undefined ? `${record.status} ${record.statusText ?? ''}` : '—',
+            ],
             ['stream', String(record.isStream)],
             ...(record.conversationId
               ? ([['turn', `#${(record.turnIndex ?? 0) + 1} of ${record.conversationId}`]] as [
@@ -208,10 +217,11 @@ function Headers({ record }: { record: TransportDetail }) {
     <>
       <Section title="Request headers">
         <HeaderTable headers={record.requestHeaders} />
-        <p className="mt-2 text-[10.5px] leading-relaxed text-ink-400">
+        <p className="mt-3 text-[13px] leading-[1.55] text-muted">
           These are the headers the agent sent. The proxy forwards them unchanged except{' '}
-          <code className="font-mono text-ink-300">accept-encoding</code>, which it rewrites to{' '}
-          <code className="font-mono text-ink-300">identity</code> so response bodies stay readable.
+          <code className="font-mono text-[12.5px] text-body-strong">accept-encoding</code>, which it
+          rewrites to <code className="font-mono text-[12.5px] text-body-strong">identity</code> so
+          response bodies stay readable.
         </p>
       </Section>
       <Section title="Response headers">
@@ -251,7 +261,7 @@ function Payload({ record }: { record: TransportDetail }) {
             ]}
           />
           {tools && tools.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
+            <div className="mt-3 flex flex-wrap gap-1.5">
               {tools.map((tool, i) => (
                 <Badge key={i} tone="tool">
                   {String((tool as Record<string, unknown>)?.name ?? '?')}
@@ -273,7 +283,9 @@ function Payload({ record }: { record: TransportDetail }) {
         action={<CopyButton text={record.requestBodyRaw ?? ''} label="Copy JSON" />}
         defaultOpen={system === undefined}
       >
-        <CodeBlock text={record.requestBody ? pretty(record.requestBody) : (record.requestBodyRaw ?? '')} />
+        <CodeBlock
+          text={record.requestBody ? pretty(record.requestBody) : (record.requestBodyRaw ?? '')}
+        />
       </Section>
     </>
   );
@@ -286,7 +298,7 @@ function Response({ record }: { record: TransportDetail }) {
     return (
       <Section
         title="Assembled response"
-        action={<Badge tone="accent">{record.sseFrames.length} frames</Badge>}
+        action={<Badge tone="emph">{record.sseFrames.length} frames</Badge>}
       >
         {assembled ? (
           <CodeBlock text={assembled} />
@@ -299,7 +311,9 @@ function Response({ record }: { record: TransportDetail }) {
 
   return (
     <Section title="Body" action={<CopyButton text={record.responseBodyRaw ?? ''} label="Copy" />}>
-      <CodeBlock text={record.responseBody ? pretty(record.responseBody) : (record.responseBodyRaw ?? '')} />
+      <CodeBlock
+        text={record.responseBody ? pretty(record.responseBody) : (record.responseBodyRaw ?? '')}
+      />
     </Section>
   );
 }
@@ -315,26 +329,24 @@ function Stream({ record }: { record: TransportDetail }) {
   if (record.sseFrames.length === 0) return <Empty>Not a streaming response.</Empty>;
 
   return (
-    <div className="p-3">
-      <div className="mb-2 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setHideDeltas((v) => !v)}
-          className="rounded border border-ink-700 px-1.5 py-0.5 font-mono text-[10px] text-ink-400 hover:text-ink-100"
-        >
-          {hideDeltas ? 'show deltas' : 'hide deltas'}
-        </button>
-        <span className="font-mono text-[10px] text-ink-400">
+    <div className="p-4">
+      <div className="mb-3 flex items-center gap-2.5">
+        <Button onClick={() => setHideDeltas((v) => !v)} active={hideDeltas}>
+          {hideDeltas ? 'deltas hidden' : 'deltas shown'}
+        </Button>
+        <span className="text-[13px] text-muted">
           {frames.length} / {record.sseFrames.length} frames
         </span>
       </div>
-      <div className="divide-y divide-ink-800 rounded border border-ink-800">
-        {frames.slice(0, 800).map((frame, i) => (
-          <FrameRow key={i} frame={frame} offsetMs={frame.t - start} />
-        ))}
+      <div className="on-code overflow-hidden rounded-lg bg-code">
+        <div className="divide-y divide-code-divider">
+          {frames.slice(0, 800).map((frame, i) => (
+            <FrameRow key={i} frame={frame} offsetMs={frame.t - start} />
+          ))}
+        </div>
       </div>
       {frames.length > 800 && (
-        <div className="mt-2 font-mono text-[10px] text-ink-400">
+        <div className="mt-2 text-[12px] text-muted-soft">
           showing first 800 frames of {frames.length}
         </div>
       )}
@@ -345,23 +357,27 @@ function Stream({ record }: { record: TransportDetail }) {
 function FrameRow({ frame, offsetMs }: { frame: SseFrame; offsetMs: number }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="px-2 py-1">
+    <div className="px-3 py-1.5">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-baseline gap-2 text-left"
+        className="flex w-full items-baseline gap-3 text-left"
       >
-        <span className="w-14 shrink-0 text-right font-mono text-[10px] text-ink-400">
+        <span className="w-16 shrink-0 text-right font-mono text-[12px] text-code-fg-soft">
           +{formatMs(offsetMs)}
         </span>
-        <span className="w-44 shrink-0 truncate font-mono text-[10.5px] text-accent">
+        <span className="w-48 shrink-0 truncate font-mono text-[12.5px] text-code-accent">
           {frame.event ?? '(no event)'}
         </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-ink-400">
+        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-code-fg-soft">
           {truncate(frame.raw.replace(/\s+/g, ' '), 120)}
         </span>
       </button>
-      {open && <CodeBlock className="mt-1" text={frame.data ? pretty(frame.data) : frame.raw} />}
+      {open && (
+        <pre className="mt-1.5 overflow-x-auto rounded-md bg-code-soft p-3 font-mono text-[12px] leading-[1.6] whitespace-pre-wrap text-code-fg">
+          {frame.data ? pretty(frame.data) : frame.raw}
+        </pre>
+      )}
     </div>
   );
 }
@@ -375,13 +391,19 @@ function Timing({ record }: { record: TransportDetail }) {
     <>
       <Section title="Waterfall">
         {total > 0 ? (
-          <div className="space-y-2">
-            <Bar label="wait (ttfb)" widthPct={scale(t.ttfbMs)} offsetPct={0} tone="bg-ink-600" value={t.ttfbMs} />
+          <div className="space-y-3">
+            <Bar
+              label="wait (ttfb)"
+              widthPct={scale(t.ttfbMs)}
+              offsetPct={0}
+              tone="bg-muted-soft"
+              value={t.ttfbMs}
+            />
             <Bar
               label="→ first token"
               widthPct={scale((t.firstTokenMs ?? 0) - (t.ttfbMs ?? 0))}
               offsetPct={scale(t.ttfbMs)}
-              tone="bg-warn"
+              tone="bg-tool-fg"
               value={
                 t.firstTokenMs !== undefined && t.ttfbMs !== undefined
                   ? t.firstTokenMs - t.ttfbMs
@@ -392,7 +414,7 @@ function Timing({ record }: { record: TransportDetail }) {
               label="stream"
               widthPct={scale(t.streamMs)}
               offsetPct={scale(t.ttfbMs)}
-              tone="bg-accent"
+              tone="bg-primary"
               value={t.streamMs}
             />
           </div>
@@ -406,7 +428,10 @@ function Timing({ record }: { record: TransportDetail }) {
           rows={[
             ['started', formatClock(record.timing.startedAt)],
             ['headers', record.timing.ttfbAt ? formatClock(record.timing.ttfbAt) : '—'],
-            ['first token', record.timing.firstTokenAt ? formatClock(record.timing.firstTokenAt) : '—'],
+            [
+              'first token',
+              record.timing.firstTokenAt ? formatClock(record.timing.firstTokenAt) : '—',
+            ],
             ['ended', record.timing.endedAt ? formatClock(record.timing.endedAt) : '—'],
           ]}
         />
@@ -447,13 +472,13 @@ function Bar({
 }) {
   return (
     <div>
-      <div className="mb-0.5 flex justify-between font-mono text-[10px] text-ink-400">
+      <div className="mb-1 flex justify-between text-[12.5px] text-muted">
         <span>{label}</span>
-        <span>{formatMs(value)}</span>
+        <span className="font-mono">{formatMs(value)}</span>
       </div>
-      <div className="h-2 w-full rounded-sm bg-ink-900">
+      <div className="h-2 w-full rounded-full bg-surface-card">
         <div
-          className={cx('h-2 rounded-sm', tone)}
+          className={cx('h-2 rounded-full', tone)}
           style={{ marginLeft: `${offsetPct}%`, width: `${Math.max(widthPct, 0.5)}%` }}
         />
       </div>

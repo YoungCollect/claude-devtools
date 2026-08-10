@@ -117,6 +117,53 @@ provider are separate concepts throughout (`agent: claude-code` vs `provider: an
 
 ---
 
+## Design
+
+Two themes, toggled from the top right and remembered in `localStorage` (first visit
+follows the OS preference):
+
+- **Light** — the Claude design system in `design.md/design-claude.md`: warm cream canvas
+  (`#faf9f5`), coral accent (`#cc785c`), dark navy product surfaces (`#181715`).
+- **Dark** — the original terminal-adjacent palette: near-black canvas (`#0b0d10`), blue
+  accent (`#7aa2f7`), purple tool colour.
+
+### One token layer, two palettes
+
+Every colour in `src/web/styles.css` names a **role**, never a hue: `canvas`, `code`,
+`tool-fg`, `muted`, `primary`. The two palettes fill the same role set, so switching
+themes is a CSS-variable swap on `<html data-theme>` — no component contains a colour
+decision, and no component knows which theme is active.
+
+The interesting role is `code`. In light it is the system's `code-window-card` — a dark
+navy card on cream. In dark that same card would be near-black on near-black, so the
+role inverts to a *raised* panel with a visible border. Same name, opposite mechanics;
+that inversion is precisely what a role-named token can express and a hue-named one
+cannot.
+
+Type and density are deliberately **not** themed. A toggle that also reflowed the page
+would make comparing the two a different task every time.
+
+Two further adaptations, since the system is written for marketing surfaces and this is a
+dense debugging tool:
+
+- **Spacing is compressed.** The system's 96px section rhythm would let a trace show
+  three events per screen. Surfaces, colour and type voice are taken as-is; the spacing
+  scale is used at its small end (8/12/16/24px).
+- **The `code-window-card` does the heavy lifting.** Every payload, tool result, SSE
+  frame list and raw body renders as a dark navy card on cream — which is precisely the
+  cream-to-dark pacing the system asks for, and it separates machine output from human
+  content at a glance.
+
+Serif is reserved for the human's own words: the wordmark, conversation titles, and user
+messages in the trace. The accent stays scarce in both themes — selection state, active
+toggles, the inspect affordance — never decorative. Tool and status colours use the
+light theme's documented sparing accents (teal, amber) rather than introducing a fourth
+surface tone; dark maps the same roles onto its green and purple.
+
+Copernicus and StyreneB are licensed; the app uses the substitutes the system documents
+(Tiempos Headline / Cormorant Garamond / Georgia, and Inter), all resolved locally so
+the tool works offline with no webfont fetch.
+
 ## Security
 
 Captured traffic contains live credentials and whole source files.

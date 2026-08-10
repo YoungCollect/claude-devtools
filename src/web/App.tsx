@@ -5,7 +5,8 @@ import { ConversationList } from './components/ConversationList.js';
 import { Inspector } from './components/Inspector.js';
 import { NetworkView } from './components/NetworkView.js';
 import { TraceView } from './components/TraceView.js';
-import { Badge, CopyButton, cx, Empty, Tabs } from './components/ui.js';
+import { Badge, Button, cx, Empty, SpikeMark, Tabs, ThemeToggle } from './components/ui.js';
+import { useTheme } from './theme.js';
 
 const VIEWS = [
   { id: 'trace', label: 'Chat Trace' },
@@ -31,6 +32,7 @@ export function App() {
   const [nodes, setNodes] = useState<TraceNode[]>([]);
   const [selection, setSelection] = useState<Selection | undefined>();
   const [connected, setConnected] = useState(false);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   // `pinned` means the user picked a conversation explicitly; until then the UI
   // follows whatever trace is currently active, which is what you want when you
@@ -94,12 +96,18 @@ export function App() {
   const conversation = snapshot.conversations.find((c) => c.id === conversationId);
 
   return (
-    <div className="flex h-full flex-col bg-ink-950">
-      <Header config={config} connected={connected} onClear={() => void api.clear().then(refresh)} />
+    <div className="flex h-full flex-col bg-canvas">
+      <Header
+        config={config}
+        connected={connected}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onClear={() => void api.clear().then(refresh)}
+      />
 
       <div className="flex min-h-0 flex-1">
-        <nav className="flex w-64 shrink-0 flex-col overflow-y-auto border-r border-ink-800">
-          <div className="border-b border-ink-800 px-3 py-2 text-[10px] font-medium tracking-wider text-ink-400 uppercase">
+        <nav className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-hairline">
+          <div className="border-b border-hairline px-4 py-3 text-[12px] font-medium tracking-[1.5px] text-muted uppercase">
             Conversations
           </div>
           <ConversationList
@@ -113,7 +121,7 @@ export function App() {
         </nav>
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center border-b border-ink-800">
+          <div className="flex items-center border-b border-hairline py-2">
             <Tabs
               tabs={[
                 { id: 'trace' as const, label: 'Chat Trace', count: nodes.length },
@@ -123,9 +131,9 @@ export function App() {
               onChange={setView}
             />
             {view === 'trace' && conversation && (
-              <div className="ml-auto flex items-center gap-1.5 px-3 font-mono text-[10px] text-ink-400">
-                <Badge tone="accent">{conversation.agent}</Badge>
-                <span>{conversation.model}</span>
+              <div className="ml-auto flex items-center gap-2 px-4">
+                <Badge tone="emph">{conversation.agent}</Badge>
+                <span className="font-mono text-[12.5px] text-muted">{conversation.model}</span>
               </div>
             )}
           </div>
@@ -165,47 +173,58 @@ export function App() {
 function Header({
   config,
   connected,
+  theme,
+  onToggleTheme,
   onClear,
 }: {
   config: ServerConfig | undefined;
   connected: boolean;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
   onClear: () => void;
 }) {
   const command = config ? `ANTHROPIC_BASE_URL=${config.proxyUrl} claude` : '';
   return (
-    <header className="flex shrink-0 items-center gap-3 border-b border-ink-800 px-3 py-2">
-      <span className="text-[13px] font-semibold tracking-tight text-ink-100">Agent DevTools</span>
-      <span
-        className={cx(
-          'flex items-center gap-1.5 font-mono text-[10px]',
-          connected ? 'text-ok' : 'text-ink-400',
-        )}
-      >
+    <header className="flex h-16 shrink-0 items-center gap-4 border-b border-hairline px-4">
+      {/* Spike mark + wordmark, per the system's brand lockup. */}
+      <div className="flex items-center gap-2 text-ink">
+        <SpikeMark size={15} />
+        <span className="display text-[20px] tracking-[-0.3px]">Agent DevTools</span>
+      </div>
+
+      <span className={cx('flex items-center gap-1.5 text-[13px]', connected ? 'text-success-fg' : 'text-muted-soft')}>
         <span
-          className={cx('h-1.5 w-1.5 rounded-full', connected ? 'bg-ok' : 'bg-ink-600')}
+          className={cx('h-1.5 w-1.5 rounded-full', connected ? 'bg-success' : 'bg-hairline')}
           aria-hidden
         />
         {connected ? 'live' : 'offline'}
       </span>
 
+      {/*
+        The run command is the one thing a first-time user needs, so it gets the
+        dark code-window treatment rather than being another line of cream text.
+      */}
       {config && (
-        <div className="ml-2 flex items-center gap-2 rounded border border-ink-800 bg-ink-900 px-2 py-1">
-          <code className="font-mono text-[10.5px] text-ink-300">{command}</code>
-          <CopyButton text={command} />
+        <div className="ml-2 flex items-center gap-2.5 rounded-lg bg-code py-1.5 pr-1.5 pl-3.5">
+          <code className="font-mono text-[12.5px] text-code-fg">{command}</code>
+          <button
+            type="button"
+            onClick={() => void navigator.clipboard.writeText(command)}
+            className="rounded-md bg-code-elevated px-2.5 py-1 text-[12px] font-medium text-code-fg hover:bg-primary hover:text-primary-fg"
+          >
+            Copy
+          </button>
         </div>
       )}
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-3">
         {config && (
-          <span className="font-mono text-[10px] text-ink-400">→ {config.upstream}</span>
+          <span className="font-mono text-[12.5px] text-muted-soft">→ {config.upstream}</span>
         )}
-        <button
-          type="button"
-          onClick={onClear}
-          className="rounded border border-ink-700 px-2 py-0.5 font-mono text-[10px] text-ink-400 hover:border-danger/40 hover:text-danger"
-        >
+        <Button onClick={onClear} tone="danger">
           Clear
-        </button>
+        </Button>
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </div>
     </header>
   );
