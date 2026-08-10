@@ -2,12 +2,17 @@ import { useState } from 'react';
 import type { TransportSummary } from '../../core/types.js';
 import { formatBytes, formatClock, formatMs, formatTokens } from '../format.js';
 import { Badge, cx, Empty } from './ui.js';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 
 export interface NetworkViewProps {
   transport: TransportSummary[];
   selectedId?: string;
   onSelect: (id: string) => void;
 }
+
+/** Column heads are the system's uppercase category label, not shadcn's sentence-case default. */
+const HEAD = 'px-3 py-2 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase';
+const NUM = 'px-3 py-2 text-right font-mono text-[12.5px]';
 
 /**
  * The selected conversation's request list. Selecting a row opens the same
@@ -40,77 +45,77 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
         <span className="ml-auto text-[13px] text-muted-foreground">{rows.length} requests</span>
       </div>
 
-      <div className="flex-1 overflow-auto">
-        {rows.length === 0 ? (
+      {rows.length === 0 ? (
+        <div className="flex-1 overflow-auto">
           <Empty>No requests captured yet.</Empty>
-        ) : (
-          <table className="w-full border-collapse text-[13px]">
-            <thead className="sticky top-0 z-10 bg-surface-soft text-muted-foreground">
-              <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:text-left [&>th]:text-[12px] [&>th]:font-medium [&>th]:tracking-[1.5px] [&>th]:uppercase">
-                <th>time</th>
-                <th>path</th>
-                <th>status</th>
-                <th>model</th>
-                <th className="text-right">ttfb</th>
-                <th className="text-right">total</th>
-                <th className="text-right">size</th>
-                <th className="text-right">tokens</th>
-                <th>turn</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr
-                  key={row.id}
-                  onClick={() => onSelect(row.id)}
-                  className={cx(
-                    'cursor-pointer border-t border-hairline-soft [&>td]:px-3 [&>td]:py-2',
-                    row.id === selectedId
-                      ? 'bg-surface-card'
-                      : 'hover:bg-surface-soft',
-                    row.kind !== 'conversation' && 'text-muted-soft',
+        </div>
+      ) : (
+        <Table containerClassName="min-h-0 flex-1 overflow-auto" className="text-[13px]">
+          <TableHeader className="sticky top-0 z-10 bg-surface-soft">
+            <TableRow className="hover:bg-surface-soft">
+              <TableHead className={HEAD}>time</TableHead>
+              <TableHead className={HEAD}>path</TableHead>
+              <TableHead className={HEAD}>status</TableHead>
+              <TableHead className={HEAD}>model</TableHead>
+              <TableHead className={cx(HEAD, 'text-right')}>ttfb</TableHead>
+              <TableHead className={cx(HEAD, 'text-right')}>total</TableHead>
+              <TableHead className={cx(HEAD, 'text-right')}>size</TableHead>
+              <TableHead className={cx(HEAD, 'text-right')}>tokens</TableHead>
+              <TableHead className={HEAD}>turn</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow
+                key={row.id}
+                onClick={() => onSelect(row.id)}
+                // `data-state` is shadcn's own selected-row hook; the fill it
+                // resolves to is this system's selected surface, not the default.
+                data-state={row.id === selectedId ? 'selected' : undefined}
+                className={cx(
+                  'cursor-pointer border-hairline-soft hover:bg-surface-soft data-[state=selected]:bg-surface-card',
+                  row.kind !== 'conversation' && 'text-muted-soft',
+                )}
+              >
+                <TableCell className="px-3 py-2 font-mono text-muted-foreground">
+                  {formatClock(row.startedAt)}
+                </TableCell>
+                <TableCell className="max-w-[240px] truncate px-3 py-2">
+                  <span className="font-mono text-body-strong">{row.path}</span>
+                  {row.kind !== 'conversation' && (
+                    <span className="ml-2 text-[12px] text-muted-soft">{row.kind}</span>
                   )}
-                >
-                  <td className="font-mono whitespace-nowrap text-muted-foreground">
-                    {formatClock(row.startedAt)}
-                  </td>
-                  <td className="max-w-[240px] truncate">
-                    <span className="font-mono text-body-strong">{row.path}</span>
-                    {row.kind !== 'conversation' && (
-                      <span className="ml-2 text-[12px] text-muted-soft">{row.kind}</span>
-                    )}
-                  </td>
-                  <td>
-                    {row.error ? (
-                      <Badge tone="error">err</Badge>
-                    ) : row.status === undefined ? (
-                      <Badge tone="warning">…</Badge>
-                    ) : (
-                      <Badge tone={row.status >= 400 ? 'error' : 'success'}>{row.status}</Badge>
-                    )}
-                  </td>
-                  <td className="max-w-[160px] truncate font-mono text-[12.5px]">
-                    {row.model ?? '—'}
-                  </td>
-                  <td className="text-right font-mono text-[12.5px]">{formatMs(row.ttfbMs)}</td>
-                  <td className="text-right font-mono text-[12.5px]">{formatMs(row.durationMs)}</td>
-                  <td className="text-right font-mono text-[12.5px] text-muted-foreground">
-                    {formatBytes(row.responseBytes)}
-                  </td>
-                  <td className="text-right font-mono text-[12.5px]">
-                    {row.usage
-                      ? `${formatTokens(row.usage.inputTokens)}/${formatTokens(row.usage.outputTokens)}`
-                      : '—'}
-                  </td>
-                  <td className="font-mono text-[12.5px] text-muted-foreground">
-                    {row.turnIndex !== undefined ? `#${row.turnIndex + 1}` : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+                </TableCell>
+                <TableCell className="px-3 py-2">
+                  {row.error ? (
+                    <Badge tone="error">err</Badge>
+                  ) : row.status === undefined ? (
+                    <Badge tone="warning">…</Badge>
+                  ) : (
+                    <Badge tone={row.status >= 400 ? 'error' : 'success'}>{row.status}</Badge>
+                  )}
+                </TableCell>
+                <TableCell className="max-w-[160px] truncate px-3 py-2 font-mono text-[12.5px]">
+                  {row.model ?? '—'}
+                </TableCell>
+                <TableCell className={NUM}>{formatMs(row.ttfbMs)}</TableCell>
+                <TableCell className={NUM}>{formatMs(row.durationMs)}</TableCell>
+                <TableCell className={cx(NUM, 'text-muted-foreground')}>
+                  {formatBytes(row.responseBytes)}
+                </TableCell>
+                <TableCell className={NUM}>
+                  {row.usage
+                    ? `${formatTokens(row.usage.inputTokens)}/${formatTokens(row.usage.outputTokens)}`
+                    : '—'}
+                </TableCell>
+                <TableCell className="px-3 py-2 font-mono text-[12.5px] text-muted-foreground">
+                  {row.turnIndex !== undefined ? `#${row.turnIndex + 1}` : '—'}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
     </div>
   );
 }

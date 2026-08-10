@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { api, type TransportDetail } from '../api.js';
 import { formatBytes, formatClock, formatMs, formatTokens, pretty, truncate } from '../format.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
@@ -16,6 +16,7 @@ import {
   Section,
   Tabs,
 } from './ui.js';
+import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from './ui/drawer.js';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -30,14 +31,79 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 export interface InspectorProps {
-  transportId: string;
+  /** The request under inspection; `undefined` closes the drawer. */
+  transportId?: string;
   /** The trace node the user drilled down from, when there is one. */
   focusNode?: TraceNode;
   rev: number;
   onClose: () => void;
 }
 
+/**
+ * How much horizontal room the open drawer needs.
+ *
+ * Exported because the app shell reserves exactly this much padding while the
+ * drawer is open. The drawer itself is `position: fixed`, so without that
+ * reservation it would sit *on top of* the Network table and the header
+ * controls rather than beside them — and reading a request while comparing it
+ * against the rows behind it is the point of the panel.
+ */
+export const INSPECTOR_WIDTH = 'max(440px, 46%)';
+
+/**
+ * The drawer shell.
+ *
+ * It is deliberately *non-modal* and not dismissed by outside presses: the whole
+ * point of this panel is to read a request while clicking the next row in the
+ * Chat Trace or Network list behind it. A modal drawer would make picking the
+ * next request a close-then-reopen round trip. Escape and the ✕ still close it.
+ */
 export function Inspector({ transportId, focusNode, rev, onClose }: InspectorProps) {
+  // The selection is cleared the moment the user closes the drawer, but the
+  // panel is still on screen sliding out. Holding the last request here keeps it
+  // rendered until the close animation actually finishes.
+  const [shown, setShown] = useState<{ transportId: string; focusNode?: TraceNode }>();
+
+  useEffect(() => {
+    if (transportId !== undefined) setShown({ transportId, focusNode });
+  }, [transportId, focusNode]);
+
+  return (
+    <Drawer
+      open={transportId !== undefined}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      onOpenChangeComplete={(open) => {
+        if (!open) setShown(undefined);
+      }}
+      swipeDirection="right"
+      modal={false}
+      disablePointerDismissal
+    >
+      <DrawerContent
+        aria-label="Request inspector"
+        className="border-hairline bg-canvas"
+        // The popup sizes itself from this variable. Setting it inline rather
+        // than through a `w-*` utility keeps the drawer's own responsive width
+        // rules from winning on specificity.
+        style={{ '--drawer-content-width': INSPECTOR_WIDTH } as CSSProperties}
+      >
+        {shown && <InspectorPanel transportId={shown.transportId} focusNode={shown.focusNode} rev={rev} />}
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
+function InspectorPanel({
+  transportId,
+  focusNode,
+  rev,
+}: {
+  transportId: string;
+  focusNode?: TraceNode;
+  rev: number;
+}) {
   const [tab, setTab] = useState<TabId>('overview');
   const [reveal, setReveal] = useState(false);
   const [record, setRecord] = useState<TransportDetail | undefined>();
@@ -58,11 +124,11 @@ export function Inspector({ transportId, focusNode, rev, onClose }: InspectorPro
   }, [transportId, reveal, rev]);
 
   return (
-    <aside className="flex h-full w-[46%] min-w-[440px] flex-col border-l border-hairline bg-canvas">
-      <header className="flex items-center gap-2.5 border-b border-hairline px-4 py-3">
-        <span className="font-mono text-[12.5px] text-body">
+    <>
+      <header className="flex shrink-0 items-center gap-2.5 border-b border-hairline px-4 py-3">
+        <DrawerTitle className="font-mono text-[12.5px] font-normal text-body">
           {record ? `${record.method} ${truncate(record.path, 36)}` : 'loading…'}
-        </span>
+        </DrawerTitle>
         {record?.status !== undefined && (
           <Badge tone={record.status >= 400 ? 'error' : 'success'}>{record.status}</Badge>
         )}
@@ -75,29 +141,27 @@ export function Inspector({ transportId, focusNode, rev, onClose }: InspectorPro
           >
             {reveal ? 'secrets shown' : 'secrets masked'}
           </Button>
-          <button
-            type="button"
-            onClick={onClose}
+          <DrawerClose
             className="px-1 text-muted-foreground hover:text-ink"
             aria-label="Close inspector"
           >
             ✕
-          </button>
+          </DrawerClose>
         </div>
       </header>
 
-      <div className="border-b border-hairline py-2">
+      <div className="shrink-0 border-b border-hairline py-2">
         <Tabs tabs={TABS} active={tab} onChange={setTab} />
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {!record ? (
           <Empty>Request not found — it may have been evicted from the buffer.</Empty>
         ) : (
           <TabBody tab={tab} record={record} focusNode={focusNode} />
         )}
       </div>
-    </aside>
+    </>
   );
 }
 

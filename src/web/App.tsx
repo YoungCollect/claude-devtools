@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, subscribeToRevisions, type ServerConfig } from './api.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
 import { ConversationList } from './components/ConversationList.js';
-import { Inspector } from './components/Inspector.js';
+import { Inspector, INSPECTOR_WIDTH } from './components/Inspector.js';
 import { NetworkView } from './components/NetworkView.js';
 import { TraceView } from './components/TraceView.js';
 import { Badge, Button, cx, Empty, SpikeMark, Tabs, ThemeToggle } from './components/ui.js';
@@ -104,7 +104,13 @@ export function App() {
   const conversationTransport = transportForConversation(snapshot.transport, conversationId);
 
   return (
-    <div className="flex h-full flex-col bg-canvas">
+    // The Inspector drawer is fixed-position, so the shell gives back exactly
+    // the room it occupies. Easing matches the drawer's own slide, so the two
+    // read as one movement rather than a panel landing on shifting content.
+    <div
+      className="flex h-full flex-col bg-canvas transition-[padding] duration-450 ease-[cubic-bezier(0.22,1,0.36,1)]"
+      style={{ paddingRight: selection ? INSPECTOR_WIDTH : 0 }}
+    >
       <Header
         config={config}
         connected={connected}
@@ -168,16 +174,16 @@ export function App() {
             )}
           </div>
         </main>
-
-        {selection && (
-          <Inspector
-            transportId={selection.transportId}
-            focusNode={selection.node}
-            rev={snapshot.rev}
-            onClose={() => setSelection(undefined)}
-          />
-        )}
       </div>
+
+      {/* The Inspector is a drawer: it portals out of the layout and floats over
+          the view it was opened from, so it claims no column here. */}
+      <Inspector
+        transportId={selection?.transportId}
+        focusNode={selection?.node}
+        rev={snapshot.rev}
+        onClose={() => setSelection(undefined)}
+      />
     </div>
   );
 }
@@ -198,13 +204,17 @@ function Header({
   const command = config ? `ANTHROPIC_BASE_URL=${config.proxyUrl} claude` : '';
   return (
     <header className="flex h-16 shrink-0 items-center gap-4 border-b border-hairline px-4">
-      {/* Spike mark + wordmark, per the system's brand lockup. */}
-      <div className="flex items-center gap-2 text-ink">
+      {/* Spike mark + wordmark, per the system's brand lockup. The lockup never
+          wraps or compresses: opening the Inspector narrows this header, and the
+          run command below gives up its width instead. */}
+      <div className="flex shrink-0 items-center gap-2 text-ink">
         <SpikeMark size={15} />
-        <span className="display text-[20px] tracking-[-0.3px]">Agent DevTools</span>
+        <span className="display text-[20px] tracking-[-0.3px] whitespace-nowrap">
+          Agent DevTools
+        </span>
       </div>
 
-      <span className={cx('flex items-center gap-1.5 text-[13px]', connected ? 'text-success-fg' : 'text-muted-soft')}>
+      <span className={cx('flex shrink-0 items-center gap-1.5 text-[13px]', connected ? 'text-success-fg' : 'text-muted-soft')}>
         <span
           className={cx('h-1.5 w-1.5 rounded-full', connected ? 'bg-success' : 'bg-hairline')}
           aria-hidden
@@ -217,21 +227,23 @@ function Header({
         dark code-window treatment rather than being another line of cream text.
       */}
       {config && (
-        <div className="ml-2 flex items-center gap-2.5 rounded-lg bg-code py-1.5 pr-1.5 pl-3.5">
-          <code className="font-mono text-[12.5px] text-code-fg">{command}</code>
+        <div className="ml-2 flex min-w-0 items-center gap-2.5 rounded-lg bg-code py-1.5 pr-1.5 pl-3.5">
+          <code className="truncate font-mono text-[12.5px] text-code-fg">{command}</code>
           <button
             type="button"
             onClick={() => void navigator.clipboard.writeText(command)}
-            className="rounded-md bg-code-elevated px-2.5 py-1 text-[12px] font-medium text-code-fg hover:bg-primary hover:text-primary-foreground"
+            className="shrink-0 rounded-md bg-code-elevated px-2.5 py-1 text-[12px] font-medium text-code-fg hover:bg-primary hover:text-primary-foreground"
           >
             Copy
           </button>
         </div>
       )}
 
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex shrink-0 items-center gap-3">
         {config && (
-          <span className="font-mono text-[12.5px] text-muted-soft">→ {config.upstream}</span>
+          <span className="max-w-[220px] truncate font-mono text-[12.5px] text-muted-soft">
+            → {config.upstream}
+          </span>
         )}
         <Button onClick={onClear} tone="danger">
           Clear
