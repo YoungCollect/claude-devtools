@@ -28,6 +28,19 @@ const jsonStyles = {
   },
 };
 
+/**
+ * Only the root container is open on arrival, so the tree renders as a list of
+ * the body's top-level fields.
+ *
+ * A request body is a few keys wrapping tens of thousands of tokens: expanding
+ * `messages` on sight buried `model`, `tools` and `max_tokens` under a page of
+ * content blocks. Level 0 is the root object itself; every field under it
+ * starts folded.
+ */
+function shouldExpandNode(level: number): boolean {
+  return level < 1;
+}
+
 export function JsonBodyViewer({ value, raw = '' }: { value: unknown; raw?: string }) {
   const data = jsonContainer(value, raw);
   if (!data) return <CodeBlock text={value !== undefined ? pretty(value) : raw} />;
@@ -37,7 +50,7 @@ export function JsonBodyViewer({ value, raw = '' }: { value: unknown; raw?: stri
       <JsonView
         data={data}
         style={jsonStyles}
-        shouldExpandNode={(level) => level < 2}
+        shouldExpandNode={shouldExpandNode}
         clickToExpandNode
         aria-label="JSON body"
       />
