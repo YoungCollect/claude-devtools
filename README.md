@@ -93,11 +93,16 @@ That split matters, because chat events and HTTP requests are not 1:1:
 The trace distinguishes transport roles from injected context without matching specific
 prompt wording:
 
-- The request's top-level `system` content is shown as `system`.
+- The request's top-level `system` content is shown as a right-aligned,
+  collapsible `system prompt` banner.
+- A `messages[]` item whose role is `system` is shown as a right-aligned,
+  collapsible `system` banner.
 - Inside a `user` text block, balanced `<tag>...</tag>` wrappers are split into
   `context` nodes labelled with their tag name, such as `system-reminder`,
   `local-command-caveat`, or `command-name`.
-- Text outside those wrappers remains `user`, representing the human-authored message.
+- Text outside those wrappers remains `user`, representing the human-authored message,
+  and is shown as a right-aligned chat bubble.
+- Assistant replies are shown as left-aligned chat bubbles.
 - The original provider block still contributes one conversation fingerprint, so this
   display-only split does not change transcript matching.
 

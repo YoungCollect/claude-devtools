@@ -134,6 +134,9 @@ export interface TraceNode {
   /** Wrapper tag for context injected inside a user-role content block. */
   contextTag?: string;
 
+  /** Distinguishes the request-level prompt from a system-role history message. */
+  systemSource?: 'prompt' | 'message';
+
   /** tool_call / tool_result. */
   toolName?: string;
   toolUseId?: string;

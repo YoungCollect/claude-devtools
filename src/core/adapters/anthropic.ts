@@ -1,8 +1,8 @@
 import { fingerprint } from '../fingerprint.js';
+import { splitTaggedUserContent } from '../tagged-content.js';
 import type { SseFrame, TokenUsage, TransportRecord } from '../types.js';
 import type {
   HistoryItem,
-  HistorySegment,
   ParsedRequest,
   ProviderAdapter,
   StreamBlockEvent,
@@ -311,7 +311,7 @@ function textHistoryItem(role: string | undefined, text: string): HistoryItem {
       fp: fpSystemText(text),
       kind: 'system',
       text,
-      segments: [{ kind: 'system', text }],
+      segments: [{ kind: 'system', systemSource: 'message', text }],
     };
   }
   return {
@@ -322,29 +322,6 @@ function textHistoryItem(role: string | undefined, text: string): HistoryItem {
     text,
     segments: splitTaggedUserContent(text),
   };
-}
-
-/** Splits balanced `<tag>...</tag>` wrappers from ordinary user-authored text. */
-export function splitTaggedUserContent(text: string): HistorySegment[] {
-  const taggedBlock = /<([A-Za-z][\w:.-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1\s*>/g;
-  const segments: HistorySegment[] = [];
-  let cursor = 0;
-
-  for (const match of text.matchAll(taggedBlock)) {
-    const index = match.index ?? 0;
-    pushPlainSegment(segments, text.slice(cursor, index));
-    const wrapped = match[0].trim();
-    const tag = match[1];
-    if (wrapped && tag) segments.push({ kind: 'context', contextTag: tag, text: wrapped });
-    cursor = index + match[0].length;
-  }
-  pushPlainSegment(segments, text.slice(cursor));
-  return segments;
-}
-
-function pushPlainSegment(segments: HistorySegment[], text: string): void {
-  const plain = text.trim();
-  if (plain) segments.push({ kind: 'user', text: plain });
 }
 
 function blockKind(type: unknown): StreamBlockEvent['kind'] {

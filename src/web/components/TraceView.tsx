@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { splitTaggedUserContent } from '../../core/tagged-content.js';
 import type { TraceNode } from '../../core/types.js';
 import { formatMs, formatTokens, summarizeToolInput, toolResultText, truncate } from '../format.js';
 import { Badge, Chevron, cx, Empty, TagLabel, type Tone } from './ui.js';
@@ -42,16 +43,34 @@ function TraceRow({
   selected: boolean;
   onInspect: (node: TraceNode) => void;
 }) {
+  const rightAligned =
+    node.kind === 'system' || node.kind === 'context' || node.kind === 'user';
+  const contentWidth =
+    node.kind === 'system' || node.kind === 'context'
+      ? 'w-[82%]'
+      : node.kind === 'user' || node.kind === 'assistant'
+        ? 'max-w-[72%]'
+        : 'w-full';
   return (
     <div
       onClick={() => onInspect(node)}
       className={cx(
-        'group relative cursor-pointer border-l-2 py-3 pr-4 pl-4 transition-colors',
+        'group relative flex w-full cursor-pointer py-4 transition-colors',
+        rightAligned
+          ? 'justify-end border-r-2 pr-4 pl-10'
+          : 'justify-start border-l-2 pr-10 pl-4',
         selected ? 'border-primary bg-surface-soft' : 'border-transparent hover:bg-surface-soft/60',
       )}
     >
-      <NodeBody node={node} />
-      <span className="pointer-events-none absolute top-3 right-4 hidden text-[12px] font-medium text-primary group-hover:block">
+      <div className={cx('min-w-0', contentWidth)}>
+        <NodeBody node={node} />
+      </div>
+      <span
+        className={cx(
+          'pointer-events-none absolute top-3 hidden text-[12px] font-medium text-primary group-hover:block',
+          rightAligned ? 'left-4' : 'right-4',
+        )}
+      >
         inspect →
       </span>
     </div>
@@ -61,7 +80,13 @@ function TraceRow({
 function NodeBody({ node }: { node: TraceNode }) {
   switch (node.kind) {
     case 'system':
-      return <ContextNode text={node.text ?? ''} label="system" tone="warning" />;
+      return (
+        <ContextNode
+          text={node.text ?? ''}
+          label={node.systemSource === 'prompt' ? 'system prompt' : 'system'}
+          tone="warning"
+        />
+      );
     case 'context':
       return (
         <ContextNode text={node.text ?? ''} label={node.contextTag ?? 'context'} tone="neutral" />
@@ -87,30 +112,35 @@ function NodeBody({ node }: { node: TraceNode }) {
 
 function UserNode({ node }: { node: TraceNode }) {
   const raw = node.text ?? '';
-  const { text, reminders } = splitSystemReminders(raw);
+  const segments = splitTaggedUserContent(raw);
+  if (segments.some(({ kind }) => kind === 'context')) {
+    return (
+      <div className="space-y-3">
+        {segments.map((segment, index) =>
+          segment.kind === 'context' ? (
+            <ContextNode
+              key={`${segment.contextTag ?? 'context'}-${index}`}
+              text={segment.text}
+              label={segment.contextTag ?? 'context'}
+            />
+          ) : (
+            <UserBubble key={`user-${index}`} text={segment.text} />
+          ),
+        )}
+      </div>
+    );
+  }
 
-  // Claude Code injects `<system-reminder>` blocks as their own content blocks
-  // inside the user message. Rendering each as a full user turn buries the
-  // sentence the human actually typed, so a reminder-only block collapses to a
-  // dim one-liner — still on the trace, still inspectable, just not shouting.
-  if (!text && reminders > 0) return <ContextNode text={raw} label="system-reminder" />;
+  return <UserBubble text={segments[0]?.text ?? raw} />;
+}
 
+function UserBubble({ text }: { text: string }) {
   return (
     <div>
-      <Gutter label="user" tone="emph" />
-      {/*
-        The human's own words are the one place in this dense tool where the
-        system's editorial serif earns its keep — it separates what was asked
-        from everything the machine did in response.
-      */}
-      <div className="display mt-2 text-[17px] leading-[1.4] whitespace-pre-wrap text-ink">
+      <Gutter label="user" tone="emph" align="end" />
+      <div className="display mt-1.5 rounded-2xl rounded-tr-sm bg-surface-card px-4 py-3 text-[17px] leading-[1.4] whitespace-pre-wrap text-ink">
         {text || <span className="text-muted-soft italic">(no visible text)</span>}
       </div>
-      {reminders > 0 && (
-        <div className="mt-1.5 text-[12px] text-muted-soft">
-          + {reminders} system-reminder block{reminders > 1 ? 's' : ''} (hidden — see Payload)
-        </div>
-      )}
     </div>
   );
 }
@@ -129,7 +159,7 @@ function AssistantNode({ node }: { node: TraceNode }) {
           </span>
         )}
       </Gutter>
-      <div className="mt-1.5 text-[14px] leading-[1.55] whitespace-pre-wrap text-body-strong">
+      <div className="mt-1.5 rounded-2xl rounded-tl-sm border border-hairline bg-surface-soft px-4 py-3 text-[14px] leading-[1.55] whitespace-pre-wrap text-body-strong">
         {node.text}
       </div>
     </div>
@@ -251,20 +281,23 @@ function ContextNode({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="flex items-baseline gap-2.5">
-      <TagLabel tone={tone}>{label}</TagLabel>
+    <div className="w-full">
       <button
         type="button"
         onClick={(event) => {
           event.stopPropagation();
           setOpen((v) => !v);
         }}
-        className="min-w-0 flex-1 text-left"
+        className="block w-full text-left"
       >
+        <span className="flex items-center justify-end gap-1.5">
+          <Chevron open={open} />
+          <TagLabel tone={tone}>{label}</TagLabel>
+        </span>
         <div
           className={cx(
-            'text-[12.5px] text-muted-soft',
-            open ? 'font-mono whitespace-pre-wrap' : 'truncate',
+            'mt-1.5 rounded-xl border border-hairline bg-surface-soft px-3 py-2.5 text-[12.5px] text-muted-soft',
+            open ? 'font-mono whitespace-pre-wrap' : 'truncate text-right',
           )}
         >
           {open ? text : text.replace(/\s+/g, ' ').trim()}
@@ -301,27 +334,18 @@ function BannerNode({
 function Gutter({
   label,
   tone,
+  align = 'start',
   children,
 }: {
   label: string;
   tone: Tone;
+  align?: 'start' | 'end';
   children?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className={cx('flex items-center gap-2.5', align === 'end' && 'justify-end')}>
       <TagLabel tone={tone}>{label}</TagLabel>
       {children}
     </div>
   );
-}
-
-/**
- * Claude Code injects `<system-reminder>` blocks into user turns. They are real
- * payload but they are not what the human said, so the trace counts them and
- * leaves the full text to the Payload tab.
- */
-function splitSystemReminders(raw: string): { text: string; reminders: number } {
-  const matches = raw.match(/<system-reminder>[\s\S]*?<\/system-reminder>/g);
-  const text = raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
-  return { text, reminders: matches?.length ?? 0 };
 }

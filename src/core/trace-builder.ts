@@ -189,6 +189,7 @@ export class TraceBuilder {
         kind: 'system',
         ts: record.timing.startedAt,
         text: system,
+        systemSource: 'prompt',
         revealedByRequestId: record.id,
       });
     }
@@ -238,6 +239,7 @@ export class TraceBuilder {
             ts: record.timing.startedAt,
             text: segment.text,
             contextTag: segment.contextTag,
+            systemSource: segment.systemSource,
             revealedByRequestId: record.id,
           });
         }

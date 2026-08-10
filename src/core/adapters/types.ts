@@ -36,6 +36,7 @@ export interface HistorySegment {
   kind: Extract<TraceNodeKind, 'system' | 'context' | 'user'>;
   text: string;
   contextTag?: string;
+  systemSource?: 'message';
 }
 
 export interface ParsedRequest {

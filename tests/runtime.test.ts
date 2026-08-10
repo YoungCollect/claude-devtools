@@ -106,6 +106,7 @@ test('trace separates system, tagged context, and real user text by payload stru
     system: 'You are the runtime system prompt.',
     tools: [{ name: 'Bash' }],
     messages: [
+      { role: 'system', content: 'System message injection.' },
       {
         role: 'user',
         content:
@@ -119,22 +120,41 @@ test('trace separates system, tagged context, and real user text by payload stru
   builder.onRequestBody(first);
   const conversationId = first.conversationId ?? '';
   assert.deepEqual(
-    store.getNodes(conversationId).map(({ kind, contextTag, text }) => ({
+    store.getNodes(conversationId).map(({ kind, contextTag, systemSource, text }) => ({
       kind,
       contextTag,
+      systemSource,
       text,
     })),
     [
-      { kind: 'system', contextTag: undefined, text: 'You are the runtime system prompt.' },
+      {
+        kind: 'system',
+        contextTag: undefined,
+        systemSource: 'prompt',
+        text: 'You are the runtime system prompt.',
+      },
+      {
+        kind: 'system',
+        contextTag: undefined,
+        systemSource: 'message',
+        text: 'System message injection.',
+      },
       {
         kind: 'context',
         contextTag: 'system-reminder',
+        systemSource: undefined,
         text: '<system-reminder priority="high">injected</system-reminder>',
       },
-      { kind: 'user', contextTag: undefined, text: 'hello from the human' },
+      {
+        kind: 'user',
+        contextTag: undefined,
+        systemSource: undefined,
+        text: 'hello from the human',
+      },
       {
         kind: 'context',
         contextTag: 'command-name',
+        systemSource: undefined,
         text: '<command-name>/review</command-name>',
       },
     ],
@@ -144,7 +164,7 @@ test('trace separates system, tagged context, and real user text by payload stru
   const repeated = { ...first, id: 'structured_roles_repeated', conversationId: undefined };
   builder.onRequestBody(repeated);
   assert.equal(repeated.conversationId, conversationId);
-  assert.equal(store.getNodes(conversationId).length, 4);
+  assert.equal(store.getNodes(conversationId).length, 5);
 });
 
 function request(id: string, message = 'hello', startedAt = 1): TransportRecord {
