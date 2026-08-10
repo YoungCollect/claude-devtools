@@ -3,6 +3,7 @@ import { api, type TransportDetail } from '../api.js';
 import { formatBytes, formatClock, formatMs, formatTokens, pretty, truncate } from '../format.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
 import type { SseFrame, TraceNode } from '../../core/types.js';
+import { focusBodyField } from '../inspect-focus.js';
 import { ContentViewer, type ContentFormat } from './ContentViewer.js';
 import { JsonBodyViewer } from './JsonBodyViewer.js';
 import { DiffSourceButtons } from './DiffSourceButtons.js';
@@ -85,9 +86,19 @@ function InspectorPanel({
   focusNode?: TraceNode;
   rev: number;
 }) {
-  const [tab, setTab] = useState<TabId>('overview');
+  const [tab, setTab] = useState<TabId>(focusNode ? 'payload' : 'overview');
   const [reveal, setReveal] = useState(false);
   const [record, setRecord] = useState<TransportDetail | undefined>();
+
+  // Arriving from a trace node is a question about the request body, so the
+  // drawer opens on Payload rather than on the overview. Keyed on the node id,
+  // not the node: the trace refetches its nodes on every store revision, and
+  // re-running this on each streamed frame would drag the user back off
+  // whichever tab they had moved to.
+  const focusNodeId = focusNode?.id;
+  useEffect(() => {
+    if (focusNodeId !== undefined) setTab('payload');
+  }, [focusNodeId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -161,7 +172,7 @@ function TabBody({
     case 'headers':
       return <Headers record={record} />;
     case 'payload':
-      return <Payload record={record} />;
+      return <Payload record={record} focusNode={focusNode} />;
     case 'response':
       return <Response record={record} />;
     case 'stream':
@@ -289,7 +300,7 @@ function HeaderTable({ headers }: { headers: Record<string, string> }) {
   return <KeyValue rows={rows.map(([k, v]) => [k, v] as [string, string])} />;
 }
 
-function Payload({ record }: { record: TransportDetail }) {
+function Payload({ record, focusNode }: { record: TransportDetail; focusNode?: TraceNode }) {
   const inspection = record.requestInspection;
   const systemText = inspection?.systemText;
   const systemFormats = useMemo<ContentFormat[]>(
@@ -299,6 +310,17 @@ function Payload({ record }: { record: TransportDetail }) {
         : ['markdown'],
     [systemText],
   );
+
+  // The drill-down's payoff: the body opens on the one field the trace node
+  // came out of, one level deep. Anything more and clicking a system prompt
+  // would unroll every block inside it, which is the wall of JSON the fold was
+  // there to avoid.
+  const focusField = focusBodyField(focusNode, inspection?.bodyFields);
+  const focusNodeId = focusNode?.id;
+  const [bodyOpen, setBodyOpen] = useState(false);
+  useEffect(() => {
+    if (focusNodeId !== undefined) setBodyOpen(true);
+  }, [focusNodeId, focusField]);
 
   return (
     <>
@@ -326,9 +348,14 @@ function Payload({ record }: { record: TransportDetail }) {
             <CopyButton text={record.requestBodyRaw ?? ''} label="Copy JSON" />
           </div>
         }
-        defaultOpen={false}
+        open={bodyOpen}
+        onOpenChange={setBodyOpen}
       >
-        <JsonBodyViewer value={record.requestBody} raw={record.requestBodyRaw} />
+        <JsonBodyViewer
+          value={record.requestBody}
+          raw={record.requestBodyRaw}
+          expandFields={focusField !== undefined ? [focusField] : undefined}
+        />
       </Section>
 
       {inspection?.systemText !== undefined && (
