@@ -76,11 +76,32 @@ export const api = {
  * The server publishes a revision number rather than diffs; we refetch on every
  * bump. Volume is a single local agent's traffic, so this stays cheap and the
  * UI can never drift out of sync with the store.
+ *
+ * `onStatus` reports whether this stream is actually open, which is the only
+ * honest source for the header's live/offline indicator. Deriving it from the
+ * refetches instead was self-fulfilling: a refetch only happens when a `rev`
+ * arrives, so a server that had gone away simply stopped saying anything and
+ * the indicator held at "live" forever — it was reporting "a fetch succeeded
+ * at some point", not "the feed is open".
  */
-export function subscribeToRevisions(onRevision: (rev: number) => void): () => void {
+export function subscribeToRevisions({
+  onRevision,
+  onStatus,
+}: {
+  onRevision: (rev: number) => void;
+  onStatus: (connected: boolean) => void;
+}): () => void {
   const source = new EventSource('/api/stream');
   source.addEventListener('rev', (event) => {
+    onStatus(true);
     onRevision(Number((event as MessageEvent<string>).data));
   });
+  // The server's 15s keep-alive. On an idle capture it is the only traffic on
+  // this stream, so it is what distinguishes "connected and quiet" from "gone".
+  source.addEventListener('ping', () => onStatus(true));
+  source.onopen = () => onStatus(true);
+  // Fires on drop *and* on every failed reconnect attempt — EventSource retries
+  // on its own, so this stays false until `onopen` says otherwise.
+  source.onerror = () => onStatus(false);
   return () => source.close();
 }

@@ -179,14 +179,20 @@ export function App() {
   const refresh = useCallback(async () => {
     const next = await api.state();
     setSnapshot(next);
-    setConnected(true);
     return next;
   }, []);
 
+  // `connected` is the change feed's own state, reported by the subscription
+  // (see `subscribeToRevisions`) — not something inferred from the refetches it
+  // triggers. A failed refetch can still pull it down: the feed being open does
+  // not help if the reads behind it are failing. Only the feed can raise it.
   useEffect(() => {
     void refresh().catch(() => setConnected(false));
-    return subscribeToRevisions(() => {
-      void refresh().catch(() => setConnected(false));
+    return subscribeToRevisions({
+      onStatus: setConnected,
+      onRevision: () => {
+        void refresh().catch(() => setConnected(false));
+      },
     });
   }, [refresh]);
 
