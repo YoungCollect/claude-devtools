@@ -373,9 +373,9 @@ function NodeBody({ node }: { node: TraceNode }) {
     case 'thinking':
       return <ThinkingNode node={node} />;
     case 'compaction':
-      return <BannerNode node={node} tone="warning" label="context" />;
+      return <BannerNode node={node} label="context" />;
     case 'error':
-      return <BannerNode node={node} tone="error" label="error" />;
+      return <ErrorNode node={node} />;
     default:
       return <ThinkingNode node={node} />;
   }
@@ -513,30 +513,98 @@ function TurnControls({
   );
 }
 
-function AssistantNode({ node }: { node: TraceNode }) {
-  const text = node.text ?? '';
+/**
+ * The model behind a turn, dimmed and italic when it was borrowed.
+ *
+ * A turn rebuilt from a later request's history has no response of its own to
+ * name a model, so it carries that request's — real captured data, but a
+ * different turn's (see `modelFromRequest`). Rendering both the same way would
+ * present an inference as an observation, which is the one thing a capture tool
+ * must not do.
+ */
+function ModelName({ node }: { node: TraceNode }) {
+  if (!node.model) return null;
+  return (
+    <span
+      title={
+        node.modelFromRequest
+          ? 'From the request that replayed this turn — the response was not captured'
+          : undefined
+      }
+      className={cx(
+        'font-mono text-[12px]',
+        node.modelFromRequest ? 'text-muted-soft italic' : 'text-muted-foreground',
+      )}
+    >
+      {node.model}
+    </span>
+  );
+}
+
+/**
+ * The bubble a turn is spoken in. Shared so a failed turn is the same shape as
+ * the answer it was going to be — only the text colour differs.
+ */
+const TURN_BUBBLE = 'mt-1.5 rounded-2xl rounded-tl-sm border border-hairline bg-canvas px-4 py-3';
+
+/** The assistant's own mark and screen-reader name, on both good turns and bad. */
+function AssistantMark() {
   // The mark follows the header's picker. The trace is a record of one agent's
   // run, so the two must never show different vendors at once — they read the
   // same context rather than each holding a copy (see `AgentProvider`).
   const { agent } = useAgent();
   return (
+    <>
+      <BrandMark svg={agent.mark} size={28} />
+      {/* The role, not the vendor: what a screen reader needs here is whose
+          turn this is. */}
+      <span className="sr-only">Assistant</span>
+    </>
+  );
+}
+
+/**
+ * A failed turn, drawn as the assistant turn it was about to be.
+ *
+ * The error is the model's answer for that turn — the request was made, the
+ * turn happened, and this is what came back. Rendering it as a bare red line
+ * broke the column: the reply that failed sat in a different shape from every
+ * reply that worked, so scanning the trace you lost the thread of who was
+ * speaking. Same mark, same model name, same bubble — the red text is the only
+ * thing that marks it as a failure, and it is enough. A badge saying `error`
+ * over a paragraph that already reads `rate_limit_error: …` in red was the
+ * label repeating what the content had said first.
+ */
+function ErrorNode({ node }: { node: TraceNode }) {
+  return (
     <div className="group/turn">
-      <Gutter
-        label={
-          <>
-            <BrandMark svg={agent.mark} size={28} />
-            {/* The role, not the vendor: what a screen reader needs here is
-                whose turn this is. */}
-            <span className="sr-only">Assistant</span>
-          </>
-        }
-        role="assistant"
-        mark
-      >
-        {node.model && <span className="font-mono text-[12px] text-muted-foreground">{node.model}</span>}
-        {node.durationMs !== undefined && (
-          <span className="font-mono text-[12px] text-muted-soft">{formatMs(node.durationMs)}</span>
+      <Gutter label={<AssistantMark />} role="assistant" mark>
+        <ModelName node={node} />
+      </Gutter>
+      <div
+        className={cx(
+          TURN_BUBBLE,
+          'text-[13.5px] leading-[1.55] whitespace-pre-wrap text-error-fg',
         )}
+      >
+        {node.text}
+      </div>
+    </div>
+  );
+}
+
+function AssistantNode({ node }: { node: TraceNode }) {
+  const text = node.text ?? '';
+  return (
+    <div className="group/turn">
+      <Gutter label={<AssistantMark />} role="assistant" mark>
+        <ModelName node={node} />
+        {/* No duration here. `node.durationMs` is one content block's streaming
+            window — it starts at that block's first frame, so it excludes the
+            wait before the first token and splits a multi-block response into
+            several unrelated numbers. It read as "how long this turn took",
+            which is not what it measures. The turn's real latency is on the
+            exchange itself: Inspector → Timing, or the Network view. */}
         {node.usage?.outputTokens !== undefined && (
           <span className="font-mono text-[12px] text-muted-soft" title="output tokens">
             ↓{formatTokens(node.usage.outputTokens)}
@@ -544,7 +612,7 @@ function AssistantNode({ node }: { node: TraceNode }) {
         )}
       </Gutter>
       <ContentViewer
-        className="mt-1.5 rounded-2xl rounded-tl-sm border border-hairline bg-canvas px-4 py-3"
+        className={TURN_BUBBLE}
         variant="bare"
         text={text}
         formats={PROSE_FORMATS}
@@ -665,26 +733,16 @@ function ContextNode({
   );
 }
 
-function BannerNode({
-  node,
-  tone,
-  label,
-}: {
-  node: TraceNode;
-  tone: 'warning' | 'error';
-  label: string;
-}) {
+/**
+ * A notice about the trace itself rather than a turn in it — today only the
+ * history-rewind marker. Errors used to share this shape; they are assistant
+ * turns now (see `ErrorNode`), which leaves this with one caller and one tone.
+ */
+function BannerNode({ node, label }: { node: TraceNode; label: string }) {
   return (
     <div>
-      <Gutter label={label} role={tone === 'error' ? 'error' : 'system'} />
-      <div
-        className={cx(
-          'mt-1.5 text-[13.5px]',
-          tone === 'error' ? 'text-error-fg' : 'text-warning-fg',
-        )}
-      >
-        {node.text}
-      </div>
+      <Gutter label={label} role="system" />
+      <div className="mt-1.5 text-[13.5px] text-warning-fg">{node.text}</div>
     </div>
   );
 }

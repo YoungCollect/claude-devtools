@@ -244,6 +244,13 @@ export class TraceBuilder {
         continue;
       }
 
+      // Assistant-side history carries no model of its own, so it borrows the
+      // one this request asks for — real captured data, flagged as second-hand
+      // because it names a later turn's model (see `modelFromRequest`). User
+      // and tool-result items are not model output and get nothing.
+      const isAgentOutput =
+        item.kind === 'assistant' || item.kind === 'thinking' || item.kind === 'tool_call';
+
       this.append({
         conversationId: state.id,
         kind: item.kind,
@@ -253,6 +260,8 @@ export class TraceBuilder {
         toolUseId: item.toolUseId,
         toolInput: item.toolInput,
         revealedByRequestId: record.id,
+        model: isAgentOutput ? record.model : undefined,
+        modelFromRequest: isAgentOutput && record.model !== undefined ? true : undefined,
       });
     }
 
@@ -330,12 +339,17 @@ export class TraceBuilder {
       this.applyEvents(adapter, record, adapter.parseResponseBody(record));
     }
     if (record.error && record.conversationId) {
+      // The model is this exchange's own — set from the request body, and
+      // overwritten by `message_start` if the response got that far. Unlike a
+      // history-revealed turn it needs no `modelFromRequest` flag: the failure
+      // belongs to this call, so this call's model is the right answer.
       this.append({
         conversationId: record.conversationId,
         kind: 'error',
         ts: record.timing.endedAt ?? Date.now(),
         text: record.error,
         producedByRequestId: record.id,
+        model: record.model,
       });
     }
     // Roll the turn's tokens into the conversation total exactly once. Doing
@@ -422,6 +436,7 @@ export class TraceBuilder {
             ts: event.t,
             text: event.error,
             producedByRequestId: record.id,
+            model: record.model,
           });
           break;
       }

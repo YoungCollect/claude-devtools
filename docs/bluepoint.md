@@ -11,4 +11,4 @@
 - [x] 目前 markdown 的按钮定义为了 Rendered，而 xml 的按钮定义了 Structure，我认为统一成 `Rendered` 即可，不然有记忆成本。
 - [ ] ~~chat trace 页面中的 network 选项板的表格 增加一个升降序排列图标~~
 
-
+- [ ] 新增 `openai` 的 `adapter` 

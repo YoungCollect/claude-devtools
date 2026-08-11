@@ -660,3 +660,115 @@ test('state-changing endpoints reject a request that did not come from the UI', 
   // Reads stay open — without CORS headers a cross-origin caller cannot read them.
   assert.equal((await app.request('/api/state')).status, 200);
 });
+
+/**
+ * A turn rebuilt from a later request's history has no response to take a model
+ * from, so it borrows the one that request asked for — flagged, because it is
+ * that request's model and not something this turn's response ever stated.
+ *
+ * Timing has no such fallback: the wire carries no duration for a turn whose
+ * response was never captured, and inventing one from the revealing request
+ * would report the wrong exchange's latency.
+ */
+test('history-revealed assistant turns borrow the request model and stay untimed', () => {
+  const store = new Store();
+  const builder = new TraceBuilder(store);
+
+  // The proxy attaches mid-conversation: the first request it ever sees already
+  // replays an assistant turn whose response it never captured.
+  const attach = request('midattach_turn1');
+  attach.requestBody = {
+    model: 'claude-opus-5',
+    tools: [{ name: 'Bash' }],
+    messages: [
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'an answer from before capture started' },
+      { role: 'user', content: 'second question' },
+    ],
+  };
+  builder.onRequestBody(attach);
+
+  const conversationId = attach.conversationId ?? '';
+  const revealed = store
+    .getNodes(conversationId)
+    .find((node) => node.kind === 'assistant' && node.text?.startsWith('an answer'));
+
+  assert.ok(revealed, 'the replayed assistant turn is on the trace');
+  assert.equal(revealed.model, 'claude-opus-5', 'it borrows the revealing request model');
+  assert.equal(revealed.modelFromRequest, true, 'and is marked as second-hand');
+  assert.equal(revealed.durationMs, undefined, 'no timing exists for an unobserved response');
+  assert.equal(revealed.producedByRequestId, undefined);
+  assert.equal(revealed.revealedByRequestId, attach.id);
+
+  // The user turn beside it is not model output and borrows nothing.
+  const userNode = store
+    .getNodes(conversationId)
+    .find((node) => node.kind === 'user' && node.text === 'second question');
+  assert.equal(userNode?.model, undefined);
+  assert.equal(userNode?.modelFromRequest, undefined);
+
+  // A turn watched live keeps the response's own model, unflagged.
+  attach.isStream = true;
+  builder.onStreamFrames(attach, [
+    frame('message_start', {
+      type: 'message_start',
+      message: { model: 'claude-opus-5-20260101', usage: { input_tokens: 3 } },
+    }),
+    frame('content_block_start', {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'text', text: 'live answer' },
+    }),
+    frame('content_block_stop', { type: 'content_block_stop', index: 0 }),
+  ]);
+
+  const produced = store
+    .getNodes(conversationId)
+    .find((node) => node.producedByRequestId === attach.id);
+  assert.equal(produced?.model, 'claude-opus-5-20260101', 'the response model wins over the request');
+  assert.equal(produced?.modelFromRequest, undefined, 'an observed model is not flagged');
+  assert.equal(typeof produced?.durationMs, 'number', 'a watched block is timed');
+});
+
+/**
+ * A failed turn is still that turn: the UI draws it as an assistant row with a
+ * model name, so the error node has to carry one. Unlike history-revealed
+ * turns it needs no `modelFromRequest` flag — the failure belongs to this
+ * exchange, so this exchange's model is the right answer.
+ */
+test('error nodes carry the model of the exchange that failed', () => {
+  const store = new Store();
+  const builder = new TraceBuilder(store);
+
+  // Upstream refuses before a single frame arrives — the rate-limit case.
+  const refused = request('rate_limited');
+  builder.onRequestBody(refused);
+  refused.error = "rate_limit_error: This request would exceed your account's rate limit.";
+  refused.timing.endedAt = 5;
+  builder.onComplete(refused);
+
+  const conversationId = refused.conversationId ?? '';
+  const failure = store.getNodes(conversationId).find((node) => node.kind === 'error');
+  assert.ok(failure, 'the failure is on the trace');
+  assert.equal(failure.model, 'test-model', 'it names the model this call asked for');
+  assert.equal(failure.modelFromRequest, undefined, 'this exchange is not second-hand');
+  assert.equal(failure.producedByRequestId, refused.id);
+
+  // An error raised mid-stream, after `message_start` has named the model.
+  const midStream = request('errored_mid_stream', 'second question', 10);
+  builder.onRequestBody(midStream);
+  midStream.isStream = true;
+  builder.onStreamFrames(midStream, [
+    frame('message_start', {
+      type: 'message_start',
+      message: { model: 'test-model-20260101' },
+    }),
+    frame('error', { type: 'error', error: { type: 'overloaded_error', message: 'overloaded' } }),
+  ]);
+
+  const streamed = store
+    .getNodes(midStream.conversationId ?? '')
+    .filter((node) => node.kind === 'error')
+    .at(-1);
+  assert.equal(streamed?.model, 'test-model-20260101', 'the response model wins once it arrives');
+});

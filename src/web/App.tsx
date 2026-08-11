@@ -363,16 +363,11 @@ export function App() {
                 idPrefix="view"
                 label="Views"
               />
-              {view === 'trace' && conversation && (
-                <div className="ml-auto flex items-center gap-2 px-4">
-                  {/* The agent name used to sit here as a badge. It is the
-                      header's logo now — one place says which agent, and it
-                      says it without spending a badge on a word that repeats
-                      on every conversation. The model stays: it is the one
-                      value here that changes from turn to turn. */}
-                  <span className="font-mono text-[12.5px] text-muted-foreground">{conversation.model}</span>
-                </div>
-              )}
+              {/* Nothing sits opposite the tabs. The agent name became the
+                  header's logo, and the model now rides on each assistant turn
+                  — where it belongs, since a conversation-level model is only
+                  ever the newest turn's and says nothing about the ones above
+                  it. */}
             </div>
 
             <div

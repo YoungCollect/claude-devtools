@@ -163,6 +163,19 @@ export interface TraceNode {
 
   usage?: TokenUsage;
   model?: string;
+  /**
+   * True when `model` was taken from the request that *revealed* this node
+   * rather than from the response that produced it.
+   *
+   * An assistant turn replayed inside a later request's history carries no
+   * model of its own — the request body names one model for the call it is
+   * making, not one per history entry. That name is still real captured data
+   * and is almost always the same model, but it is the model of a later turn,
+   * so anything showing it has to be able to say so. `durationMs` has no such
+   * fallback and stays absent: the wire carries no timing for a turn whose
+   * response we never saw.
+   */
+  modelFromRequest?: boolean;
   stopReason?: string;
 }
 
