@@ -1,5 +1,7 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js';
+
 export function cx(...parts: (string | false | undefined | null)[]): string {
   return parts.filter(Boolean).join(' ');
 }
@@ -306,17 +308,79 @@ export function useCopy(): [copied: boolean, copy: (text: string) => void] {
   ];
 }
 
-export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
-  const [copied, copy] = useCopy();
-  return <Button onClick={() => copy(text)}>{copied ? 'Copied' : label}</Button>;
+/*
+ * There is no worded `CopyButton`. Every copy control in the app is the icon
+ * below, reached through `ContentToolbar` — one button, one behaviour, one
+ * place to change it. The header's base-URL copy is deliberately different: it
+ * is an instruction to act on, not a payload to take away.
+ */
+
+/**
+ * Square icon control sized for the content toolbar, with its name carried by a
+ * tooltip instead of a visible word.
+ *
+ * The name is not optional decoration: an icon-only row is unreadable without
+ * it, so the label feeds `aria-label` *and* the tooltip from one prop — they
+ * cannot drift apart, and the control is nameable by assistive technology even
+ * when no pointer ever hovers it.
+ *
+ * `closeOnClick` is off because these controls change meaning when pressed
+ * ("Use as Diff Left" becomes "Remove from Diff Left", Copy becomes Copied).
+ * Dismissing the tooltip on click would hide the very state change the click
+ * caused.
+ */
+export function ToolbarIconButton({
+  label,
+  onClick,
+  pressed,
+  surface = 'canvas',
+  confirmed = false,
+  children,
+}: {
+  /** Names the control for both the tooltip and assistive technology. */
+  label: string;
+  onClick: () => void;
+  /** Set only for toggles — it declares the button a toggle to screen readers. */
+  pressed?: boolean;
+  /** Which surface the button sits on — the dark code card inverts its palette. */
+  surface?: 'canvas' | 'code';
+  /** Momentary success outline, e.g. Copy's tick. */
+  confirmed?: boolean;
+  children: ReactNode;
+}) {
+  const onCode = surface === 'code';
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        type="button"
+        onClick={onClick}
+        aria-pressed={pressed}
+        aria-label={label}
+        closeOnClick={false}
+        className={cx(
+          'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md border transition-colors',
+          pressed
+            ? 'border-primary bg-primary text-primary-foreground'
+            : confirmed
+              ? cx('border-success text-success-fg', onCode ? 'bg-code-elevated' : 'bg-canvas')
+              : onCode
+                ? 'border-code-elevated bg-code-elevated text-code-fg-soft hover:text-code-fg'
+                : 'border-hairline bg-canvas text-muted-foreground hover:border-muted-soft hover:text-ink',
+        )}
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 /**
  * Square copy button, sized to sit in a row of view-mode toggles.
  *
- * It carries no label because it sits directly beside the mode buttons, where a
- * word would read as a fourth mode. The tick replaces the icon rather than
- * appearing next to it, so the button never changes width mid-interaction.
+ * It carries no visible label because it sits directly beside the mode buttons,
+ * where a word would read as a fourth mode. The tick replaces the icon rather
+ * than appearing next to it, so the button never changes width mid-interaction.
  */
 export function CopyIconButton({
   text,
@@ -330,25 +394,15 @@ export function CopyIconButton({
 }) {
   const [copied, copy] = useCopy();
   const label = copied ? 'Copied' : title;
-  const onCode = surface === 'code';
   return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
+    <ToolbarIconButton
+      label={label}
       onClick={() => copy(text)}
-      className={cx(
-        'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md border transition-colors',
-        copied
-          ? 'border-success text-success-fg'
-          : onCode
-            ? 'border-code-elevated bg-code-elevated text-code-fg-soft hover:text-code-fg'
-            : 'border-hairline bg-canvas text-muted-foreground hover:border-muted-soft hover:text-ink',
-        copied && (onCode ? 'bg-code-elevated' : 'bg-canvas'),
-      )}
+      surface={surface}
+      confirmed={copied}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}
-    </button>
+    </ToolbarIconButton>
   );
 }
 

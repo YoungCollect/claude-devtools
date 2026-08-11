@@ -1,10 +1,12 @@
+import { PanelLeft, PanelRight } from 'lucide-react';
+
 import {
   toggleGitDiffSource,
   useGitDiff,
   type GitDiffSide,
   type GitDiffSource,
 } from '../git-diff.js';
-import { cx } from './ui.js';
+import { ToolbarIconButton } from './ui.js';
 
 export function DiffSourceButtons({
   source,
@@ -43,6 +45,13 @@ function isSelected(selected: GitDiffSource | undefined, source: GitDiffSource):
   return selected?.sourceId === source.sourceId && selected.format === source.format;
 }
 
+/**
+ * Icon-only, because these two sit in every bubble and every payload header:
+ * two words apiece turned the control row into the loudest thing on a chat turn.
+ * The panel glyphs carry the one distinction that matters — which side of the
+ * diff this source lands on — and the tooltip carries the rest, including
+ * whether a click selects or clears.
+ */
 function DiffSourceButton({
   side,
   active,
@@ -54,23 +63,16 @@ function DiffSourceButton({
   onClick: () => void;
   surface: 'canvas' | 'code';
 }) {
-  const label = side === 'left' ? 'Diff Left' : 'Diff Right';
+  const name = side === 'left' ? 'Diff Left' : 'Diff Right';
+  const Icon = side === 'left' ? PanelLeft : PanelRight;
   return (
-    <button
-      type="button"
+    <ToolbarIconButton
+      label={active ? `Remove from ${name}` : `Use this source as ${name}`}
       onClick={onClick}
-      aria-pressed={active}
-      title={active ? `Remove from ${label}` : `Use this source as ${label}`}
-      className={cx(
-        'h-[26px] rounded-md border px-2.5 text-[12px] font-medium transition-colors',
-        active
-          ? 'border-primary bg-primary text-primary-foreground'
-          : surface === 'code'
-            ? 'border-code-elevated bg-code-elevated text-code-fg-soft hover:text-code-fg'
-            : 'border-hairline bg-canvas text-muted-foreground hover:border-muted-soft hover:text-ink',
-      )}
+      pressed={active}
+      surface={surface}
     >
-      {label}
-    </button>
+      <Icon size={13} strokeWidth={2} aria-hidden />
+    </ToolbarIconButton>
   );
 }

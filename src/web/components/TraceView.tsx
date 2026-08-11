@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import { splitTaggedUserContent } from '../../core/tagged-content.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
+import { ContentToolbar } from './ContentToolbar.js';
 import { ContentViewer, type ContentFormat } from './ContentViewer.js';
+import type { GitDiffSourceIdentity } from '../git-diff.js';
 import type { TraceNode } from '../../core/types.js';
 import { groupTrace, turnNodes, type ToolActivity, type TraceTurn } from '../trace-groups.js';
 import { formatMs, formatTokens, pretty, toolResultText, truncate } from '../format.js';
@@ -13,6 +15,22 @@ import { Badge, Chevron, cx, Empty, TagLabel, type Tone } from './ui.js';
  * render would defeat that on every streamed frame.
  */
 const PROSE_FORMATS: ContentFormat[] = ['markdown'];
+
+/**
+ * The Chat Trace shows rendered text only — its `Rendered · MD` / `Rendered ·
+ * XML` / `Raw` toggle is hidden on every panel below.
+ *
+ * Copy already yields the exact source, so the toggle was a second route to
+ * bytes you can already take, paid for with two extra controls on every turn in
+ * a view whose job is reading the conversation. The Inspector's system prompt
+ * makes the same trade, and its Raw tab shows the whole request verbatim.
+ *
+ * Flip this to `true` to bring the toggle back on the panels that draw their
+ * own control row — the system and context blocks, the ones with two rendered
+ * views to switch between. The chat bubbles' row is built by `TurnControls`
+ * below and is diff plus copy either way: a turn has one rendered view.
+ */
+const SHOW_CHAT_VIEW_MODES = false;
 
 export interface TraceViewProps {
   nodes: TraceNode[];
@@ -225,7 +243,16 @@ function ToolActivityCard({
   );
 }
 
-/** Tool input and tool output are both machine text: dark surface, capped height. */
+/**
+ * Tool input and tool output are both machine text: raised panel, capped height.
+ *
+ * They take the same `chat-code` roles as a fenced block in a bubble, for the
+ * same reason — these panes are nested two deep inside the trace (row, then
+ * tool card), and the navy code-window card is a surface meant to sit directly
+ * on the canvas. Stacked inside two lighter surfaces it stopped reading as a
+ * card and started reading as a hole. The Inspector still shows the same bytes
+ * on the dark card, where they sit on the canvas as the system intends.
+ */
 function ToolPane({
   label,
   text,
@@ -242,11 +269,11 @@ function ToolPane({
       <div className="mb-1 text-[11px] font-medium tracking-[1.5px] text-muted-soft uppercase">
         {label}
       </div>
-      <div className="max-h-[260px] overflow-auto rounded-md border border-code-border bg-code">
+      <div className="max-h-[260px] overflow-auto rounded-md border border-chat-code-border bg-chat-code">
         <pre
           className={cx(
             'px-3 py-2.5 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap',
-            isError ? 'text-code-error' : 'text-code-fg-soft',
+            isError ? 'text-error-fg' : 'text-chat-code-fg-soft',
           )}
         >
           {text.trim() || empty}
@@ -399,7 +426,7 @@ function UserBubble({
   sessionId: string;
 }) {
   return (
-    <div>
+    <div className="group/turn">
       <Gutter label="user" tone="emph" align="end" />
       <div className="mt-1.5 rounded-2xl rounded-tr-sm bg-surface-card px-4 py-3">
         {text ? (
@@ -409,12 +436,57 @@ function UserBubble({
             formats={PROSE_FORMATS}
             maxHeightClass="max-h-none"
             proseClassName="markdown-chat markdown-lead"
-            diffSource={{ sourceId, sessionId, label: 'user message' }}
+            showViewModes={SHOW_CHAT_VIEW_MODES}
+            controlsPlacement="external"
           />
         ) : (
           <span className="display text-[17px] text-muted-soft italic">(no visible text)</span>
         )}
       </div>
+      {text && (
+        <TurnControls
+          text={text}
+          diffSource={{ sourceId, sessionId, label: 'user message' }}
+          align="end"
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A turn's controls, under the bubble instead of inside it.
+ *
+ * This is the shape every chat interface has settled on, and the reason holds
+ * here: the bubble is one solid block of what was said, and what you can *do*
+ * with it hangs below, off the reading line and on the page rather than on the
+ * turn's own fill. Inside the bubble the row had to borrow that fill and sat
+ * within the same rounded edge as the message, so it read as part of what was
+ * said.
+ *
+ * Revealed on hover over the whole turn (and on keyboard focus), so a trace
+ * scrolled past is nothing but conversation.
+ */
+function TurnControls({
+  text,
+  diffSource,
+  align,
+}: {
+  text: string;
+  diffSource: GitDiffSourceIdentity;
+  /** Matches the bubble's own side, so the row stays under its own turn. */
+  align: 'start' | 'end';
+}) {
+  return (
+    <div className="mt-1.5 opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100">
+      <ContentToolbar
+        variant="inline"
+        text={text}
+        // Chat turns render as markdown and cannot be switched (see
+        // `SHOW_CHAT_VIEW_MODES`), so that is what a diff takes them as.
+        diff={{ source: diffSource, format: 'markdown' }}
+        align={align}
+      />
     </div>
   );
 }
@@ -422,7 +494,7 @@ function UserBubble({
 function AssistantNode({ node }: { node: TraceNode }) {
   const text = node.text ?? '';
   return (
-    <div>
+    <div className="group/turn">
       <Gutter label="assistant" tone="success">
         {node.model && <span className="font-mono text-[12px] text-muted-foreground">{node.model}</span>}
         {node.durationMs !== undefined && (
@@ -441,11 +513,24 @@ function AssistantNode({ node }: { node: TraceNode }) {
           formats={PROSE_FORMATS}
           maxHeightClass="max-h-none"
           proseClassName="markdown-chat"
-          // The assistant sits on the left, so its controls mirror the user's.
-          controlsAlign="start"
-          diffSource={{ sourceId: node.id, sessionId: node.conversationId, label: 'assistant message' }}
+          showViewModes={SHOW_CHAT_VIEW_MODES}
+          controlsPlacement="external"
         />
       </div>
+      {/* Nothing to copy or diff until the response has said something — during
+          a stream that is the first frame or two. */}
+      {text && (
+        <TurnControls
+          text={text}
+          diffSource={{
+            sourceId: node.id,
+            sessionId: node.conversationId,
+            label: 'assistant message',
+          }}
+          // The assistant sits on the left, so its controls mirror the user's.
+          align="start"
+        />
+      )}
     </div>
   );
 }
@@ -522,6 +607,9 @@ function ContextNode({
           text={text}
           formats={formats}
           maxHeightClass="max-h-[50vh]"
+          showViewModes={SHOW_CHAT_VIEW_MODES}
+          controlsPlacement="bottom"
+          controlsReveal="hover"
           diffSource={{ sourceId, sessionId, label }}
         />
       )}

@@ -17,6 +17,7 @@ import {
   ThemeToggle,
   useCopy,
 } from './components/ui.js';
+import { TooltipProvider } from './components/ui/tooltip.js';
 import { groupTrace } from './trace-groups.js';
 import { useTheme } from './theme.js';
 import { clearGitDiff, setGitDiffOpen } from './git-diff.js';
@@ -178,103 +179,108 @@ export function App() {
   });
 
   return (
-    <div className="flex h-full flex-col bg-canvas">
-      <Header
-        config={config}
-        connected={connected}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        onClear={async () => {
-          clearGitDiff();
-          // Rejects on failure so the button can show it; refreshing on a failed
-          // clear would present unchanged data as if the wipe had worked.
-          await api.clear();
-          await refresh();
-        }}
-        onOpenDiff={() => setGitDiffOpen(true)}
-      />
+    // One provider for the whole app, because the delay is a property of the
+    // *set* of tooltips: after the first one opens, moving along a row of icon
+    // controls shows the next immediately instead of re-serving the wait.
+    <TooltipProvider delay={300}>
+      <div className="flex h-full flex-col bg-canvas">
+        <Header
+          config={config}
+          connected={connected}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onClear={async () => {
+            clearGitDiff();
+            // Rejects on failure so the button can show it; refreshing on a failed
+            // clear would present unchanged data as if the wipe had worked.
+            await api.clear();
+            await refresh();
+          }}
+          onOpenDiff={() => setGitDiffOpen(true)}
+        />
 
-      <div className="flex min-h-0 flex-1">
-        <nav className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-hairline">
-          {/* h-12 on both this and the view tabs opposite it. Left to size
-              themselves, the two bars derive different heights from different
-              type scales (12px label vs 14px tab), and the rules that separate
-              them from the content below stop meeting at the divider. */}
-          <div className="flex h-12 shrink-0 items-center border-b border-hairline px-4 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase">
-            Conversations
-          </div>
-          <ConversationList
-            conversations={snapshot.conversations}
-            selectedId={conversationId}
-            onSelect={(id) => {
-              pinned.current = true;
-              setConversationId(id);
-            }}
-            onDelete={async (id) => {
-              await api.deleteConversation(id);
-              await refresh();
-            }}
-          />
-        </nav>
-
-        <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex h-12 shrink-0 items-center border-b border-hairline">
-            <Tabs
-              tabs={[
-                // Both counts are "rows this view renders". `nodes.length` was
-                // the node total, which stopped matching the trace when a
-                // response and its tool round folded into one turn — and read as
-                // a different kind of number than the badge beside it. The node
-                // total is still on the conversation card in the sidebar.
-                { id: 'trace' as const, label: 'Chat Trace', count: traceItemCount },
-                { id: 'network' as const, label: 'Network', count: conversationTransport.length },
-              ]}
-              active={view}
-              onChange={setView}
-              idPrefix="view"
-              label="Views"
+        <div className="flex min-h-0 flex-1">
+          <nav className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-hairline">
+            {/* h-12 on both this and the view tabs opposite it. Left to size
+                themselves, the two bars derive different heights from different
+                type scales (12px label vs 14px tab), and the rules that separate
+                them from the content below stop meeting at the divider. */}
+            <div className="flex h-12 shrink-0 items-center border-b border-hairline px-4 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase">
+              Conversations
+            </div>
+            <ConversationList
+              conversations={snapshot.conversations}
+              selectedId={conversationId}
+              onSelect={(id) => {
+                pinned.current = true;
+                setConversationId(id);
+              }}
+              onDelete={async (id) => {
+                await api.deleteConversation(id);
+                await refresh();
+              }}
             />
-            {view === 'trace' && conversation && (
-              <div className="ml-auto flex items-center gap-2 px-4">
-                <Badge tone="emph">{conversation.agent}</Badge>
-                <span className="font-mono text-[12.5px] text-muted-foreground">{conversation.model}</span>
-              </div>
-            )}
-          </div>
+          </nav>
 
-          <div
-            className="min-h-0 flex-1 overflow-y-auto"
-            ref={trace.ref}
-            onScroll={trace.onScroll}
-            {...tabPanelProps('view', view)}
-          >
-            {view === 'trace' ? (
-              conversation ? (
-                <TraceView nodes={nodes} selectedNodeId={selection?.node?.id} onInspect={inspectNode} />
-              ) : (
-                <Empty>
-                  Waiting for traffic. Start an agent with the proxy base URL shown above.
-                </Empty>
-              )
-            ) : (
-              <NetworkView
-                transport={conversationTransport}
-                selectedId={selection?.transportId}
-                onSelect={(id) => setSelection({ transportId: id })}
+          <main className="flex min-w-0 flex-1 flex-col">
+            <div className="flex h-12 shrink-0 items-center border-b border-hairline">
+              <Tabs
+                tabs={[
+                  // Both counts are "rows this view renders". `nodes.length` was
+                  // the node total, which stopped matching the trace when a
+                  // response and its tool round folded into one turn — and read as
+                  // a different kind of number than the badge beside it. The node
+                  // total is still on the conversation card in the sidebar.
+                  { id: 'trace' as const, label: 'Chat Trace', count: traceItemCount },
+                  { id: 'network' as const, label: 'Network', count: conversationTransport.length },
+                ]}
+                active={view}
+                onChange={setView}
+                idPrefix="view"
+                label="Views"
               />
-            )}
-          </div>
-        </main>
-      </div>
+              {view === 'trace' && conversation && (
+                <div className="ml-auto flex items-center gap-2 px-4">
+                  <Badge tone="emph">{conversation.agent}</Badge>
+                  <span className="font-mono text-[12.5px] text-muted-foreground">{conversation.model}</span>
+                </div>
+              )}
+            </div>
 
-      <Inspector
-        transportId={selection?.transportId}
-        focusNode={selection?.node}
-        rev={snapshot.rev}
-        onClose={() => setSelection(undefined)}
-      />
-      <GitDiffDialog theme={theme} />
-    </div>
+            <div
+              className="min-h-0 flex-1 overflow-y-auto"
+              ref={trace.ref}
+              onScroll={trace.onScroll}
+              {...tabPanelProps('view', view)}
+            >
+              {view === 'trace' ? (
+                conversation ? (
+                  <TraceView nodes={nodes} selectedNodeId={selection?.node?.id} onInspect={inspectNode} />
+                ) : (
+                  <Empty>
+                    Waiting for traffic. Start an agent with the proxy base URL shown above.
+                  </Empty>
+                )
+              ) : (
+                <NetworkView
+                  transport={conversationTransport}
+                  selectedId={selection?.transportId}
+                  onSelect={(id) => setSelection({ transportId: id })}
+                />
+              )}
+            </div>
+          </main>
+        </div>
+
+        <Inspector
+          transportId={selection?.transportId}
+          focusNode={selection?.node}
+          rev={snapshot.rev}
+          onClose={() => setSelection(undefined)}
+        />
+        <GitDiffDialog theme={theme} />
+      </div>
+    </TooltipProvider>
   );
 }
 

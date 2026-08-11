@@ -51,6 +51,29 @@
   --color-code-error: #f0a0a0;
 
   /*
+   * Machine text *inside* the Chat Trace — fenced code in a bubble, and a tool
+   * call's input and result. A raised panel, one step above whatever it sits
+   * on, in both themes.
+   *
+   * The `code` role above is still the treatment for the same bytes in the
+   * Inspector, where they are the subject and the card sits directly on the
+   * canvas. Nested inside a chat turn it stopped reading as a card: near-black,
+   * a few pixels inside a cream bubble — or two surfaces deep inside a tool
+   * card — at the one place in the app where the surrounding surface is what
+   * tells you who is speaking. So Chat Trace code stays in the canvas's own
+   * family of cream in light, and takes the raised-panel mechanics the `code`
+   * role already uses in dark.
+   *
+   * `fg` is for content read as text (a fenced block someone wrote), `fg-soft`
+   * for output meant to recede until you look at it (tool panes) — the same
+   * split `code-fg` / `code-fg-soft` make on the dark card.
+   */
+  --color-chat-code: #e8e0d2;
+  --color-chat-code-border: #dcd3c2;
+  --color-chat-code-fg: #252523;
+  --color-chat-code-fg-soft: #4a4843;
+
+  /*
    * Markup syntax roles for the Rendered · XML outline.
    *
    * These are deliberately separate from the `json-*` and `code-*` roles above:
@@ -163,6 +186,13 @@
   --color-code-fg-soft: #a3adb8;
   --color-code-accent: #c99bf5;
   --color-code-error: #f77878;
+
+  /* One step above *both* bubble fills (#101317 assistant, #1a1f26 user) — a
+     panel that matched the user's own bubble would vanish inside it. */
+  --color-chat-code: #232a33;
+  --color-chat-code-border: #2f3843;
+  --color-chat-code-fg: #e6eaef;
+  --color-chat-code-fg-soft: #a3adb8;
 
   --color-markup-tag: #6bd39a;
   --color-markup-attr: #e0af68;
@@ -524,7 +554,8 @@ button:not(:disabled),
 }
 
 /* Inline code stays on the canvas; fenced blocks get the dark code-window
-   treatment the design system reserves for machine output. */
+   treatment the design system reserves for machine output — except inside a
+   chat bubble, which takes the raised `chat-code` panel instead. */
 .markdown-body code {
   padding: 0.1em 0.35em;
   border-radius: var(--radius-xs);
@@ -548,6 +579,16 @@ button:not(:disabled),
   color: var(--color-code-fg);
   font-size: 12.5px;
   line-height: 1.6;
+}
+
+/* …except in a chat turn, where it stays in the bubble's own family. See the
+   `chat-code` roles. */
+.markdown-body.markdown-chat pre {
+  border-color: var(--color-chat-code-border);
+  background: var(--color-chat-code);
+}
+.markdown-body.markdown-chat pre code {
+  color: var(--color-chat-code-fg);
 }
 
 .markdown-body table {

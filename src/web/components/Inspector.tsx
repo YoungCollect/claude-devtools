@@ -4,14 +4,13 @@ import { formatBytes, formatClock, formatMs, formatTokens, pretty, truncate } fr
 import { hasXmlStructure } from '../../core/xml-outline.js';
 import type { SseFrame, TraceNode } from '../../core/types.js';
 import { focusBodyField } from '../inspect-focus.js';
+import { ContentToolbar } from './ContentToolbar.js';
 import { ContentViewer, type ContentFormat } from './ContentViewer.js';
 import { JsonBodyViewer } from './JsonBodyViewer.js';
-import { DiffSourceButtons } from './DiffSourceButtons.js';
 import {
   Badge,
   Button,
   CodeBlock,
-  CopyButton,
   cx,
   Empty,
   KeyValue,
@@ -318,6 +317,11 @@ function Payload({ record, focusNode }: { record: TransportDetail; focusNode?: T
   // there to avoid.
   const focusField = focusBodyField(focusNode, inspection?.bodyFields);
   const focusNodeId = focusNode?.id;
+  // One text for both controls: what the diff captures is what Copy hands you.
+  // Copy used to fall back to an empty string where the diff fell back to the
+  // pretty-printed body, so a body the proxy had not kept verbatim copied
+  // nothing at all.
+  const bodyText = record.requestBodyRaw ?? pretty(record.requestBody);
   const [bodyOpen, setBodyOpen] = useState(false);
   useEffect(() => {
     if (focusNodeId !== undefined) setBodyOpen(true);
@@ -336,18 +340,19 @@ function Payload({ record, focusNode }: { record: TransportDetail; focusNode?: T
       <Section
         title="Body"
         action={
-          <div className="flex items-center gap-1.5">
-            <DiffSourceButtons
-              source={{
+          <ContentToolbar
+            variant="inline"
+            text={bodyText}
+            copyLabel="Copy JSON"
+            diff={{
+              source: {
                 sourceId: `${record.id}:request-body`,
                 sessionId: record.conversationId ?? 'no-session',
                 label: 'request body',
-                text: record.requestBodyRaw ?? pretty(record.requestBody),
-                format: 'json',
-              }}
-            />
-            <CopyButton text={record.requestBodyRaw ?? ''} label="Copy JSON" />
-          </div>
+              },
+              format: 'json',
+            }}
+          />
         }
         open={bodyOpen}
         onOpenChange={setBodyOpen}
@@ -361,11 +366,20 @@ function Payload({ record, focusNode }: { record: TransportDetail; focusNode?: T
 
       {inspection?.systemText !== undefined && (
         <Section title="System prompt" defaultOpen={false}>
-          {/* System prompts are markdown that also carries tag blocks, so both
-              rendered views are offered alongside the source. */}
+          {/* Rendered only, like the rest of the app: Copy hands you the exact
+              source, so the toggle was a second route to bytes you can already
+              take. The Raw tab shows the whole request verbatim if that is what
+              you are after.
+
+              The control row stays where `ContentViewer` puts it by default —
+              in this panel's own header, always visible. The Chat Trace moves
+              its row below the bubble and reveals it on hover because a turn is
+              something you read; a system prompt is something you audit, and
+              its controls are part of that task rather than an interruption. */}
           <ContentViewer
             text={inspection.systemText}
             formats={systemFormats}
+            showViewModes={false}
             diffSource={{
               sourceId: `${record.id}:system-prompt`,
               sessionId: record.conversationId ?? 'no-session',
@@ -399,6 +413,7 @@ function Payload({ record, focusNode }: { record: TransportDetail; focusNode?: T
 
 function Response({ record }: { record: TransportDetail }) {
   const assembled = formatAssembledResponse(record.assembledResponse);
+  const bodyText = record.responseBodyRaw ?? pretty(record.responseBody);
 
   if (record.isStream) {
     return (
@@ -419,18 +434,19 @@ function Response({ record }: { record: TransportDetail }) {
     <Section
       title="Body"
       action={
-        <div className="flex items-center gap-1.5">
-          <DiffSourceButtons
-            source={{
+        <ContentToolbar
+          variant="inline"
+          text={bodyText}
+          copyLabel="Copy JSON"
+          diff={{
+            source: {
               sourceId: `${record.id}:response-body`,
               sessionId: record.conversationId ?? 'no-session',
               label: 'response body',
-              text: record.responseBodyRaw ?? pretty(record.responseBody),
-              format: 'json',
-            }}
-          />
-          <CopyButton text={record.responseBodyRaw ?? ''} label="Copy" />
-        </div>
+            },
+            format: 'json',
+          }}
+        />
       }
     >
       <JsonBodyViewer value={record.responseBody} raw={record.responseBodyRaw} />
@@ -599,20 +615,31 @@ function Bar({
 
 function Raw({ record }: { record: TransportDetail }) {
   const rawStream = record.sseFrames.map((frame) => frame.raw).join('\n\n');
+  const rawRequest = record.requestBodyRaw ?? '';
+  const rawResponse = record.isStream ? rawStream : (record.responseBodyRaw ?? '');
+  // No diff selection here on purpose: this tab shows the bytes exactly as they
+  // arrived, and the Payload/Response tabs already offer the same bodies as
+  // diffable JSON. Copy is the whole control.
   return (
     <>
       <Section
         title="Request body (raw)"
-        action={<CopyButton text={record.requestBodyRaw ?? ''} />}
+        action={<ContentToolbar variant="inline" text={rawRequest} copyLabel="Copy raw request" />}
         defaultOpen={false}
       >
-        <CodeBlock text={record.requestBodyRaw ?? ''} />
+        <CodeBlock text={rawRequest} />
       </Section>
       <Section
         title={record.isStream ? 'Response stream (raw SSE)' : 'Response body (raw)'}
-        action={<CopyButton text={record.isStream ? rawStream : (record.responseBodyRaw ?? '')} />}
+        action={
+          <ContentToolbar
+            variant="inline"
+            text={rawResponse}
+            copyLabel={record.isStream ? 'Copy raw SSE stream' : 'Copy raw response'}
+          />
+        }
       >
-        <CodeBlock text={record.isStream ? rawStream : (record.responseBodyRaw ?? '')} />
+        <CodeBlock text={rawResponse} />
       </Section>
     </>
   );

@@ -212,6 +212,18 @@ role inverts to a *raised* panel with a visible border. Same name, opposite mech
 that inversion is precisely what a role-named token can express and a hue-named one
 cannot.
 
+Machine text **inside the Chat Trace** is the one exception, and has its own `chat-code`
+roles: fenced code in a bubble, and a tool call's input and result. The navy card belongs
+on the canvas, with nothing between it and the page; a few pixels inside a cream bubble —
+or two surfaces deep inside a tool card — it stopped reading as a card and started
+reading as a hole punched through the turn, at the one place in the app where the
+surrounding surface is what tells you who is speaking. Chat Trace code is therefore a
+raised panel one step above whatever it sits on, in *both* themes (in dark, one step above
+*both* bubble fills, since a panel matching the user's own bubble would vanish inside it).
+`chat-code-fg` / `chat-code-fg-soft` split content you read from output that should
+recede, exactly as `code-fg` / `code-fg-soft` do on the dark card. The Inspector shows the
+same bytes on the navy card, where they sit on the canvas as the system intends.
+
 Type and density are deliberately **not** themed. A toggle that also reflowed the page
 would make comparing the two a different task every time.
 
@@ -238,16 +250,27 @@ the tool works offline with no webfont fetch.
 
 ## Content rendering
 
-Agent text is shown three ways, switchable per block: **Rendered · MD** (markdown),
-**Rendered · XML** (tag outline) and **Raw**. The raw view is not a nicety — rendering is
-interpretation, and this is a tool for finding out what the model was actually sent, so
-every rendered view has to be checkable against the bytes on the wire.
+Agent text is shown three ways: **Rendered · MD** (markdown), **Rendered · XML** (tag
+outline) and **Raw**. The raw view is not a nicety — rendering is interpretation, and this
+is a tool for finding out what the model was actually sent, so every rendered view has to
+be checkable against the bytes on the wire.
+
+The toggle between them is currently **hidden everywhere** — the Chat Trace via
+`SHOW_CHAT_VIEW_MODES` (`src/web/components/TraceView.tsx`), the Inspector's system prompt
+via `showViewModes={false}`. Copy hands you the exact source, so the toggle was a second
+route to bytes you can already take, paid for with two extra controls on every panel; and
+the Inspector's **Raw** tab already shows the whole request and response verbatim. A panel
+with the toggle hidden pins itself to its own first rendered format rather than inheriting
+a `raw` preference set elsewhere, which would otherwise strand the reader in source with
+no control to leave it. The machinery is intact behind those two switches — the panels
+still know all three views, and a system prompt with tag structure renders as markdown
+rather than as the outline until the toggle comes back.
 
 - **System prompts** lead with markdown (`src/web/components/ContentViewer.tsx`).
 - **`<tag>…</tag>` blocks** — Claude Code's `<system-reminder>`, `<env>` and friends —
   lead with the tag outline.
 - **Chat bubbles** — user and assistant turns — render markdown on the bubble's own
-  fill, with the same toggles and the git-diff source buttons on top. They keep the
+  fill, with the git-diff source buttons and copy on top. They keep the
   line breaks they were sent with, which markdown would otherwise fold into spaces:
   the multi-line things people send an agent are stack traces and log excerpts, and
   one reflowed onto a single line is unreadable. Documents (system prompts, tag
@@ -259,12 +282,40 @@ is the confusing state. Switching one switches the rest live (via `useSyncExtern
 and a block that cannot honour the choice — a tag block has no markdown view — falls back
 to its own default instead of going blank.
 
-The toggle stays *inside* the expanded region, in the panel card's own header, right
-aligned, alongside a copy-source button. A view switch cannot show anything while the
-block is collapsed, so hoisting the buttons out would put dead controls on every row of
-a list whose job is to be scanned — and floating them above the card read as chrome
-belonging to the trace row rather than to the panel. The header does not scroll with the
-body.
+The control row lives in one component (`src/web/components/ContentToolbar.tsx`): diff
+selection, the view-mode toggle, copy. Every part is optional, which is what lets one
+component serve all of them — the chat bubbles (diff + copy, rendered by the trace itself
+under the bubble), the system prompt (diff + copy), the Inspector's JSON bodies (diff +
+copy in the section header) and its Raw tab (copy alone). **Diff Left / Diff Right / Copy are icon-only**,
+named by a hover/focus tooltip (`src/web/components/ui/tooltip.tsx`, Base UI via
+shadcn/ui) whose text also feeds each button's `aria-label`, so the name cannot drift from
+the label a screen reader hears. Two words apiece made the row the loudest thing on a chat
+turn, and Diff Left/Right recur in every bubble and every payload header.
+
+The row stays *inside* the expanded region, in the panel's own frame, right aligned. A
+view switch cannot show anything while the block is collapsed, so hoisting the buttons out
+would put dead controls on every row of a list whose job is to be scanned — and floating
+them above the card read as chrome belonging to the trace row rather than to the panel.
+
+Where the row sits within that frame differs by view, and both positions follow from what
+the view is for:
+
+- **Inspector — top, always visible.** The panel header does not scroll with the body, so
+  the mode you are in stays on screen however far down a 20 kB prompt you are. A system
+  prompt is something you audit; the controls are part of the task.
+- **Chat Trace bubbles — below the bubble, outside it, revealed on hover.** The shape every
+  chat interface has settled on, for the reason it settled on it: the bubble is one solid
+  block of what was said, and what you can *do* with it hangs below, off the reading line
+  and on the page rather than on the turn's own fill. `ContentViewer` takes
+  `controlsPlacement="external"` there and the trace renders `ContentToolbar` itself as a
+  sibling of the bubble — a child cannot escape its parent's fill.
+- **Chat Trace system/context blocks — bottom, inside, revealed on hover.** Those are
+  cards, not bubbles, so their row keeps the card's own frame.
+
+Hover reveal is opacity, never `hidden`: the controls keep their space (revealing them by
+reflowing the turn would move the text you were reading out from under the pointer), they
+stay in the tab order, and `focus-within` brings them back for a keyboard user who can
+never trigger `group-hover`.
 
 **Rendered and Structure share the canvas; only Raw gets the dark code card.** Both of
 the first two are renderings, and flipping the whole panel dark when switching between

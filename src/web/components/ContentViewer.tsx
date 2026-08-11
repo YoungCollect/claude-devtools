@@ -9,11 +9,10 @@ import {
   type XmlNode,
 } from '../../core/xml-outline.js';
 import type { GitDiffFormat, GitDiffSourceIdentity } from '../git-diff.js';
-import { DiffSourceButtons } from './DiffSourceButtons.js';
-import { Chevron, CopyIconButton, cx, Empty } from './ui.js';
+import { ContentToolbar, type ContentFormat, type ViewMode } from './ContentToolbar.js';
+import { Chevron, cx, Empty } from './ui.js';
 
-export type ContentFormat = 'markdown' | 'xml';
-type ViewMode = ContentFormat | 'raw';
+export type { ContentFormat };
 
 export interface ContentViewerProps {
   text: string;
@@ -42,19 +41,40 @@ export interface ContentViewerProps {
    * middle of the bubble and break the symmetry between the two speakers.
    */
   controlsAlign?: 'start' | 'end';
+  /**
+   * Which end of the panel the control row sits on.
+   *
+   * `top` keeps it in view while you scroll a 20 kB prompt, which is what the
+   * Inspector wants. `bottom` suits a block that is read from its first line,
+   * where a row of controls above that line is the first thing the eye lands
+   * on.
+   *
+   * `external` draws no row at all: the caller renders `ContentToolbar` itself,
+   * outside this panel. The chat bubbles do that — their controls belong under
+   * the bubble, on the page, and a child cannot escape its parent's fill.
+   */
+  controlsPlacement?: 'top' | 'bottom' | 'external';
+  /**
+   * `hover` fades the controls in on pointer-over (and on keyboard focus, so
+   * they stay reachable without a pointer). They keep their space in the layout
+   * either way — revealing them by reflowing the turn would move the text you
+   * were reading out from under the pointer.
+   */
+  controlsReveal?: 'always' | 'hover';
+  /**
+   * Whether the Rendered/Raw toggle is offered.
+   *
+   * The Chat Trace passes `false`: Copy already hands you the exact source, so
+   * the toggle was buying a view of the bytes that was one click away anyway,
+   * at the cost of two more controls on every single turn. Where the source is
+   * the point — the transport Inspector — the toggle stays.
+   *
+   * With the toggle hidden the panel also ignores the shared preference and
+   * pins itself to its first rendered format. Inheriting a `raw` preference set
+   * elsewhere would strand the reader in source with no control to leave it.
+   */
+  showViewModes?: boolean;
 }
-
-/**
- * Both rendered views carry the same first word, so the toggle reads as one
- * control with a qualifier rather than two unrelated names you have to
- * remember. `Structure` said nothing that `Rendered · XML` does not, and it
- * only ever appeared next to `Rendered` on the blocks that have both.
- */
-const LABELS: Record<ViewMode, string> = {
-  markdown: 'Rendered · MD',
-  xml: 'Rendered · XML',
-  raw: 'Raw',
-};
 
 const STORAGE_KEY = 'agent-devtools:content-view';
 
@@ -112,7 +132,9 @@ function setPreference(mode: ViewMode): void {
  *
  * The raw toggle is not a nicety here. Rendering is interpretation, and this is
  * a tool for finding out what the model was actually sent — so every rendered
- * view has to be checkable against the bytes that went over the wire.
+ * view has to be checkable against the bytes that went over the wire. Where the
+ * panel is for reading rather than for auditing, `showViewModes` hides the
+ * toggle and leaves that job to Copy, which always yields the source.
  */
 export function ContentViewer({
   text,
@@ -123,10 +145,18 @@ export function ContentViewer({
   variant = 'card',
   proseClassName,
   controlsAlign = 'end',
+  controlsPlacement = 'top',
+  controlsReveal = 'always',
+  showViewModes = true,
 }: ContentViewerProps) {
   const modes = useMemo<ViewMode[]>(() => [...formats, 'raw'], [formats]);
   const preferred = useSyncExternalStore(subscribeToPreference, getPreference, getPreference);
-  const active = preferred && modes.includes(preferred) ? preferred : (modes[0] ?? 'raw');
+  const fallback = modes[0] ?? 'raw';
+  const active = !showViewModes
+    ? fallback
+    : preferred && modes.includes(preferred)
+      ? preferred
+      : fallback;
 
   // Only the source sits on the navy code card. Markdown and the tag outline are
   // both *rendered* views, so they share the canvas — flipping the whole panel
@@ -141,9 +171,37 @@ export function ContentViewer({
   const diffFormat: GitDiffFormat =
     active === 'markdown' || active === 'xml' ? active : (formats[0] ?? 'markdown');
 
+  const toolbar = controlsPlacement === 'external' ? undefined : (
+    <div
+      className={
+        controlsReveal === 'hover'
+          ? // Opacity, not `hidden`: the buttons keep their space (no reflow on
+            // hover) and stay in the tab order, and `focus-within` brings them
+            // back for a keyboard user who can never trigger `group-hover`.
+            'opacity-0 transition-opacity group-hover/content:opacity-100 focus-within:opacity-100'
+          : undefined
+      }
+    >
+      <ContentToolbar
+        text={text}
+        diff={diffSource && { source: diffSource, format: diffFormat }}
+        viewModes={
+          showViewModes ? { options: modes, active, onSelect: setPreference } : undefined
+        }
+        surface={onCode ? 'code' : 'canvas'}
+        variant={variant}
+        align={controlsAlign}
+        edge={controlsPlacement}
+      />
+    </div>
+  );
+
   return (
     <div
       className={cx(
+        // Named group so the reveal keys off *this* panel and not whichever
+        // ancestor happens to carry a bare `group` — the trace rows do.
+        'group/content',
         variant === 'card'
           ? cx(
               'overflow-hidden rounded-lg border',
@@ -153,60 +211,7 @@ export function ContentViewer({
         className,
       )}
     >
-      {/*
-        The controls sit in the card's own header rather than floating above it.
-        Outside, they read as chrome belonging to the row; inside and right
-        aligned they read as what they are — a control over this one panel — and
-        the card keeps a single unbroken edge instead of two stacked blocks.
-
-        The header does not scroll with the body, so the mode you are in stays
-        visible however far down a 20 kB prompt you are.
-      */}
-      <div
-        className={cx(
-          'flex items-center gap-1.5',
-          // `flex-row-reverse` runs the main axis right-to-left, so `justify-end`
-          // packs the row against the left edge with the DOM order reversed —
-          // one declaration pair gives both halves of the mirror.
-          controlsAlign === 'start' ? 'flex-row-reverse justify-end' : 'justify-end',
-          // Bare has no card edge for a rule to sit on, so the controls are
-          // separated by space instead of a line they would otherwise draw
-          // across the middle of a chat bubble.
-          variant === 'card'
-            ? cx('border-b px-2 py-1.5', onCode ? 'border-code-divider' : 'border-hairline')
-            : 'pb-2',
-        )}
-      >
-        {diffSource && (
-          <DiffSourceButtons
-            source={{ ...diffSource, text, format: diffFormat }}
-            surface={onCode ? 'code' : 'canvas'}
-          />
-        )}
-        {modes.map((candidate) => (
-          <button
-            key={candidate}
-            type="button"
-            onClick={() => setPreference(candidate)}
-            aria-pressed={candidate === active}
-            className={cx(
-              'h-[26px] rounded-md border px-2.5 text-[12px] font-medium transition-colors',
-              candidate === active
-                ? 'border-primary bg-primary text-primary-foreground'
-                : onCode
-                  ? 'border-code-elevated bg-code-elevated text-code-fg-soft hover:text-code-fg'
-                  : 'border-hairline bg-canvas text-muted-foreground hover:border-muted-soft hover:text-ink',
-            )}
-          >
-            {LABELS[candidate]}
-          </button>
-        ))}
-        {/*
-          Copy sits with the modes because what it copies is the source — the
-          thing `Raw` shows — not the panel as a whole.
-        */}
-        <CopyIconButton text={text} surface={onCode ? 'code' : 'canvas'} />
-      </div>
+      {controlsPlacement === 'top' && toolbar}
 
       <div className={cx('overflow-auto', maxHeightClass)}>
         {active === 'raw' ? (
@@ -217,6 +222,8 @@ export function ContentViewer({
           <XmlPanel text={text} bare={variant === 'bare'} />
         )}
       </div>
+
+      {controlsPlacement === 'bottom' && toolbar}
     </div>
   );
 }

@@ -10,3 +10,9 @@
 - [x] chat trace 中的 user 和 assistant，其 chat 气泡信息在保持信息背景色不变的情况下支持 markdown 渲染，并且同样在顶部添加 Diff Left/Diff Right/Rendered/Raw/Copy 按钮并实现相关功能
 - [x] 目前 markdown 的按钮定义为了 Rendered，而 xml 的按钮定义了 Structure，我认为统一成 `Rendered` 即可，不然有记忆成本。
 - [ ] ~~chat trace 页面中的 network 选项板的表格 增加一个升降序排列图标~~
+
+## UI审查
+
+目前的项目颜色五花八门的，没有做到统一的颜色分类，没有一套通用的 token 规范，譬如：
+
+1. 代码块渲染（markdown/xml/json/Assembled response/SSE raw frames/Request body (raw)/Response stream (raw SSE)），现在的设计有黄的白的黑的
