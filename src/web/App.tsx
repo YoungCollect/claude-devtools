@@ -219,6 +219,12 @@ export function App() {
                 await api.deleteConversation(id);
                 await refresh();
               }}
+              // Rejects on failure so the row can stay in edit mode; refreshing
+              // regardless would redraw the old title as if nothing was wrong.
+              onRename={async (id, title) => {
+                await api.renameConversation(id, title);
+                await refresh();
+              }}
             />
           </nav>
 

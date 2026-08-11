@@ -90,6 +90,21 @@ test('deleting one conversation removes only its durable rows', () => {
   persistence.close();
 });
 
+test('renaming reports whether a durable row was actually rewritten', () => {
+  const persistence = new Persistence({ file: temporaryDatabase(), maxBytes: 1_000_000 });
+  persistence.saveConversation(conversation('conv_1', 1), state('conv_1', 1));
+
+  assert.equal(persistence.renameConversation('conv_1', 'Payments bug hunt'), true);
+  // Retention may have evicted the row before the rename reached disk.
+  assert.equal(persistence.renameConversation('conv_gone', 'ghost'), false);
+
+  const loaded = persistence.loadAll();
+  assert.equal(loaded.conversations[0]?.conversation.title, 'Payments bug hunt');
+  // Only the display column moved; reconstruction still resumes from disk.
+  assert.deepEqual(loaded.conversations[0]?.state, state('conv_1', 1));
+  persistence.close();
+});
+
 function temporaryDatabase(): string {
   return join(mkdtempSync(join(tmpdir(), 'agent-devtools-test-')), 'traces.db');
 }

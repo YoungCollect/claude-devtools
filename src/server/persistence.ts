@@ -338,6 +338,27 @@ export class Persistence {
     return this.storedBytes;
   }
 
+  /**
+   * Rewrites one conversation's display title.
+   *
+   * Only the presentation column moves: `builder_state` is what reconstruction
+   * resumes from after a restart, and a human renaming a chat says nothing
+   * about the history the trace was rebuilt from. Returns false when the row is
+   * gone (retention evicted it), so the caller does not report a durable write
+   * that never happened.
+   */
+  renameConversation(id: string, title: string): boolean {
+    const row = this.db.prepare('SELECT conversation FROM conversations WHERE id = ?').get(id) as
+      | { conversation: string }
+      | undefined;
+    if (!row) return false;
+    const conversation = { ...(JSON.parse(row.conversation) as Conversation), title };
+    this.db
+      .prepare('UPDATE conversations SET conversation = ? WHERE id = ?')
+      .run(JSON.stringify(conversation), id);
+    return true;
+  }
+
   /** Permanently removes one conversation and every row owned by it. */
   deleteConversation(id: string): void {
     this.db.exec('BEGIN IMMEDIATE');

@@ -85,6 +85,7 @@ serve({
     persistence,
     clearState: () => runtime.clear(),
     deleteConversation: (id) => runtime.deleteConversation(id),
+    renameConversation: (id, title) => runtime.renameConversation(id, title),
     devUiUrl: devMode ? viteUrl : undefined,
   }).fetch,
   hostname: config.host,

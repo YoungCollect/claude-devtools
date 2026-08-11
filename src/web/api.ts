@@ -40,8 +40,15 @@ async function getJson<T>(path: string): Promise<T> {
  */
 const MUTATION_HEADERS = { 'x-agent-devtools': '1' };
 
-async function mutate(path: string, method: string): Promise<void> {
-  const res = await fetch(path, { method, headers: MUTATION_HEADERS });
+async function mutate(path: string, method: string, body?: unknown): Promise<void> {
+  const res = await fetch(path, {
+    method,
+    headers:
+      body === undefined
+        ? MUTATION_HEADERS
+        : { ...MUTATION_HEADERS, 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   if (!res.ok) throw new Error(`${method} ${path}: ${res.status}`);
 }
 
@@ -54,6 +61,8 @@ export const api = {
     ),
   deleteConversation: (conversationId: string) =>
     mutate(`/api/conversations/${encodeURIComponent(conversationId)}`, 'DELETE'),
+  renameConversation: (conversationId: string, title: string) =>
+    mutate(`/api/conversations/${encodeURIComponent(conversationId)}`, 'PATCH', { title }),
   transport: (id: string, reveal: boolean) =>
     getJson<{ record: TransportDetail }>(
       `/api/transport/${encodeURIComponent(id)}${reveal ? '?reveal=1' : ''}`,

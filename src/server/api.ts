@@ -21,6 +21,8 @@ export interface ApiOptions {
   clearState: () => void;
   /** Deletes one conversation from memory, reconstruction state, and disk. */
   deleteConversation: (id: string) => boolean;
+  /** Replaces one conversation's title in memory and on disk. */
+  renameConversation: (id: string, title: string) => boolean;
   /**
    * Dev only: where Vite is serving the UI. Non-API requests are redirected
    * there, so opening the usual port during `pnpm dev` still lands on the UI
@@ -42,6 +44,9 @@ export interface ApiOptions {
  */
 const REQUEST_HEADER = 'x-agent-devtools';
 
+/** Keeps a renamed chat readable in the sidebar and its stored row bounded. */
+const MAX_TITLE_LENGTH = 200;
+
 function fromOwnUi(c: { req: { header: (name: string) => string | undefined } }): boolean {
   return c.req.header(REQUEST_HEADER) !== undefined;
 }
@@ -53,6 +58,7 @@ export function createApi({
   persistence,
   clearState,
   deleteConversation,
+  renameConversation,
   devUiUrl,
 }: ApiOptions): Hono {
   const app = new Hono();
@@ -77,6 +83,20 @@ export function createApi({
     if (!fromOwnUi(c)) return c.json({ error: 'missing devtools request header' }, 403);
     const deleted = deleteConversation(c.req.param('id'));
     return deleted ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
+  });
+
+  app.patch('/api/conversations/:id', async (c) => {
+    if (!fromOwnUi(c)) return c.json({ error: 'missing devtools request header' }, 403);
+    // A malformed body is a client bug, not a reason to 500 the local server.
+    const body = await c.req.json().catch(() => undefined);
+    const raw = (body as { title?: unknown } | undefined)?.title;
+    const title = typeof raw === 'string' ? raw.trim() : undefined;
+    if (!title) return c.json({ error: 'title is required' }, 400);
+    if (title.length > MAX_TITLE_LENGTH) {
+      return c.json({ error: `title must be at most ${MAX_TITLE_LENGTH} characters` }, 400);
+    }
+    const renamed = renameConversation(c.req.param('id'), title);
+    return renamed ? c.json({ ok: true, title }) : c.json({ error: 'not found' }, 404);
   });
 
   app.get('/api/transport/:id', (c) => {

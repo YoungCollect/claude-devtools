@@ -56,6 +56,89 @@ test('deleting a conversation prevents its in-flight request from repopulating t
   assert.deepEqual(store.snapshot().transport, []);
 });
 
+test('renaming a conversation survives a restart and later requests on the same trace', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'agent-devtools-rename-')), 'traces.db');
+  const store = new Store();
+  const persistence = new Persistence({ file, maxBytes: 1_000_000 });
+  const builder = new TraceBuilder(store);
+  const runtime = new CaptureRuntime({ store, builder, persistence });
+
+  const first = request('rename_first');
+  runtime.hooks.onRequestStart(first);
+  runtime.hooks.onRequestBody(first);
+  first.status = 200;
+  first.timing.endedAt = 2;
+  runtime.hooks.onResponseStart(first);
+  runtime.hooks.onComplete(first);
+
+  const conversationId = first.conversationId ?? '';
+  assert.ok(conversationId);
+  assert.equal(runtime.renameConversation(conversationId, 'Payments bug hunt'), true);
+  assert.equal(store.getConversation(conversationId)?.title, 'Payments bug hunt');
+  assert.equal(runtime.renameConversation('conv_missing', 'nowhere'), false);
+
+  // A later turn on the same trace re-saves the conversation; the human's name
+  // is not a derived field, so it must not be recomputed away.
+  const second = request('rename_second', 'hello');
+  second.timing.startedAt = 3;
+  runtime.hooks.onRequestStart(second);
+  runtime.hooks.onRequestBody(second);
+  second.status = 200;
+  second.timing.endedAt = 4;
+  runtime.hooks.onResponseStart(second);
+  runtime.hooks.onComplete(second);
+  assert.equal(store.getConversation(conversationId)?.title, 'Payments bug hunt');
+
+  persistence.close();
+  const reopened = new Persistence({ file, maxBytes: 1_000_000 });
+  const restored = reopened
+    .loadAll()
+    .conversations.find(({ conversation }) => conversation.id === conversationId);
+  assert.equal(restored?.conversation.title, 'Payments bug hunt');
+  // Reconstruction state is untouched: a rename says nothing about history.
+  assert.deepEqual(restored?.state.fps.length, 1);
+  reopened.close();
+});
+
+test('the rename endpoint requires a usable title and an existing conversation', async () => {
+  const renames: { id: string; title: string }[] = [];
+  const app = createApi({
+    store: new Store(),
+    config: loadConfig([], {}),
+    clearState: () => {},
+    deleteConversation: () => true,
+    renameConversation: (id, title) => {
+      if (id !== 'conv_1') return false;
+      renames.push({ id, title });
+      return true;
+    },
+  });
+  const patch = (body: string) =>
+    app.request('/api/conversations/conv_1', {
+      method: 'PATCH',
+      headers: { 'x-agent-devtools': '1', 'content-type': 'application/json' },
+      body,
+    });
+
+  assert.equal((await patch('{"title":"   "}')).status, 400);
+  assert.equal((await patch('{"title":42}')).status, 400);
+  assert.equal((await patch('not json')).status, 400);
+  assert.equal((await patch(JSON.stringify({ title: 'x'.repeat(201) }))).status, 400);
+  assert.deepEqual(renames, []);
+
+  const ok = await patch('{"title":"  Payments bug hunt  "}');
+  assert.equal(ok.status, 200);
+  // Stored trimmed, so the sidebar never shows padding the user cannot see.
+  assert.deepEqual(renames, [{ id: 'conv_1', title: 'Payments bug hunt' }]);
+
+  const missing = await app.request('/api/conversations/conv_gone', {
+    method: 'PATCH',
+    headers: { 'x-agent-devtools': '1', 'content-type': 'application/json' },
+    body: '{"title":"ghost"}',
+  });
+  assert.equal(missing.status, 404);
+});
+
 test('retention does not evict another conversation that is still in flight', () => {
   const store = new Store();
   const persistence = new Persistence({
@@ -535,6 +618,7 @@ test('clear releases every resident body', () => {
 
 test('state-changing endpoints reject a request that did not come from the UI', async () => {
   let cleared = 0;
+  let renamed = 0;
   const app = createApi({
     store: new Store(),
     config: loadConfig([], {}),
@@ -542,6 +626,10 @@ test('state-changing endpoints reject a request that did not come from the UI', 
       cleared += 1;
     },
     deleteConversation: () => true,
+    renameConversation: () => {
+      renamed += 1;
+      return true;
+    },
   });
 
   // A cross-origin page can send this much without a preflight.
@@ -551,6 +639,14 @@ test('state-changing endpoints reject a request that did not come from the UI', 
 
   const bareDelete = await app.request('/api/conversations/conv_1', { method: 'DELETE' });
   assert.equal(bareDelete.status, 403);
+
+  // Rename mutates the capture too, so it carries the same guard.
+  const bareRename = await app.request('/api/conversations/conv_1', {
+    method: 'PATCH',
+    body: JSON.stringify({ title: 'renamed by a random page' }),
+  });
+  assert.equal(bareRename.status, 403);
+  assert.equal(renamed, 0);
 
   // The header is not a secret; carrying it is what forces a preflight, and a
   // preflight is what this API never answers.

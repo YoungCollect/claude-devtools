@@ -88,6 +88,23 @@ export class CaptureRuntime {
     return true;
   }
 
+  /**
+   * Gives one conversation a human-chosen title.
+   *
+   * The derived title is only ever computed when a conversation is created, so
+   * a rename survives every later request on the same trace. Disk goes first,
+   * for the same reason delete does: memory must not show a name that a restart
+   * would throw away.
+   */
+  renameConversation(id: string, title: string): boolean {
+    const conversation = this.options.store.getConversation(id);
+    if (!conversation) return false;
+    this.options.persistence?.renameConversation(id, title);
+    conversation.title = title;
+    this.options.store.touch();
+    return true;
+  }
+
   private onRequestStart(record: TransportRecord): void {
     this.requestGeneration.set(record, this.generation);
   }
