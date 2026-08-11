@@ -78,7 +78,7 @@ const runtime = new CaptureRuntime({
   maxResidentBodyBytes: config.maxBytes,
 });
 
-createProxy({
+const proxy = createProxy({
   // One listener, one upstream per provider. A path no adapter claims — token
   // refresh, `/v1/models`, a health probe — has nothing in it to route on, so
   // it goes to the default rather than being rejected: those calls are part of
@@ -112,21 +112,58 @@ const proxyUrl = `http://${config.host}:${config.proxyPort}`;
 const apiUrl = `http://${config.host}:${config.uiPort}`;
 const viteUrl = `http://${config.host}:${config.vitePort}`;
 
-serve({
-  // Whichever port you open in dev, you land on the UI that actually hot-reloads.
-  fetch: createApi({
-    store,
-    config,
-    webRoot,
-    persistence,
-    clearState: () => runtime.clear(),
-    deleteConversation: (id) => runtime.deleteConversation(id),
-    renameConversation: (id, title) => runtime.renameConversation(id, title),
-    devUiUrl: devMode ? viteUrl : undefined,
-  }).fetch,
-  hostname: config.host,
-  port: config.uiPort,
-});
+/**
+ * The banner waits for both listeners.
+ *
+ * It names the ports this process is serving on, so printing it before they are
+ * bound turns the one failure a user hits routinely — the port is already taken
+ * by another capture — into a startup that reports success and then throws a
+ * stack trace underneath it.
+ */
+let pendingListeners = 2;
+const announceWhenReady = () => {
+  if (--pendingListeners === 0) console.log(banner());
+};
+
+proxy.once('listening', announceWhenReady);
+proxy.on('error', (error) => exitOnListenError('capture proxy', config.proxyPort, error));
+
+const ui = serve(
+  {
+    // Whichever port you open in dev, you land on the UI that actually hot-reloads.
+    fetch: createApi({
+      store,
+      config,
+      webRoot,
+      persistence,
+      clearState: () => runtime.clear(),
+      deleteConversation: (id) => runtime.deleteConversation(id),
+      renameConversation: (id, title) => runtime.renameConversation(id, title),
+      devUiUrl: devMode ? viteUrl : undefined,
+    }).fetch,
+    hostname: config.host,
+    port: config.uiPort,
+  },
+  announceWhenReady,
+);
+
+ui.on('error', (error: NodeJS.ErrnoException) =>
+  exitOnListenError('devtools UI', config.uiPort, error),
+);
+
+/** A port conflict is a thing to say in one line, not to throw a stack over. */
+function exitOnListenError(what: string, port: number, error: NodeJS.ErrnoException): never {
+  if (error.code === 'EADDRINUSE') {
+    console.error(
+      `agent-devtools: the ${what} could not start — 127.0.0.1:${port} is already in use.\n` +
+        '  Another capture is probably running. Stop it, or choose other ports with' +
+        ' --proxy-port / --ui-port.',
+    );
+  } else {
+    console.error(`agent-devtools: the ${what} could not start on port ${port}: ${error.message}`);
+  }
+  process.exit(1);
+}
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
@@ -135,34 +172,36 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 
-const uiLine = devMode
-  ? `${viteUrl}  (vite · hot reload — ${apiUrl} redirects here)`
-  : webRoot
-    ? apiUrl
-    : `${apiUrl}  (api only — UI not built; run \`pnpm build\`, or \`pnpm dev\` for hot reload)`;
+/** What this process is serving, printed once both listeners are bound. */
+function banner(): string {
+  const uiLine = devMode
+    ? `${viteUrl}  (vite · hot reload — ${apiUrl} redirects here)`
+    : webRoot
+      ? apiUrl
+      : `${apiUrl}  (api only — UI not built; run \`pnpm build\`, or \`pnpm dev\` for hot reload)`;
 
-const storageLine = persistence
-  ? `${config.dbFile}  (${formatBytes(persistence.totalBytes())} of ${formatBytes(config.maxBytes)}` +
-    `${restored.conversations > 0 ? `, restored ${restored.conversations} conversations / ${restored.requests} requests` : ''})`
-  : `off (--no-persist) — bodies stay in memory under ${formatBytes(config.maxBytes)}, lost on restart`;
+  const storageLine = persistence
+    ? `${config.dbFile}  (${formatBytes(persistence.totalBytes())} of ${formatBytes(config.maxBytes)}` +
+      `${restored.conversations > 0 ? `, restored ${restored.conversations} conversations / ${restored.requests} requests` : ''})`
+    : `off (--no-persist) — bodies stay in memory under ${formatBytes(config.maxBytes)}, lost on restart`;
 
-/**
- * Both providers, on the one port. Which line you need depends on the client
- * you are about to start, and nothing about running one rules out the other —
- * so both are printed, and the traffic is separated by path, not by port. The
- * `--client` choice only decides which goes first and where unrouted paths go.
- */
-const upstreamLines = PROVIDERS.map(
-  (provider) =>
-    `            ${provider.padEnd(10)} →  ${config.upstreams[provider]}` +
-    `${provider === config.defaultProvider ? '   (default route)' : ''}`,
-).join('\n');
+  /**
+   * Both providers, on the one port. Which line you need depends on the client
+   * you are about to start, and nothing about running one rules out the other —
+   * so both are printed, and the traffic is separated by path, not by port. The
+   * `--client` choice only decides which goes first and where unrouted paths go.
+   */
+  const upstreamLines = PROVIDERS.map(
+    (provider) =>
+      `            ${provider.padEnd(10)} →  ${config.upstreams[provider]}` +
+      `${provider === config.defaultProvider ? '   (default route)' : ''}`,
+  ).join('\n');
 
-const clientLines = orderedClients(config.defaultProvider)
-  .map((client) => `    ${runCommand(client, proxyUrl)}`)
-  .join('\n');
+  const clientLines = orderedClients(config.defaultProvider)
+    .map((client) => `    ${runCommand(client, proxyUrl)}`)
+    .join('\n');
 
-console.log(`
+  return `
   agent-devtools${devMode ? '  ·  dev' : ''}
 
   proxy     ${proxyUrl}
@@ -173,7 +212,8 @@ ${upstreamLines}
   Point an agent at the proxy:
 
 ${clientLines}
-`);
+`;
+}
 
 /** The published version, for `--version`. Built output sits two levels down. */
 function readVersion(): string {

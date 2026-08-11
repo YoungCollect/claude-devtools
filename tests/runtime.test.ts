@@ -1226,3 +1226,57 @@ test('the run command shown always matches the client the server was started for
   assert.equal(orderedClients('anthropic')[0]?.binary, 'claude');
   assert.equal(orderedClients(undefined).length, forCodex.length);
 });
+
+test('an OpenAI attachment is identified without hashing its payload', () => {
+  const fingerprintOf = (content: unknown) =>
+    openaiAdapter.parseRequest(
+      openaiRequest('openai_attachment', [{ role: 'user', content }]),
+    ).history[0]?.fp;
+
+  const image = (data: string) => [
+    { type: 'text', text: 'look at this' },
+    { type: 'image_url', image_url: { url: `data:image/png;base64,${data}` } },
+  ];
+
+  // Two messages whose only difference is the image itself. Both render to the
+  // same text, so without the attachment signature the prefix match would call
+  // them the same block.
+  assert.notEqual(fingerprintOf(image('a'.repeat(4096))), fingerprintOf(image('b'.repeat(4096))));
+  assert.equal(fingerprintOf(image('a'.repeat(4096))), fingerprintOf(image('a'.repeat(4096))));
+
+  // A plain message keeps the fingerprint it had before attachments were
+  // considered at all, so conversations restored from disk still match.
+  assert.equal(fingerprintOf('hello'), fingerprintOf([{ type: 'text', text: 'hello' }]));
+});
+
+test('a captured request names the URL it was actually sent to', async () => {
+  // An upstream mounted under a base path — a gateway, or `--upstream
+  // https://openrouter.ai/api`.
+  const upstream = await stubUpstream('mounted-upstream');
+  const records: TransportRecord[] = [];
+  const proxy = createProxy({
+    resolveUpstream: () => `${upstream.url}/api`,
+    host: '127.0.0.1',
+    port: 0,
+    hooks: {
+      onRequestStart: (record) => records.push(record),
+      onRequestBody: () => undefined,
+      onResponseStart: () => undefined,
+      onStreamFrames: () => undefined,
+      onComplete: () => undefined,
+    },
+  });
+  await once(proxy, 'listening');
+
+  try {
+    await postTo(`http://127.0.0.1:${serverPort(proxy)}/v1/messages`);
+    // Not `${upstream.url}/v1/messages`: that is where resolving the path
+    // against the upstream as a base would claim it went, and no request was
+    // ever made to it.
+    assert.equal(records[0]?.url, `${upstream.url}/api/v1/messages`);
+    assert.equal(records[0]?.path, '/v1/messages');
+  } finally {
+    proxy.close();
+    upstream.close();
+  }
+});

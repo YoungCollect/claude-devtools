@@ -73,6 +73,7 @@ export function createProxy(options: ProxyOptions): http.Server {
     const upstreamUrl = new URL(options.resolveUpstream(req.url ?? '/'));
     const isTls = upstreamUrl.protocol === 'https:';
     const transport = isTls ? https : http;
+    const upstreamPath = joinPath(upstreamUrl.pathname, req.url ?? '/');
 
     const record: TransportRecord = {
       id: randomUUID(),
@@ -80,7 +81,13 @@ export function createProxy(options: ProxyOptions): http.Server {
       kind: 'other',
       method: req.method ?? 'GET',
       path: req.url ?? '/',
-      url: new URL(req.url ?? '/', upstreamUrl).toString(),
+      // The address the request is actually sent to, assembled from the same
+      // path that goes on the wire. Resolving the request path against the
+      // upstream as a URL base instead would silently drop a base path — an
+      // upstream of `https://openrouter.ai/api` would be recorded as
+      // `https://openrouter.ai/v1/…` while the socket carried `/api/v1/…`, and
+      // the Inspector would be naming a URL that was never requested.
+      url: `${upstreamUrl.origin}${upstreamPath}`,
       requestHeaders: flattenHeaders(req.headers),
       isStream: false,
       sseFrames: [],
@@ -90,7 +97,6 @@ export function createProxy(options: ProxyOptions): http.Server {
     };
     options.hooks.onRequestStart(record);
 
-    const upstreamPath = joinPath(upstreamUrl.pathname, req.url ?? '/');
     const upstreamReq = transport.request(
       {
         protocol: upstreamUrl.protocol,

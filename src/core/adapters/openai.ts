@@ -96,7 +96,10 @@ export const openaiAdapter: ProviderAdapter = {
         { label: 'stream', value: String(body.stream ?? false) },
       ],
       toolNames: tools.map((tool) => toolName(tool) ?? '?'),
-      systemText: splitMessages(messages).system,
+      // Only the leading messages are read. `splitMessages` would rebuild the
+      // whole transcript as history items to hand back one string, on a body
+      // that routinely runs to hundreds of kilobytes.
+      systemText: readSystemPrompt(messages).system,
       bodyFields: {
         // The prompt is not a field of its own here — it is the first entries of
         // `messages`. Naming `messages` is what the Inspector's drill-down
@@ -372,10 +375,7 @@ function detectAgent(headers: Record<string, string>): string {
  * re-inject instructions mid-run — and it stays in the history as a
  * system-role node, exactly as an Anthropic system-role message does.
  */
-function splitMessages(messages: readonly unknown[]): {
-  system?: string;
-  history: HistoryItem[];
-} {
+function readSystemPrompt(messages: readonly unknown[]): { system?: string; start: number } {
   const prompt: string[] = [];
   let start = 0;
   for (; start < messages.length; start++) {
@@ -385,8 +385,16 @@ function splitMessages(messages: readonly unknown[]): {
     const text = readContent(message?.content);
     if (text.trim()) prompt.push(text);
   }
+  return { ...(prompt.length > 0 ? { system: prompt.join('\n\n') } : {}), start };
+}
+
+function splitMessages(messages: readonly unknown[]): {
+  system?: string;
+  history: HistoryItem[];
+} {
+  const { system, start } = readSystemPrompt(messages);
   return {
-    ...(prompt.length > 0 ? { system: prompt.join('\n\n') } : {}),
+    ...(system !== undefined ? { system } : {}),
     history: messages.slice(start).flatMap(readMessage),
   };
 }
@@ -447,16 +455,57 @@ function readMessage(raw: unknown): HistoryItem[] {
     ];
   }
 
+  const attachments = attachmentSignature(message.content);
   return [
     {
       // Keep the fingerprint on the original provider message; segmentation is
       // display only, exactly as on the Anthropic side.
-      fp: fpUser(text),
+      //
+      // Attachments are folded in separately because they do not survive
+      // `readContent`: every image collapses to the same `[image_url]` marker,
+      // so two messages that are nothing but different screenshots would
+      // fingerprint identically and the prefix match would call them the same
+      // block.
+      fp: attachments ? fingerprint('user', text, attachments) : fpUser(text),
       kind: 'user',
       text,
       segments: splitTaggedUserContent(text),
     },
   ];
+}
+
+/**
+ * Identifies the non-text parts of a message without hashing their payloads.
+ *
+ * An inline image arrives as a data URL that can run to megabytes, and every
+ * request replays the entire transcript — hashing them whole would re-hash the
+ * same attachment on every turn, on the path that forwards the agent's request.
+ * Media type, length and both ends separate any two attachments a session
+ * actually holds, which is all a fingerprint has to do here.
+ *
+ * Returns undefined for ordinary text messages, so their fingerprints are
+ * exactly what they were before attachments were considered at all.
+ */
+function attachmentSignature(content: unknown): unknown[] | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const parts = content
+    .map(asRecord)
+    .filter((part): part is Record<string, unknown> => part !== undefined)
+    .filter((part) => asString(part.text) === undefined);
+  if (parts.length === 0) return undefined;
+  return parts.map((part) => {
+    const payload =
+      asString(asRecord(part.image_url)?.url) ??
+      asString(asRecord(part.input_audio)?.data) ??
+      asString(asRecord(part.file)?.file_data) ??
+      '';
+    return [
+      asString(part.type) ?? 'part',
+      payload.length,
+      payload.slice(0, 64),
+      payload.slice(-64),
+    ];
+  });
 }
 
 /**

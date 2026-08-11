@@ -481,8 +481,13 @@ export class TraceBuilder {
    * request — replaying that same assistant turn in its history — would fail to
    * match and open a second trace for the same conversation.
    *
-   * A client that hung up mid-stream lands here too, which is the honest
-   * outcome: the partial block is recorded as what was actually received.
+   * A client that hung up mid-stream lands here too, and closing that block is
+   * the safer of the two outcomes rather than merely the tidier one. Some
+   * runtimes keep the partial assistant text and replay it in the next
+   * request's history: an unfinalised block is absent from `producedFps`, so
+   * that replay would be read as new content and the same text would appear on
+   * the trace twice. Closing it means the next request either matches or comes
+   * up one block short — a rewind the builder already knows how to absorb.
    */
   private closeOpenBlocks(adapter: ProviderAdapter, record: TransportRecord): void {
     const stream = this.streams.get(record.id);
