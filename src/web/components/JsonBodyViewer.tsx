@@ -3,7 +3,7 @@ import { JsonView } from 'react-json-view-lite';
 
 import { pretty } from '../format.js';
 import { jsonContainer } from '../json.js';
-import { DataSurface, DataSurfaceBody } from './DataSurface.js';
+import { DataSurface, DataSurfaceBody, DataSurfaceHeader } from './DataSurface.js';
 import { CodeBlock } from './ui.js';
 
 const jsonStyles = {
@@ -69,6 +69,7 @@ export function JsonBodyViewer({
 
   return (
     <DataSurface variant="block">
+      <DataSurfaceHeader format="json" />
       <DataSurfaceBody maxHeightClass="max-h-[70vh]" className="p-3">
         <JsonView
           data={data}

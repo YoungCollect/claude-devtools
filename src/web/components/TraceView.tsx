@@ -8,7 +8,7 @@ import type { GitDiffSourceIdentity } from '../git-diff.js';
 import type { TraceNode } from '../../core/types.js';
 import { groupTrace, turnNodes, type ToolActivity, type TraceTurn } from '../trace-groups.js';
 import { formatMs, formatTokens, pretty, toolResultText, truncate } from '../format.js';
-import { Chevron, cx, Empty, MetaBadge, StatusBadge, TagLabel, type Tone } from './ui.js';
+import { Chevron, cx, Empty, MetaBadge, StatusBadge, TagLabel, type RoleTone } from './ui.js';
 
 /**
  * Chat turns are prose. Module-level so every bubble shares one array — the
@@ -164,7 +164,7 @@ function ToolStrip({
         className="flex w-full items-center gap-2.5 text-left"
       >
         <Chevron open={open} />
-        <TagLabel tone="tool">
+        <TagLabel role="tool">
           {activities.length === 1 ? '1 tool' : `${activities.length} tools`}
         </TagLabel>
         <span className="min-w-0 truncate font-mono text-[12.5px] text-muted-foreground">
@@ -351,7 +351,7 @@ function NodeBody({ node }: { node: TraceNode }) {
           label={node.systemSource === 'prompt' ? 'system prompt' : 'system'}
           sourceId={node.id}
           sessionId={node.conversationId}
-          tone="warning"
+          role="system"
           preferMarkdown
         />
       );
@@ -362,7 +362,7 @@ function NodeBody({ node }: { node: TraceNode }) {
           label={node.contextTag ?? 'context'}
           sourceId={node.id}
           sessionId={node.conversationId}
-          tone="neutral"
+          role="context"
         />
       );
     case 'user':
@@ -428,7 +428,7 @@ function UserBubble({
 }) {
   return (
     <div className="group/turn">
-      <Gutter label="user" tone="emph" align="end" />
+      <Gutter label="user" role="user" align="end" />
       <div className="mt-1.5 rounded-2xl rounded-tr-sm bg-surface-card px-4 py-3">
         {text ? (
           <ContentViewer
@@ -496,7 +496,7 @@ function AssistantNode({ node }: { node: TraceNode }) {
   const text = node.text ?? '';
   return (
     <div className="group/turn">
-      <Gutter label="assistant" tone="success">
+      <Gutter label="assistant" role="assistant">
         {node.model && <span className="font-mono text-[12px] text-muted-foreground">{node.model}</span>}
         {node.durationMs !== undefined && (
           <span className="font-mono text-[12px] text-muted-soft">{formatMs(node.durationMs)}</span>
@@ -541,7 +541,7 @@ function ThinkingNode({ node }: { node: TraceNode }) {
   const text = node.text ?? '';
   return (
     <div>
-      <Gutter label="thinking" tone="neutral">
+      <Gutter label="thinking" role="thinking">
         {node.durationMs !== undefined && (
           <span className="font-mono text-[12px] text-muted-soft">{formatMs(node.durationMs)}</span>
         )}
@@ -560,14 +560,14 @@ function ContextNode({
   label,
   sourceId,
   sessionId,
-  tone = 'neutral',
+  role = 'context',
   preferMarkdown = false,
 }: {
   text: string;
   label: string;
   sourceId: string;
   sessionId: string;
-  tone?: Tone;
+  role?: RoleTone;
   /** System prompts are prose first; tag blocks are structure first. */
   preferMarkdown?: boolean;
 }) {
@@ -593,7 +593,7 @@ function ContextNode({
         className="flex items-center gap-1.5 self-end"
       >
         <Chevron open={open} />
-        <TagLabel tone={tone}>{label}</TagLabel>
+        <TagLabel role={role}>{label}</TagLabel>
       </button>
       {!open && (
         <div className="mt-1.5 truncate rounded-xl border border-hairline bg-surface-soft px-3 py-2.5 text-right text-[12.5px] text-muted-soft">
@@ -629,7 +629,7 @@ function BannerNode({
 }) {
   return (
     <div>
-      <Gutter label={label} tone={tone} />
+      <Gutter label={label} role={tone === 'error' ? 'error' : 'system'} />
       <div
         className={cx(
           'mt-1.5 text-[13.5px]',
@@ -644,18 +644,18 @@ function BannerNode({
 
 function Gutter({
   label,
-  tone,
+  role,
   align = 'start',
   children,
 }: {
   label: string;
-  tone: Tone;
+  role: RoleTone;
   align?: 'start' | 'end';
   children?: React.ReactNode;
 }) {
   return (
     <div className={cx('flex items-center gap-2.5', align === 'end' && 'justify-end')}>
-      <TagLabel tone={tone}>{label}</TagLabel>
+      <TagLabel role={role}>{label}</TagLabel>
       {children}
     </div>
   );

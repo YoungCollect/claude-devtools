@@ -311,6 +311,28 @@ The system has three surface modes that alternate page-by-page:
 
 The dark surfaces are where Claude shows its product chrome — code blocks, terminal output, model comparison tables, agentic-flow diagrams. The cream-to-dark contrast is the page's pacing rhythm.
 
+### Agent DevTools product-surface boundary
+
+The dark navy surface above is a marketing composition device, not a universal
+rule for operational developer tools. Agent DevTools renders captured JSON,
+XML, Markdown fences, raw request/response bodies and SSE frames through one
+theme-adaptive `DataSurface` contract:
+
+- Light theme uses a warm-grey data panel with dark syntax colours. It must not
+  introduce a near-black island merely to signal “code”.
+- Dark theme uses a raised dark panel with an explicit border; it remains
+  distinct from the page canvas without changing layout or density.
+- Format is communicated through structure, labels and syntax roles. Switching
+  between rendered XML and raw source must not select a separate hard-coded
+  palette.
+- Role, status and syntax colours are independent semantic domains. A successful
+  HTTP response never borrows the assistant role colour, even if their current
+  reference-palette values happen to match.
+
+The implementation source of truth is `src/web/styles.css`: reference values
+flow into semantic/component tokens, and React components consume only the
+published role names.
+
 **Key Characteristics:**
 - Warm cream canvas (`{colors.canvas}` — #faf9f5) with dark warm-ink text (`{colors.ink}` — #141413). The brand's defining color choice.
 - Coral primary CTA (`{colors.primary}` — #cc785c). Used scarcely on individual buttons, generously on full-bleed coral callout cards.

@@ -12,6 +12,62 @@
 @custom-variant dark (&:is([data-theme='dark'] *));
 
 /*
+ * Reference palette: physical values only. Feature code never consumes these
+ * names; semantic roles below choose from them, component tokens such as
+ * `data-*` consume those roles, and component variants consume only the
+ * published `--color-*` contract. Keeping both theme palettes here makes a
+ * palette change reviewable without smuggling a hue decision into a component.
+ */
+:root {
+  --ref-light-data-100: #f3efe7;
+  --ref-light-data-200: #ece6dc;
+  --ref-light-data-300: #e7e0d5;
+  --ref-light-data-border: #d8d0c3;
+  --ref-light-data-divider: #ddd5c9;
+  --ref-light-ink-900: #252523;
+  --ref-light-ink-600: #5f5c55;
+  --ref-light-slate-700: #4f5e6c;
+  --ref-light-green-700: #2d6a4f;
+  --ref-light-amber-800: #8b5a16;
+  --ref-light-purple-700: #6b4ba1;
+  --ref-light-red-700: #a63d40;
+  --ref-light-teal-700: #24705f;
+  --ref-light-brown-700: #87531b;
+  --ref-light-grey-700: #64615a;
+  --ref-light-neutral-100: #efe9de;
+  --ref-light-neutral-200: #e8e0d2;
+  --ref-light-neutral-700: #696762;
+  --ref-light-neutral-950: #141413;
+  --ref-light-success-100: #dcefea;
+  --ref-light-success-700: #2b7366;
+  --ref-light-warning-100: #f6ecd0;
+  --ref-light-warning-800: #83650c;
+  --ref-light-error-100: #f7e0e0;
+  --ref-light-error-700: #b53838;
+  --ref-light-tool-100: #f7e6cf;
+  --ref-light-tool-700: #8f5b1e;
+
+  --ref-dark-data-100: #13171c;
+  --ref-dark-data-200: #1a1f26;
+  --ref-dark-data-border: #2f3843;
+  --ref-dark-data-divider: #252c35;
+  --ref-dark-ink-100: #e6eaef;
+  --ref-dark-ink-400: #a3adb8;
+  --ref-dark-slate-200: #d5dbe2;
+  --ref-dark-green-400: #9ece6a;
+  --ref-dark-green-300: #6bd39a;
+  --ref-dark-amber-400: #e0af68;
+  --ref-dark-purple-300: #c99bf5;
+  --ref-dark-red-400: #f77878;
+  --ref-dark-grey-500: #7c8894;
+  --ref-dark-neutral-700: #252c35;
+  --ref-dark-success-900: #14261f;
+  --ref-dark-warning-900: #2a2318;
+  --ref-dark-error-900: #2b1a1a;
+  --ref-dark-tool-900: #241f2e;
+}
+
+/*
  * Two themes, one set of semantic tokens.
  *
  * Every token below names a *role* (canvas, code, tool, muted…), never a hue.
@@ -55,13 +111,13 @@
    * tool card); `surface-control` is for interactive chrome sitting on the
    * panel (toolbar buttons, mode toggles) — never used as body background.
    */
-  --color-data-surface: #f3efe7;
-  --color-data-surface-nested: #ece6dc;
-  --color-data-surface-control: #e7e0d5;
-  --color-data-foreground: #252523;
-  --color-data-foreground-muted: #5f5c55;
-  --color-data-border: #d8d0c3;
-  --color-data-divider: #ddd5c9;
+  --color-data-surface: var(--ref-light-data-100);
+  --color-data-surface-nested: var(--ref-light-data-200);
+  --color-data-surface-control: var(--ref-light-data-300);
+  --color-data-foreground: var(--ref-light-ink-900);
+  --color-data-foreground-muted: var(--ref-light-ink-600);
+  --color-data-border: var(--ref-light-data-border);
+  --color-data-divider: var(--ref-light-data-divider);
 
   /*
    * Syntax roles for text printed on a DataSurface panel — JSON keys/values,
@@ -70,55 +126,15 @@
    * here (they used to be light colours meant for a navy card); each was
    * picked to clear 4.5:1 against `--color-data-surface` (#f3efe7).
    */
-  --color-syntax-key: #4f5e6c;
-  --color-syntax-string: #2d6a4f;
-  --color-syntax-number: #8b5a16;
-  --color-syntax-boolean: #6b4ba1;
-  --color-syntax-null: #a63d40;
-  --color-syntax-tag: #24705f;
-  --color-syntax-attribute: #87531b;
-  --color-syntax-punctuation: #64615a;
-  --color-syntax-event: #6b4ba1;
-
-  /* Code window — every one of these is now an alias onto the DataSurface /
-     syntax roles above, so the panel has exactly one set of values, not two
-     families that can drift apart. The names stay so the ~50 existing call
-     sites (`bg-code`, `text-code-fg`, …) do not have to change. */
-  --color-code: var(--color-data-surface);
-  --color-code-soft: var(--color-data-surface-nested);
-  --color-code-elevated: var(--color-data-surface-control);
-  --color-code-border: var(--color-data-border);
-  --color-code-divider: var(--color-data-divider);
-  --color-code-fg: var(--color-data-foreground);
-  --color-code-fg-soft: var(--color-data-foreground-muted);
-  --color-code-accent: var(--color-syntax-event);
-  --color-code-error: var(--color-syntax-null);
-
-  /*
-   * Markup syntax roles for the Rendered · XML outline.
-   *
-   * These stay separate from the syntax-* roles above: the tag outline is a
-   * *rendered* view that lives on the canvas next to rendered markdown, not
-   * on the DataSurface panel, so it keeps its own values tuned for that
-   * ground (already AA-clean per the 2026-08-10 review; not part of the
-   * near-black defect this pass fixes).
-   *
-   * The tag colour is teal rather than the coral accent on purpose — `primary`
-   * stays scarce, reserved for selection and active state, and a document full
-   * of tag names would dilute it into decoration.
-   */
-  --color-markup-tag: #2f7d6e;
-  --color-markup-attr: #96601f;
-  --color-markup-punct: #6c6a64; /* delimiters recede, but stay above AA on cream */
-  --color-markup-text: #3d3d3a;
-  --color-markup-divider: #e6dfd8;
-
-  /* JSON syntax roles inside the DataSurface panel — aliases onto `syntax-*`. */
-  --color-json-key: var(--color-syntax-key);
-  --color-json-string: var(--color-syntax-string);
-  --color-json-number: var(--color-syntax-number);
-  --color-json-boolean: var(--color-syntax-boolean);
-  --color-json-null: var(--color-syntax-null);
+  --color-syntax-key: var(--ref-light-slate-700);
+  --color-syntax-string: var(--ref-light-green-700);
+  --color-syntax-number: var(--ref-light-amber-800);
+  --color-syntax-boolean: var(--ref-light-purple-700);
+  --color-syntax-null: var(--ref-light-red-700);
+  --color-syntax-tag: var(--ref-light-teal-700);
+  --color-syntax-attribute: var(--ref-light-brown-700);
+  --color-syntax-punctuation: var(--ref-light-grey-700);
+  --color-syntax-event: var(--ref-light-purple-700);
 
   /* Text */
   --color-ink: #141413;
@@ -188,6 +204,31 @@
   --color-error-bg: #f7e0e0;
   --color-error-fg: #b53838;
 
+  /* Domain-specific pairs. These intentionally duplicate a few palette values
+     rather than aliasing role and status semantics to each other: changing the
+     meaning of "assistant" must never silently recolour HTTP 200. */
+  --color-status-success-bg: var(--ref-light-success-100);
+  --color-status-success-fg: var(--ref-light-success-700);
+  --color-status-warning-bg: var(--ref-light-warning-100);
+  --color-status-warning-fg: var(--ref-light-warning-800);
+  --color-status-error-bg: var(--ref-light-error-100);
+  --color-status-error-fg: var(--ref-light-error-700);
+
+  --color-role-user-bg: var(--ref-light-neutral-200);
+  --color-role-user-fg: var(--ref-light-neutral-950);
+  --color-role-assistant-bg: var(--ref-light-success-100);
+  --color-role-assistant-fg: var(--ref-light-success-700);
+  --color-role-system-bg: var(--ref-light-warning-100);
+  --color-role-system-fg: var(--ref-light-warning-800);
+  --color-role-context-bg: var(--ref-light-neutral-100);
+  --color-role-context-fg: var(--ref-light-neutral-700);
+  --color-role-thinking-bg: var(--ref-light-neutral-100);
+  --color-role-thinking-fg: var(--ref-light-neutral-700);
+  --color-role-tool-bg: var(--ref-light-tool-100);
+  --color-role-tool-fg: var(--ref-light-tool-700);
+  --color-role-error-bg: var(--ref-light-error-100);
+  --color-role-error-fg: var(--ref-light-error-700);
+
   /*
    * Copernicus and StyreneB are licensed; the system documents Tiempos Headline
    * / Cormorant Garamond and Inter as the sanctioned substitutes. Everything
@@ -221,45 +262,23 @@
      reusing `surface-soft`'s #101317: the two used to collide, leaving the
      boundary to the border alone (flagged as a fragility in the 2026-08-10
      review); they are distinct roles again. */
-  --color-data-surface: #13171c;
-  --color-data-surface-nested: #1a1f26;
-  --color-data-surface-control: #1a1f26;
-  --color-data-foreground: #e6eaef;
-  --color-data-foreground-muted: #a3adb8;
-  --color-data-border: #2f3843;
-  --color-data-divider: #252c35;
+  --color-data-surface: var(--ref-dark-data-100);
+  --color-data-surface-nested: var(--ref-dark-data-200);
+  --color-data-surface-control: var(--ref-dark-data-200);
+  --color-data-foreground: var(--ref-dark-ink-100);
+  --color-data-foreground-muted: var(--ref-dark-ink-400);
+  --color-data-border: var(--ref-dark-data-border);
+  --color-data-divider: var(--ref-dark-data-divider);
 
-  --color-syntax-key: #d5dbe2;
-  --color-syntax-string: #9ece6a;
-  --color-syntax-number: #e0af68;
-  --color-syntax-boolean: #c99bf5;
-  --color-syntax-null: #f77878;
-  --color-syntax-tag: #6bd39a;
-  --color-syntax-attribute: #e0af68;
-  --color-syntax-punctuation: #7c8894;
-  --color-syntax-event: #c99bf5;
-
-  --color-code: var(--color-data-surface);
-  --color-code-soft: var(--color-data-surface-nested);
-  --color-code-elevated: var(--color-data-surface-control);
-  --color-code-border: var(--color-data-border);
-  --color-code-divider: var(--color-data-divider);
-  --color-code-fg: var(--color-data-foreground);
-  --color-code-fg-soft: var(--color-data-foreground-muted);
-  --color-code-accent: var(--color-syntax-event);
-  --color-code-error: var(--color-syntax-null);
-
-  --color-markup-tag: #6bd39a;
-  --color-markup-attr: #e0af68;
-  --color-markup-punct: #7c8894;
-  --color-markup-text: #a3adb8;
-  --color-markup-divider: #1f252d;
-
-  --color-json-key: var(--color-syntax-key);
-  --color-json-string: var(--color-syntax-string);
-  --color-json-number: var(--color-syntax-number);
-  --color-json-boolean: var(--color-syntax-boolean);
-  --color-json-null: var(--color-syntax-null);
+  --color-syntax-key: var(--ref-dark-slate-200);
+  --color-syntax-string: var(--ref-dark-green-400);
+  --color-syntax-number: var(--ref-dark-amber-400);
+  --color-syntax-boolean: var(--ref-dark-purple-300);
+  --color-syntax-null: var(--ref-dark-red-400);
+  --color-syntax-tag: var(--ref-dark-green-300);
+  --color-syntax-attribute: var(--ref-dark-amber-400);
+  --color-syntax-punctuation: var(--ref-dark-grey-500);
+  --color-syntax-event: var(--ref-dark-purple-300);
 
   --color-ink: #e6eaef;
   --color-body-strong: #d5dbe2;
@@ -297,6 +316,28 @@
   --color-warning-fg: #e0af68;
   --color-error-bg: #2b1a1a;
   --color-error-fg: #f77878;
+
+  --color-status-success-bg: var(--ref-dark-success-900);
+  --color-status-success-fg: var(--ref-dark-green-300);
+  --color-status-warning-bg: var(--ref-dark-warning-900);
+  --color-status-warning-fg: var(--ref-dark-amber-400);
+  --color-status-error-bg: var(--ref-dark-error-900);
+  --color-status-error-fg: var(--ref-dark-red-400);
+
+  --color-role-user-bg: var(--ref-dark-neutral-700);
+  --color-role-user-fg: var(--ref-dark-ink-100);
+  --color-role-assistant-bg: var(--ref-dark-success-900);
+  --color-role-assistant-fg: var(--ref-dark-green-300);
+  --color-role-system-bg: var(--ref-dark-warning-900);
+  --color-role-system-fg: var(--ref-dark-amber-400);
+  --color-role-context-bg: var(--ref-dark-data-200);
+  --color-role-context-fg: var(--ref-dark-ink-400);
+  --color-role-thinking-bg: var(--ref-dark-data-200);
+  --color-role-thinking-fg: var(--ref-dark-ink-400);
+  --color-role-tool-bg: var(--ref-dark-tool-900);
+  --color-role-tool-fg: var(--ref-dark-purple-300);
+  --color-role-error-bg: var(--ref-dark-error-900);
+  --color-role-error-fg: var(--ref-dark-red-400);
 
   color-scheme: dark;
 }
@@ -403,7 +444,7 @@ button:not(:disabled),
  */
 .scroll-surface {
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  scrollbar-color: var(--color-hairline-soft) transparent;
   scrollbar-gutter: stable;
 }
 .scroll-surface:hover,
@@ -415,7 +456,7 @@ button:not(:disabled),
   height: 8px;
 }
 .scroll-surface::-webkit-scrollbar-thumb {
-  background: transparent;
+  background: var(--color-hairline-soft);
   border-radius: 999px;
 }
 .scroll-surface:hover::-webkit-scrollbar-thumb,
@@ -465,7 +506,7 @@ button:not(:disabled),
 /* react-json-view-lite supplies tree behaviour; these stable project classes
    keep every visual decision inside our semantic theme. */
 .json-viewer-tree {
-  color: var(--color-code-fg);
+  color: var(--color-data-foreground);
   font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.6;
@@ -485,7 +526,7 @@ button:not(:disabled),
 
 .json-viewer-label {
   margin-right: 5px;
-  color: var(--color-json-key);
+  color: var(--color-syntax-key);
   font-weight: 600;
 }
 
@@ -499,7 +540,7 @@ button:not(:disabled),
   display: inline-block;
   width: 14px;
   margin-right: 4px;
-  color: var(--color-code-accent);
+  color: var(--color-syntax-event);
   user-select: none;
 }
 
@@ -513,7 +554,7 @@ button:not(:disabled),
 
 .json-viewer-collapsed {
   margin-right: 5px;
-  color: var(--color-code-fg-soft);
+  color: var(--color-data-foreground-muted);
 }
 
 .json-viewer-collapsed::after {
@@ -522,28 +563,28 @@ button:not(:disabled),
 
 .json-viewer-punctuation {
   margin-right: 5px;
-  color: var(--color-code-fg-soft);
+  color: var(--color-data-foreground-muted);
   font-weight: 600;
 }
 
 .json-viewer-string {
-  color: var(--color-json-string);
+  color: var(--color-syntax-string);
 }
 
 .json-viewer-number {
-  color: var(--color-json-number);
+  color: var(--color-syntax-number);
 }
 
 .json-viewer-boolean {
-  color: var(--color-json-boolean);
+  color: var(--color-syntax-boolean);
 }
 
 .json-viewer-null {
-  color: var(--color-json-null);
+  color: var(--color-syntax-null);
 }
 
 .json-viewer-other {
-  color: var(--color-code-fg-soft);
+  color: var(--color-data-foreground-muted);
 }
 
 /* react-markdown emits plain semantic HTML; every visual decision stays here,
@@ -675,44 +716,12 @@ button:not(:disabled),
   font-size: 12.5px;
 }
 
-.markdown-body pre {
-  margin: 0.8em 0;
-  padding: 0.85em 1em;
-  overflow-x: auto;
-  border: 1px solid var(--color-code-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-code);
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-hairline) transparent;
-}
-.markdown-body pre code {
+.markdown-body .markdown-code-block code {
   padding: 0;
   background: transparent;
-  color: var(--color-code-fg);
+  color: var(--color-data-foreground);
   font-size: 12.5px;
   line-height: 1.6;
-}
-
-/*
- * …except in a chat turn, where the block is already inside a bubble, so it
- * takes the *nested* DataSurface step rather than the base panel — the same
- * relationship `ToolPane` and an expanded SSE frame have to their own
- * containers.
- *
- * These three declarations used to name the `chat-code-*` family. That family
- * was retired when its last TSX caller (`ToolPane`) moved onto `DataSurface`,
- * but this rule is CSS and was missed by the grep that cleared the component
- * layer — leaving three `var()` references with no definition behind them,
- * which silently resolved to a transparent background and a `currentColor`
- * border in both themes. Hence `tests/design-tokens.test.ts`'s dangling
- * reference check.
- */
-.markdown-body.markdown-chat pre {
-  border-color: var(--color-data-border);
-  background: var(--color-data-surface-nested);
-}
-.markdown-body.markdown-chat pre code {
-  color: var(--color-data-foreground);
 }
 
 .markdown-body table {

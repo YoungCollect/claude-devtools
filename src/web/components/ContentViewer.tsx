@@ -10,7 +10,7 @@ import {
 } from '../../core/xml-outline.js';
 import type { GitDiffFormat, GitDiffSourceIdentity } from '../git-diff.js';
 import { ContentToolbar, type ContentFormat, type ViewMode } from './ContentToolbar.js';
-import { DataSurface } from './DataSurface.js';
+import { DataSurface, DataSurfaceBody } from './DataSurface.js';
 import { Chevron, cx, Empty } from './ui.js';
 
 export type { ContentFormat };
@@ -159,16 +159,11 @@ export function ContentViewer({
       ? preferred
       : fallback;
 
-  // Only the source sits on the navy code card. Markdown and the tag outline are
-  // both *rendered* views, so they share the canvas — flipping the whole panel
-  // dark just because you switched between two renderings read as a mode change
-  // that had not actually happened. Raw keeps the card: those are the literal
-  // bytes off the wire, which is exactly what the dark surface is reserved for.
-  //
-  // A `bare` viewer never takes the card, in either mode: it has no surface of
-  // its own to flip, and turning a user's turn navy on the way to Raw would
-  // read as the turn changing rather than the view.
-  const onCode = variant === 'card' && active === 'raw';
+  // Prose remains on the document canvas. XML structure and raw source are both
+  // machine-oriented views and therefore share the same theme-adaptive data
+  // ground; format is communicated by structure and syntax, not a background
+  // flip. A bare chat viewer continues to inherit its turn's own surface.
+  const usesDataSurface = variant === 'card' && active !== 'markdown';
   const diffFormat: GitDiffFormat =
     active === 'markdown' || active === 'xml' ? active : (formats[0] ?? 'markdown');
 
@@ -189,7 +184,6 @@ export function ContentViewer({
         viewModes={
           showViewModes ? { options: modes, active, onSelect: setPreference } : undefined
         }
-        surface={onCode ? 'code' : 'canvas'}
         variant={variant}
         align={controlsAlign}
         edge={controlsPlacement}
@@ -197,11 +191,6 @@ export function ContentViewer({
     </div>
   );
 
-  // Raw source in a card is the one mode this panel puts on the DataSurface —
-  // markdown and the XML outline are rendered views and stay on the canvas
-  // (see the note on `onCode` above), so only this branch goes through the
-  // shared data-surface container; every other combination keeps its own
-  // plain div.
   const body = (
     <div className={cx('scroll-surface overflow-auto', maxHeightClass)}>
       {active === 'raw' ? (
@@ -214,7 +203,7 @@ export function ContentViewer({
     </div>
   );
 
-  if (variant === 'card' && onCode) {
+  if (usesDataSurface) {
     return (
       <DataSurface variant="block" className={cx('group/content', className)}>
         {controlsPlacement === 'top' && toolbar}
@@ -251,10 +240,7 @@ function RawPanel({ text, bare }: { text: string; bare: boolean }) {
     <pre
       className={cx(
         'font-mono text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap',
-        // Off the navy card, `code-fg` is light ink meant for a dark fill and
-        // would be invisible, so a bare viewer takes the page's own ink and
-        // keeps only the monospace treatment that marks this as source.
-        bare ? 'text-body-strong' : 'p-3 text-code-fg',
+        bare ? 'text-body-strong' : 'p-3 text-data-foreground',
       )}
     >
       {text}
@@ -268,8 +254,8 @@ function RawPanel({ text, bare }: { text: string; bare: boolean }) {
  * Without this the panel re-parsed its whole source on each tick: measured at
  * +1.1s of script time across a single 3s turn for a 20 kB system prompt.
  *
- * Markdown sits on the canvas surface, not the dark code card: it is prose, and
- * the design system puts prose on cream and machine output on navy.
+ * Markdown sits on the canvas surface: it is prose, while machine-oriented
+ * content uses the theme-adaptive DataSurface contract.
  *
  * `react-markdown` is used without `rehype-raw` on purpose. This text comes from
  * whatever the agent sent, so HTML in it must stay inert; the library's default
@@ -294,6 +280,14 @@ const MarkdownPanel = memo(function MarkdownPanel({
               {children}
             </a>
           ),
+          pre: ({ children }) => (
+            <DataSurface
+              variant={bare ? 'nested' : 'block'}
+              className="markdown-code-block my-[0.8em]"
+            >
+              <DataSurfaceBody className="px-4 py-3">{children}</DataSurfaceBody>
+            </DataSurface>
+          ),
         }}
       >
         {text}
@@ -307,7 +301,8 @@ const XmlPanel = memo(function XmlPanel({ text, bare }: { text: string; bare: bo
   return (
     <div
       className={cx(
-        'font-mono text-[12.5px] leading-[1.6] text-markup-text',
+        'font-mono text-[12.5px] leading-[1.6]',
+        bare ? 'text-body-strong' : 'text-data-foreground',
         !bare && 'px-3 py-2.5',
       )}
     >
@@ -321,7 +316,7 @@ function XmlNodes({ nodes, depth }: { nodes: readonly XmlNode[]; depth: number }
     <>
       {nodes.map((node, index) =>
         node.type === 'text' ? (
-          <span key={index} className="whitespace-pre-wrap text-markup-text">
+          <span key={index} className="whitespace-pre-wrap">
             {node.text}
           </span>
         ) : (
@@ -346,18 +341,18 @@ function XmlElement({ node, depth }: { node: XmlElementNode; depth: number }) {
   }
 
   return (
-    <div className={depth > 0 ? 'border-l border-markup-divider pl-3' : undefined}>
+    <div className={depth > 0 ? 'border-l border-data-divider pl-3' : undefined}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         className="flex w-full items-baseline gap-1.5 text-left"
       >
-        <span className="text-markup-tag">
+        <span className="text-syntax-tag">
           <Chevron open={open} />
         </span>
         <TagSyntax tag={node.tag} attributes={node.attributes} />
         {!open && preview && (
-          <span className="min-w-0 flex-1 truncate text-muted-soft">{preview}</span>
+          <span className="min-w-0 flex-1 truncate text-data-foreground-muted">{preview}</span>
         )}
       </button>
       {open && (
@@ -381,18 +376,18 @@ function TagSyntax({
 }): ReactNode {
   return (
     <span className="shrink-0">
-      <span className="text-markup-punct">&lt;</span>
-      <span className="text-markup-tag">{tag}</span>
-      {attributes && <span className="text-markup-attr"> {attributes}</span>}
-      <span className="text-markup-punct">{selfClosing ? ' />' : '>'}</span>
+      <span className="text-syntax-punctuation">&lt;</span>
+      <span className="text-syntax-tag">{tag}</span>
+      {attributes && <span className="text-syntax-attribute"> {attributes}</span>}
+      <span className="text-syntax-punctuation">{selfClosing ? ' />' : '>'}</span>
     </span>
   );
 }
 
 function ClosingTag({ tag }: { tag: string }) {
   return (
-    <span className="text-markup-punct">
-      &lt;/<span className="text-markup-tag">{tag}</span>&gt;
+    <span className="text-syntax-punctuation">
+      &lt;/<span className="text-syntax-tag">{tag}</span>&gt;
     </span>
   );
 }

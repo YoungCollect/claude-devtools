@@ -675,3 +675,36 @@ CSS 对这种情况不报错：未定义的 `var()` 属于 invalid at computed-v
 ### 14.5 审查中提出但本次未采纳的一项
 
 `tests/` 不在任何 tsconfig 的 `include` 里，因此测试文件从不参与 `pnpm typecheck`（这也是 14.2 那个未使用变量能存活的原因）。试着加了一个 `tsconfig.tests.json` 之后，暴露出 4 处既有测试文件的类型错误与 1 处 `src/server/api.ts` 的 DOM/node lib 冲突——都在本次改动范围之外。为此扩大 PR 去改动无关代码，或者交付一个红着的 typecheck，两者都不合适，所以撤回了该配置，在此记录为**建议维护者单独处理**的事项。
+
+## 15. 最近两个实施 commit 的复审与补强（2026-08-11）
+
+复审范围为 `HEAD~2...HEAD`（`81746ab`、`0ff9150`），基线测试、类型检查与构建均通过。代码级复核仍发现以下落差，并已在工作区直接修复：
+
+| 优先级 | 复审发现 | 补强措施 |
+| --- | --- | --- |
+| P0 | 切换 Inspector 请求时，旧的已加载记录会保留到新 fetch 完成；如果旧记录曾 reveal，敏感 header 会在新选择下短暂残留。 | 将加载结果与 `transportId` 绑定，渲染前同步校验 key；新增请求切换回归测试。 |
+| P0 | `StatusBadge.success` 仍借用 assistant role token；`TagLabel` 仍接受跨域 `Tone`。 | 分拆 `StatusTone`、`RoleTone`、`MetaTone` 及各自映射；建立独立 `status-*` / `role-*` token，类型层阻止跨域借色。 |
+| P1 | XML 未迁移到 DataSurface，Raw 仍触发 `canvas/code` toolbar 分支，Markdown fence 仍由 CSS 自行拼装容器。 | XML 与 Raw 共用 theme-adaptive DataSurface；删除全部 `surface: canvas | code` 分支；React Markdown 的 fence 直接渲染 DataSurface。 |
+| P1 | `code-*`、`markup-*` 适配 token 仍保留，形成可继续调用的第二套 API。 | 调用点全部迁移到 `data-*` / `syntax-*`，删除旧 token 家族并增加静态防回归。 |
+| P1 | 新 token 仍由语义名直接承载 hex，Reference 层缺失。 | 增加物理 `--ref-*` palette，DataSurface/syntax 通过单向 alias 发布；增加 feature TSX 禁用 reference token 检查。 |
+| P1 | scrollbar 默认透明，触屏和未 hover 状态仍无溢出提示。 | 默认显示低对比 8px thumb，hover/focus 境况提升为 hairline。 |
+| P1 | 仅检查 token 存在性，未验证实际可读性。 | 新增 Light/Dark DataSurface 全 foreground/syntax role 的 WCAG AA 4.5:1 自动检查。 |
+| P1 | 390px 下 header 固定内容总宽 492px，Diff 与主题按钮被推出视口。 | 小屏隐藏长 wordmark 与 run-command，收紧 header/action gap；复验文档宽度等于 390px，Clear/Diff/theme 均完整可见。 |
+| P2 | `DataSurface.tsx` 与 `ui.tsx` 各自实现 `cx`。 | 抽到无依赖的 `class-names.ts`，`ui.tsx` 保持兼容 re-export。 |
+| P2 | 营销 dark mockup 与 DevTools 产品 data surface 的边界未同步到设计规范。 | 在 `design.md/design-claude.md` 增加产品表面例外与 token 依赖规则。 |
+
+### 15.1 新的实施约束
+
+1. 新结构化内容只能使用 `DataSurface`；不得恢复 `surface="code"` 或 `bg-code-*`。
+2. `TagLabel` 必须传 `role`，`StatusBadge` 必须传状态；元数据继续使用 `MetaBadge`。
+3. 物理色值只进入 `--ref-*`；Feature TSX 仅使用 semantic/component role。
+4. 请求详情的异步结果必须携带选择 key；任何 reveal 数据在 key 改变的同步 render 中立即退出界面。
+5. DataSurface 新增 foreground/syntax role 时，必须同时加入 Light/Dark AA 对比度矩阵。
+
+### 15.2 复验结果
+
+- `pnpm test`：72/72 通过。
+- `pnpm typecheck`：通过。
+- `pnpm build`：通过；仅保留既有的大 chunk 警告。
+- 隔离的 `--no-persist` 本地实例浏览器检查：Light/Dark 均无错误 overlay、console error 为 0；DataSurface 计算背景分别为 light `rgb(243, 239, 231)`、dark `rgb(19, 23, 28)`。
+- 390×844：`document.body.scrollWidth === 390`，Clear、Diff、theme control 的右边界均在 viewport 内。

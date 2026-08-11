@@ -4,6 +4,7 @@ import { formatBytes, formatClock, formatMs, formatTokens, pretty, truncate } fr
 import { hasXmlStructure } from '../../core/xml-outline.js';
 import type { SseFrame, TraceNode } from '../../core/types.js';
 import { focusBodyField } from '../inspect-focus.js';
+import { transportDetailForId, type KeyedTransportDetail } from '../transport-detail-state.js';
 import { ContentToolbar } from './ContentToolbar.js';
 import { ContentViewer, type ContentFormat } from './ContentViewer.js';
 import { DataSurface, DataSurfaceBody, DataSurfaceRows } from './DataSurface.js';
@@ -97,7 +98,8 @@ function InspectorPanel({
   rev: number;
 }) {
   const [tab, setTab] = useState<TabId>(focusNode ? 'payload' : 'overview');
-  const [record, setRecord] = useState<TransportDetail | undefined>();
+  const [loadedRecord, setLoadedRecord] = useState<KeyedTransportDetail<TransportDetail>>();
+  const record = transportDetailForId(transportId, loadedRecord);
   const tabRailRef = useRef<HTMLDivElement>(null);
 
   /*
@@ -141,10 +143,10 @@ function InspectorPanel({
     api
       .transport(transportId, reveal)
       .then(({ record: next }) => {
-        if (!cancelled) setRecord(next);
+        if (!cancelled) setLoadedRecord({ transportId, value: next });
       })
       .catch(() => {
-        if (!cancelled) setRecord(undefined);
+        if (!cancelled) setLoadedRecord(undefined);
       });
     return () => {
       cancelled = true;

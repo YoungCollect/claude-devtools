@@ -1,11 +1,10 @@
 import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { DataSurface, DataSurfaceBody } from './DataSurface.js';
+import { cx } from './class-names.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js';
 
-export function cx(...parts: (string | false | undefined | null)[]): string {
-  return parts.filter(Boolean).join(' ');
-}
+export { cx } from './class-names.js';
 
 /**
  * Badge tones name a role, not a hue — `tool` is amber in light and purple in
@@ -13,25 +12,41 @@ export function cx(...parts: (string | false | undefined | null)[]): string {
  * the accent stays reserved for selection and active state, so a trace full of
  * badges never dilutes it.
  */
-export type Tone = 'neutral' | 'emph' | 'primary' | 'success' | 'tool' | 'warning' | 'error';
+type MetaTone = 'neutral' | 'emph' | 'tool' | 'warning' | 'primary';
+export type RoleTone = 'user' | 'assistant' | 'system' | 'context' | 'thinking' | 'tool' | 'error';
+type StatusTone = 'success' | 'warning' | 'error';
 
-const TONES: Record<Tone, string> = {
+const META_TONES: Record<MetaTone, string> = {
   neutral: 'bg-neutral-bg text-neutral-fg',
   emph: 'bg-emph-bg text-emph-fg',
   primary: 'bg-primary text-primary-foreground',
-  success: 'bg-assistant-bg text-assistant-fg',
   tool: 'bg-tool-bg text-tool-fg',
   warning: 'bg-warning-bg text-warning-fg',
-  error: 'bg-error-bg text-error-fg',
 };
 
-export function Badge({
+const STATUS_TONES: Record<StatusTone, string> = {
+  success: 'bg-status-success-bg text-status-success-fg',
+  warning: 'bg-status-warning-bg text-status-warning-fg',
+  error: 'bg-status-error-bg text-status-error-fg',
+};
+
+const ROLE_TONES: Record<RoleTone, string> = {
+  user: 'bg-role-user-bg text-role-user-fg',
+  assistant: 'bg-role-assistant-bg text-role-assistant-fg',
+  system: 'bg-role-system-bg text-role-system-fg',
+  context: 'bg-role-context-bg text-role-context-fg',
+  thinking: 'bg-role-thinking-bg text-role-thinking-fg',
+  tool: 'bg-role-tool-bg text-role-tool-fg',
+  error: 'bg-role-error-bg text-role-error-fg',
+};
+
+function Badge({
   children,
-  tone = 'neutral',
+  toneClass,
   title,
 }: {
   children: ReactNode;
-  tone?: Tone;
+  toneClass: string;
   title?: string;
 }) {
   return (
@@ -39,7 +54,7 @@ export function Badge({
       title={title}
       className={cx(
         'inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[12px] leading-5 font-medium',
-        TONES[tone],
+        toneClass,
       )}
     >
       {children}
@@ -50,7 +65,7 @@ export function Badge({
 /**
  * `Badge` split three ways, per the product design audit's P2-02: status,
  * role and metadata badges read as the same pill but answer different
- * questions, and `Badge`'s single `Tone` union let any of them borrow any
+ * questions, and the old single `Tone` union let any of them borrow any
  * other's colour (a "pending" count in `error` red, say) with nothing to
  * catch it. Each wrapper narrows `Tone` to the tones that question actually
  * has an answer for; `Badge` itself stays as the shared rendering primitive
@@ -68,7 +83,7 @@ export function StatusBadge({
   title?: string;
 }) {
   return (
-    <Badge tone={tone} title={title}>
+    <Badge toneClass={STATUS_TONES[tone]} title={title}>
       {children}
     </Badge>
   );
@@ -81,11 +96,11 @@ export function MetaBadge({
   title,
 }: {
   children: ReactNode;
-  tone?: 'neutral' | 'emph' | 'tool' | 'warning' | 'primary';
+  tone?: MetaTone;
   title?: string;
 }) {
   return (
-    <Badge tone={tone} title={title}>
+    <Badge toneClass={META_TONES[tone]} title={title}>
       {children}
     </Badge>
   );
@@ -96,12 +111,12 @@ export function MetaBadge({
  * This is the role API: `user` / `assistant` / `system` / `tool` / `context`,
  * and the sidebar's `subagent` marker.
  */
-export function TagLabel({ children, tone = 'emph' }: { children: ReactNode; tone?: Tone }) {
+export function TagLabel({ children, role }: { children: ReactNode; role: RoleTone }) {
   return (
     <span
       className={cx(
         'inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[11px] leading-5 font-medium tracking-[1.5px] uppercase',
-        TONES[tone],
+        ROLE_TONES[role],
       )}
     >
       {children}
@@ -346,10 +361,12 @@ export function useCopy(): [copied: boolean, copy: (text: string) => void] {
 }
 
 /*
- * There is no worded `CopyButton`. Every copy control in the app is the icon
- * below, reached through `ContentToolbar` — one button, one behaviour, one
- * place to change it. The header's base-URL copy is deliberately different: it
- * is an instruction to act on, not a payload to take away.
+ * There is no worded `CopyButton`. Every copy control in the app is an icon:
+ * the one below for payloads, reached through `ContentToolbar`, and the
+ * header's shell mark for the run command. They stay separate components
+ * because they say different things — one takes a payload away, the other
+ * hands you a command to run — but neither spends header or toolbar width on
+ * the word "Copy".
  */
 
 /**
@@ -370,7 +387,6 @@ export function ToolbarIconButton({
   label,
   onClick,
   pressed,
-  surface = 'canvas',
   confirmed = false,
   children,
 }: {
@@ -379,13 +395,10 @@ export function ToolbarIconButton({
   onClick: () => void;
   /** Set only for toggles — it declares the button a toggle to screen readers. */
   pressed?: boolean;
-  /** Which surface the button sits on — the dark code card inverts its palette. */
-  surface?: 'canvas' | 'code';
   /** Momentary success outline, e.g. Copy's tick. */
   confirmed?: boolean;
   children: ReactNode;
 }) {
-  const onCode = surface === 'code';
   return (
     <Tooltip>
       <TooltipTrigger
@@ -403,10 +416,8 @@ export function ToolbarIconButton({
           pressed
             ? 'border-primary bg-primary text-primary-foreground'
             : confirmed
-              ? cx('border-success text-success-fg', onCode ? 'bg-code-elevated' : 'bg-canvas')
-              : onCode
-                ? 'border-code-elevated bg-code-elevated text-code-fg-soft hover:text-code-fg'
-                : 'border-hairline bg-canvas text-muted-foreground hover:border-muted-soft hover:text-ink',
+              ? 'border-success bg-data-surface-control text-success-fg'
+              : 'border-data-border bg-data-surface-control text-data-foreground-muted hover:text-data-foreground',
         )}
       >
         {children}
@@ -426,12 +437,9 @@ export function ToolbarIconButton({
 export function CopyIconButton({
   text,
   title = 'Copy source',
-  surface = 'canvas',
 }: {
   text: string;
   title?: string;
-  /** Which surface the button sits on — the dark code card inverts its palette. */
-  surface?: 'canvas' | 'code';
 }) {
   const [copied, copy] = useCopy();
   const label = copied ? 'Copied' : title;
@@ -439,7 +447,6 @@ export function CopyIconButton({
     <ToolbarIconButton
       label={label}
       onClick={() => copy(text)}
-      surface={surface}
       confirmed={copied}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}

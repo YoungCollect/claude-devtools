@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { cx } from './class-names.js';
 
 /**
  * The one component every piece of structured or machine text renders
@@ -15,15 +16,9 @@ import type { ReactNode } from 'react';
  * `DataSurfaceHeader`'s format label and syntax colour, never through a
  * different background.
  *
- * Local `cx` rather than importing `ui.tsx`'s: `ui.tsx` is the far larger,
- * older module and several of the things it exports (`CodeBlock`, the
- * `ToolPane` this replaces) now render through this file — importing the
- * other way would make the two modules cyclic.
+ * The dependency-neutral `cx` helper keeps this primitive independent from
+ * the larger `ui.tsx` compatibility barrel.
  */
-function cx(...parts: (string | false | undefined | null)[]): string {
-  return parts.filter(Boolean).join(' ');
-}
-
 export type DataSurfaceVariant = 'block' | 'nested' | 'rows' | 'inline';
 
 const CONTAINER: Record<DataSurfaceVariant, string> = {

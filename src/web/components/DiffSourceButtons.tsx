@@ -10,10 +10,8 @@ import { ToolbarIconButton } from './ui.js';
 
 export function DiffSourceButtons({
   source,
-  surface = 'canvas',
 }: {
   source: GitDiffSource;
-  surface?: 'canvas' | 'code';
 }) {
   const diff = useGitDiff();
   return (
@@ -22,13 +20,11 @@ export function DiffSourceButtons({
         side="left"
         active={isSelected(diff.left, source)}
         onClick={() => toggleGitDiffSource('left', source)}
-        surface={surface}
       />
       <DiffSourceButton
         side="right"
         active={isSelected(diff.right, source)}
         onClick={() => toggleGitDiffSource('right', source)}
-        surface={surface}
       />
     </>
   );
@@ -56,12 +52,10 @@ function DiffSourceButton({
   side,
   active,
   onClick,
-  surface,
 }: {
   side: GitDiffSide;
   active: boolean;
   onClick: () => void;
-  surface: 'canvas' | 'code';
 }) {
   const name = side === 'left' ? 'Diff Left' : 'Diff Right';
   const Icon = side === 'left' ? PanelLeft : PanelRight;
@@ -70,7 +64,6 @@ function DiffSourceButton({
       label={active ? `Remove from ${name}` : `Use this source as ${name}`}
       onClick={onClick}
       pressed={active}
-      surface={surface}
     >
       <Icon size={13} strokeWidth={2} aria-hidden />
     </ToolbarIconButton>

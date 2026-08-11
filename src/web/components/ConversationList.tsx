@@ -209,7 +209,7 @@ function Row({
       >
         {nested && (
           <div className="mb-1.5">
-            <TagLabel tone="tool">subagent</TagLabel>
+            <TagLabel role="tool">subagent</TagLabel>
           </div>
         )}
         <input
@@ -262,7 +262,7 @@ function Row({
       >
         {nested && (
           <div className="mb-1.5">
-            <TagLabel tone="tool">subagent</TagLabel>
+            <TagLabel role="tool">subagent</TagLabel>
           </div>
         )}
         {/* Conversation titles are the human's own words — serif, like the trace. */}

@@ -36,8 +36,6 @@ export interface ContentToolbarProps {
     active: ViewMode;
     onSelect: (mode: ViewMode) => void;
   };
-  /** The dark code card inverts every control's palette. */
-  surface?: 'canvas' | 'code';
   /**
    * `card` is the panel header, with a rule under it. `bare` sits on a chat
    * bubble's own fill, separated by space instead of a line it would otherwise
@@ -71,12 +69,10 @@ export function ContentToolbar({
   copyLabel,
   diff,
   viewModes,
-  surface = 'canvas',
   variant = 'card',
   align = 'end',
   edge = 'top',
 }: ContentToolbarProps) {
-  const onCode = surface === 'code';
   return (
     /*
       On a card the controls sit in the card's own header rather than floating
@@ -98,7 +94,7 @@ export function ContentToolbar({
           cx(
             'px-2 py-1.5',
             edge === 'top' ? 'border-b' : 'border-t',
-            onCode ? 'border-code-divider' : 'border-hairline',
+            'border-data-divider',
           ),
         // Bare has no card edge for a rule to sit on, so the controls are
         // separated by space instead of a line.
@@ -106,10 +102,7 @@ export function ContentToolbar({
       )}
     >
       {diff && (
-        <DiffSourceButtons
-          source={{ ...diff.source, text, format: diff.format }}
-          surface={surface}
-        />
+        <DiffSourceButtons source={{ ...diff.source, text, format: diff.format }} />
       )}
       {viewModes?.options.map((candidate) => (
         <button
@@ -123,9 +116,7 @@ export function ContentToolbar({
             'h-8 rounded-md border px-2.5 text-[12px] font-medium transition-colors',
             candidate === viewModes.active
               ? 'border-primary bg-primary text-primary-foreground'
-              : onCode
-                ? 'border-code-elevated bg-code-elevated text-code-fg-soft hover:text-code-fg'
-                : 'border-hairline bg-canvas text-muted-foreground hover:border-muted-soft hover:text-ink',
+              : 'border-data-border bg-data-surface-control text-data-foreground-muted hover:text-data-foreground',
           )}
         >
           {VIEW_MODE_LABELS[candidate]}
@@ -135,7 +126,7 @@ export function ContentToolbar({
         Copy sits with the modes because what it copies is the source — the
         thing `Raw` shows — not the panel as a whole.
       */}
-      <CopyIconButton text={text} title={copyLabel} surface={surface} />
+      <CopyIconButton text={text} title={copyLabel} />
     </div>
   );
 }
