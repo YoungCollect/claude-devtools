@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { Conversation } from '../../core/types.js';
 import { formatClock } from '../format.js';
 import { cx, Empty, TagLabel } from './ui.js';
@@ -125,6 +125,7 @@ function Row({
   const [saving, setSaving] = useState(false);
   const [renameFailed, setRenameFailed] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -135,7 +136,12 @@ function Row({
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false);
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        // A `menu` popup returns focus to its trigger on close — otherwise
+        // Escape drops a keyboard user's focus back to the top of the page.
+        menuTriggerRef.current?.focus();
+      }
     };
     document.addEventListener('pointerdown', closeOutside);
     document.addEventListener('keydown', closeOnEscape);
@@ -144,6 +150,25 @@ function Row({
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [menuOpen]);
+
+  // Opening a `menu` moves focus onto it — a menuitem, not the trigger that
+  // opened it — so arrow keys and typeahead work immediately.
+  useEffect(() => {
+    if (!menuOpen) return;
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+  }, [menuOpen]);
+
+  const moveMenuFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [],
+    );
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    const next = items[(current + step + items.length) % items.length];
+    next?.focus();
+  };
 
   /**
    * Saves the edited title, or leaves edit mode when there is nothing to save.
@@ -253,6 +278,7 @@ function Row({
       </button>
 
       <button
+        ref={menuTriggerRef}
         type="button"
         aria-label={`Conversation actions for ${conversation.title}`}
         aria-haspopup="menu"
@@ -270,6 +296,8 @@ function Row({
       {menuOpen && (
         <div
           role="menu"
+          aria-label={`Conversation actions for ${conversation.title}`}
+          onKeyDown={moveMenuFocus}
           className="absolute top-9 right-2 z-20 min-w-32 rounded-lg border border-hairline bg-canvas p-1 shadow-lg"
         >
           <button

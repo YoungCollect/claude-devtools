@@ -3,6 +3,7 @@ import { JsonView } from 'react-json-view-lite';
 
 import { pretty } from '../format.js';
 import { jsonContainer } from '../json.js';
+import { DataSurface, DataSurfaceBody } from './DataSurface.js';
 import { CodeBlock } from './ui.js';
 
 const jsonStyles = {
@@ -67,14 +68,16 @@ export function JsonBodyViewer({
   if (!data) return <CodeBlock text={value !== undefined ? pretty(value) : raw} />;
 
   return (
-    <div className="max-h-[70vh] overflow-auto rounded-lg border border-code-border bg-code p-3">
-      <JsonView
-        data={data}
-        style={jsonStyles}
-        shouldExpandNode={shouldExpandNode}
-        clickToExpandNode
-        aria-label="JSON body"
-      />
-    </div>
+    <DataSurface variant="block">
+      <DataSurfaceBody maxHeightClass="max-h-[70vh]" className="p-3">
+        <JsonView
+          data={data}
+          style={jsonStyles}
+          shouldExpandNode={shouldExpandNode}
+          clickToExpandNode
+          aria-label="JSON body"
+        />
+      </DataSurfaceBody>
+    </DataSurface>
   );
 }

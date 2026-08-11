@@ -3,11 +3,12 @@ import { splitTaggedUserContent } from '../../core/tagged-content.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
 import { ContentToolbar } from './ContentToolbar.js';
 import { ContentViewer, type ContentFormat } from './ContentViewer.js';
+import { DataSurface, DataSurfaceBody } from './DataSurface.js';
 import type { GitDiffSourceIdentity } from '../git-diff.js';
 import type { TraceNode } from '../../core/types.js';
 import { groupTrace, turnNodes, type ToolActivity, type TraceTurn } from '../trace-groups.js';
 import { formatMs, formatTokens, pretty, toolResultText, truncate } from '../format.js';
-import { Badge, Chevron, cx, Empty, TagLabel, type Tone } from './ui.js';
+import { Chevron, cx, Empty, MetaBadge, StatusBadge, TagLabel, type Tone } from './ui.js';
 
 /**
  * Chat turns are prose. Module-level so every bubble shares one array — the
@@ -122,7 +123,9 @@ function TurnRow({
           title="Inspect the HTTP exchange behind this turn"
           className={cx(
             'absolute top-3 right-4 text-[12px] font-medium text-primary opacity-0 transition-opacity',
-            'group-hover:opacity-100 focus-visible:opacity-100',
+            // A touch device has no hover to reveal this on (P2-01) — it stays
+            // shown there the way it already does for keyboard focus.
+            'group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
           )}
         >
           inspect →
@@ -167,8 +170,8 @@ function ToolStrip({
         <span className="min-w-0 truncate font-mono text-[12.5px] text-muted-foreground">
           {names.join(' · ')}
         </span>
-        {failed > 0 && <Badge tone="error">{failed} failed</Badge>}
-        {pending > 0 && <Badge tone="warning">{pending} pending</Badge>}
+        {failed > 0 && <StatusBadge tone="error">{failed} failed</StatusBadge>}
+        {pending > 0 && <StatusBadge tone="warning">{pending} pending</StatusBadge>}
       </button>
       {open && (
         <div className="mt-2 space-y-2">
@@ -203,9 +206,9 @@ function ToolActivityCard({
             {formatMs(call.durationMs)}
           </span>
         )}
-        {result?.isError && <Badge tone="error">error</Badge>}
+        {result?.isError && <StatusBadge tone="error">error</StatusBadge>}
         {result?.durationMs !== undefined && (
-          <Badge
+          <MetaBadge
             tone="warning"
             title={
               result.durationIsBatch
@@ -215,7 +218,7 @@ function ToolActivityCard({
           >
             tool {formatMs(result.durationMs)}
             {result.durationIsBatch ? ' · batch' : ''}
-          </Badge>
+          </MetaBadge>
         )}
         {target && (
           <button
@@ -244,14 +247,10 @@ function ToolActivityCard({
 }
 
 /**
- * Tool input and tool output are both machine text: raised panel, capped height.
- *
- * They take the same `chat-code` roles as a fenced block in a bubble, for the
- * same reason — these panes are nested two deep inside the trace (row, then
- * tool card), and the navy code-window card is a surface meant to sit directly
- * on the canvas. Stacked inside two lighter surfaces it stopped reading as a
- * card and started reading as a hole. The Inspector still shows the same bytes
- * on the dark card, where they sit on the canvas as the system intends.
+ * Tool input and tool output are both machine text: a `DataSurface`, nested
+ * one level in because these panes sit two deep inside the trace (row, then
+ * tool card) — the same reason the Inspector's SSE frames and JSON tree take
+ * `nested` for content one level inside their own block.
  */
 function ToolPane({
   label,
@@ -269,16 +268,18 @@ function ToolPane({
       <div className="mb-1 text-[11px] font-medium tracking-[1.5px] text-muted-soft uppercase">
         {label}
       </div>
-      <div className="max-h-[260px] overflow-auto rounded-md border border-chat-code-border bg-chat-code">
-        <pre
-          className={cx(
-            'px-3 py-2.5 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap',
-            isError ? 'text-error-fg' : 'text-chat-code-fg-soft',
-          )}
-        >
-          {text.trim() || empty}
-        </pre>
-      </div>
+      <DataSurface variant="nested">
+        <DataSurfaceBody maxHeightClass="max-h-[260px]">
+          <pre
+            className={cx(
+              'px-3 py-2.5 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap',
+              isError ? 'text-error-fg' : 'text-data-foreground-muted',
+            )}
+          >
+            {text.trim() || empty}
+          </pre>
+        </DataSurfaceBody>
+      </DataSurface>
     </div>
   );
 }
@@ -329,7 +330,7 @@ function TraceRow({
           // rather than swapped with `hidden`, so it is still reachable by
           // keyboard — focus brings it back on its own.
           'absolute top-3 text-[12px] font-medium text-primary opacity-0 transition-opacity',
-          'group-hover:opacity-100 focus-visible:opacity-100',
+          'group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
           rightAligned ? 'left-4' : 'right-4',
         )}
       >
@@ -478,7 +479,7 @@ function TurnControls({
   align: 'start' | 'end';
 }) {
   return (
-    <div className="mt-1.5 opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100">
+    <div className="mt-1.5 opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
       <ContentToolbar
         variant="inline"
         text={text}

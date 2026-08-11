@@ -39,47 +39,69 @@
   --color-surface-card: #f0ebe0;
   --color-surface-strong: #e8e0d2;
 
-  /* Code window */
-  --color-code: #181715;
-  --color-code-soft: #1f1e1b;
-  --color-code-elevated: #252320;
-  --color-code-border: #181715; /* invisible in light — the card needs no edge */
-  --color-code-divider: #2a2723; /* but rows *inside* a card still need separating */
-  --color-code-fg: #faf9f5;
-  --color-code-fg-soft: #a09d96;
-  --color-code-accent: #e8a55a;
-  --color-code-error: #f0a0a0;
+  /*
+   * DataSurface — the one ground every piece of structured/machine text sits
+   * on: JSON, XML source, SSE frames, Raw request/response, tool input/output,
+   * the header run command. Previously this role (`code`) was a fixed dark
+   * navy card in light, which the 2026-08-11 product design audit (P0-01)
+   * found reads as an unrelated near-black island dropped into a cream page —
+   * a marketing-page mockup decision that had leaked into the product surface.
+   * `data-*` is a warm-grey panel in light and a raised dark panel in dark,
+   * so the format is what varies (through the format badge, structure and
+   * syntax colour), not the ground itself.
+   *
+   * `surface` is the panel's own fill; `surface-nested` is one step in for
+   * content nested inside it (an expanded SSE frame, a tool result inside a
+   * tool card); `surface-control` is for interactive chrome sitting on the
+   * panel (toolbar buttons, mode toggles) — never used as body background.
+   */
+  --color-data-surface: #f3efe7;
+  --color-data-surface-nested: #ece6dc;
+  --color-data-surface-control: #e7e0d5;
+  --color-data-foreground: #252523;
+  --color-data-foreground-muted: #5f5c55;
+  --color-data-border: #d8d0c3;
+  --color-data-divider: #ddd5c9;
 
   /*
-   * Machine text *inside* the Chat Trace — fenced code in a bubble, and a tool
-   * call's input and result. A raised panel, one step above whatever it sits
-   * on, in both themes.
-   *
-   * The `code` role above is still the treatment for the same bytes in the
-   * Inspector, where they are the subject and the card sits directly on the
-   * canvas. Nested inside a chat turn it stopped reading as a card: near-black,
-   * a few pixels inside a cream bubble — or two surfaces deep inside a tool
-   * card — at the one place in the app where the surrounding surface is what
-   * tells you who is speaking. So Chat Trace code stays in the canvas's own
-   * family of cream in light, and takes the raised-panel mechanics the `code`
-   * role already uses in dark.
-   *
-   * `fg` is for content read as text (a fenced block someone wrote), `fg-soft`
-   * for output meant to recede until you look at it (tool panes) — the same
-   * split `code-fg` / `code-fg-soft` make on the dark card.
+   * Syntax roles for text printed on a DataSurface panel — JSON keys/values,
+   * SSE event names. Flipping `code` from dark-on-light to light theme's own
+   * warm-light panel means every syntax colour has to read as dark-on-light
+   * here (they used to be light colours meant for a navy card); each was
+   * picked to clear 4.5:1 against `--color-data-surface` (#f3efe7).
    */
-  --color-chat-code: #e8e0d2;
-  --color-chat-code-border: #dcd3c2;
-  --color-chat-code-fg: #252523;
-  --color-chat-code-fg-soft: #4a4843;
+  --color-syntax-key: #4f5e6c;
+  --color-syntax-string: #2d6a4f;
+  --color-syntax-number: #8b5a16;
+  --color-syntax-boolean: #6b4ba1;
+  --color-syntax-null: #a63d40;
+  --color-syntax-tag: #24705f;
+  --color-syntax-attribute: #87531b;
+  --color-syntax-punctuation: #64615a;
+  --color-syntax-event: #6b4ba1;
+
+  /* Code window — every one of these is now an alias onto the DataSurface /
+     syntax roles above, so the panel has exactly one set of values, not two
+     families that can drift apart. The names stay so the ~50 existing call
+     sites (`bg-code`, `text-code-fg`, …) do not have to change. */
+  --color-code: var(--color-data-surface);
+  --color-code-soft: var(--color-data-surface-nested);
+  --color-code-elevated: var(--color-data-surface-control);
+  --color-code-border: var(--color-data-border);
+  --color-code-divider: var(--color-data-divider);
+  --color-code-fg: var(--color-data-foreground);
+  --color-code-fg-soft: var(--color-data-foreground-muted);
+  --color-code-accent: var(--color-syntax-event);
+  --color-code-error: var(--color-syntax-null);
 
   /*
    * Markup syntax roles for the Rendered · XML outline.
    *
-   * These are deliberately separate from the `json-*` and `code-*` roles above:
-   * those describe syntax printed on the dark code card, while the tag outline
-   * is a *rendered* view and lives on the canvas next to rendered markdown.
-   * Same job, opposite ground, so they cannot share values.
+   * These stay separate from the syntax-* roles above: the tag outline is a
+   * *rendered* view that lives on the canvas next to rendered markdown, not
+   * on the DataSurface panel, so it keeps its own values tuned for that
+   * ground (already AA-clean per the 2026-08-10 review; not part of the
+   * near-black defect this pass fixes).
    *
    * The tag colour is teal rather than the coral accent on purpose — `primary`
    * stays scarce, reserved for selection and active state, and a document full
@@ -91,12 +113,12 @@
   --color-markup-text: #3d3d3a;
   --color-markup-divider: #e6dfd8;
 
-  /* JSON syntax roles inside the code window. */
-  --color-json-key: #e8e0d2;
-  --color-json-string: #9fca9f;
-  --color-json-number: #e8a55a;
-  --color-json-boolean: #c99bf5;
-  --color-json-null: #f0a0a0;
+  /* JSON syntax roles inside the DataSurface panel — aliases onto `syntax-*`. */
+  --color-json-key: var(--color-syntax-key);
+  --color-json-string: var(--color-syntax-string);
+  --color-json-number: var(--color-syntax-number);
+  --color-json-boolean: var(--color-syntax-boolean);
+  --color-json-null: var(--color-syntax-null);
 
   /* Text */
   --color-ink: #141413;
@@ -145,6 +167,22 @@
   --color-assistant-fg: #2b7366;
   --color-tool-bg: #f7e6cf;
   --color-tool-fg: #8f5b1e;
+
+  /*
+   * The Inspector's Timing waterfall bars — their own role, not a borrow.
+   * `Bar` used to take `bg-muted-soft` / `bg-tool-fg` / `bg-primary` as its
+   * fill: two of those three are text-contrast roles (`muted-soft` is tuned
+   * against the *canvas*, `tool-fg` against `tool-bg`), so retuning either
+   * for text legibility would reshade a bar chart that has nothing to do
+   * with either pairing — the exact fragility the 2026-08-11 product design
+   * audit named under P0-02. `timing-wait` and `timing-first-token` are
+   * copies of those two values at the point of writing, so the chart looks
+   * identical; `stream` keeps `--color-primary` directly, since primary is
+   * already a fill-capable accent (it backs buttons and the `primary` badge
+   * tone), not a text-only role.
+   */
+  --color-timing-wait: #6d6a63;
+  --color-timing-first-token: #8f5b1e;
   --color-warning-bg: #f6ecd0;
   --color-warning-fg: #83650c;
   --color-error-bg: #f7e0e0;
@@ -177,22 +215,39 @@
   --color-surface-card: #1a1f26;
   --color-surface-strong: #252c35;
 
-  --color-code: #101317;
-  --color-code-soft: #0b0d10;
-  --color-code-elevated: #1a1f26;
-  --color-code-border: #232a33;
-  --color-code-divider: #1c222a;
-  --color-code-fg: #e6eaef;
-  --color-code-fg-soft: #a3adb8;
-  --color-code-accent: #c99bf5;
-  --color-code-error: #f77878;
+  /* DataSurface — a raised panel, one step lighter than the canvas, with a
+     visible border (near-black on near-black would erase the boundary the
+     panel exists to draw). `surface` is now its own value rather than
+     reusing `surface-soft`'s #101317: the two used to collide, leaving the
+     boundary to the border alone (flagged as a fragility in the 2026-08-10
+     review); they are distinct roles again. */
+  --color-data-surface: #13171c;
+  --color-data-surface-nested: #1a1f26;
+  --color-data-surface-control: #1a1f26;
+  --color-data-foreground: #e6eaef;
+  --color-data-foreground-muted: #a3adb8;
+  --color-data-border: #2f3843;
+  --color-data-divider: #252c35;
 
-  /* One step above *both* bubble fills (#101317 assistant, #1a1f26 user) — a
-     panel that matched the user's own bubble would vanish inside it. */
-  --color-chat-code: #232a33;
-  --color-chat-code-border: #2f3843;
-  --color-chat-code-fg: #e6eaef;
-  --color-chat-code-fg-soft: #a3adb8;
+  --color-syntax-key: #d5dbe2;
+  --color-syntax-string: #9ece6a;
+  --color-syntax-number: #e0af68;
+  --color-syntax-boolean: #c99bf5;
+  --color-syntax-null: #f77878;
+  --color-syntax-tag: #6bd39a;
+  --color-syntax-attribute: #e0af68;
+  --color-syntax-punctuation: #7c8894;
+  --color-syntax-event: #c99bf5;
+
+  --color-code: var(--color-data-surface);
+  --color-code-soft: var(--color-data-surface-nested);
+  --color-code-elevated: var(--color-data-surface-control);
+  --color-code-border: var(--color-data-border);
+  --color-code-divider: var(--color-data-divider);
+  --color-code-fg: var(--color-data-foreground);
+  --color-code-fg-soft: var(--color-data-foreground-muted);
+  --color-code-accent: var(--color-syntax-event);
+  --color-code-error: var(--color-syntax-null);
 
   --color-markup-tag: #6bd39a;
   --color-markup-attr: #e0af68;
@@ -200,11 +255,11 @@
   --color-markup-text: #a3adb8;
   --color-markup-divider: #1f252d;
 
-  --color-json-key: #d5dbe2;
-  --color-json-string: #9ece6a;
-  --color-json-number: #e0af68;
-  --color-json-boolean: #c99bf5;
-  --color-json-null: #f77878;
+  --color-json-key: var(--color-syntax-key);
+  --color-json-string: var(--color-syntax-string);
+  --color-json-number: var(--color-syntax-number);
+  --color-json-boolean: var(--color-syntax-boolean);
+  --color-json-null: var(--color-syntax-null);
 
   --color-ink: #e6eaef;
   --color-body-strong: #d5dbe2;
@@ -234,6 +289,10 @@
   --color-assistant-fg: #6bd39a;
   --color-tool-bg: #241f2e;
   --color-tool-fg: #c99bf5;
+
+  --color-timing-wait: #7a8793;
+  --color-timing-first-token: #c99bf5;
+
   --color-warning-bg: #2a2318;
   --color-warning-fg: #e0af68;
   --color-error-bg: #2b1a1a;
@@ -330,26 +389,77 @@ button:not(:disabled),
 }
 
 /*
- * Scrollbars are hidden everywhere, not styled.
+ * Scrollbars are opt-in, not global.
  *
  * This view is dense by design — a trace column, a payload card, an SSE frame
- * list and the Inspector can all scroll at once, and a 12px gutter on each of
- * them was carving the layout into strips. Scrolling itself is untouched:
- * wheel, trackpad, keyboard and programmatic scrolling all behave normally, and
- * every scrollable region still shows its own clipped edge.
- *
- * The trade is real. Raw payloads, tool output and the JSON tree all wrap, so
- * they never needed the bar. Markdown code fences and wide tables still scroll
- * sideways and now do so without announcing it — reachable by trackpad or
- * shift-wheel, but no longer self-advertising.
+ * list and the Inspector can all scroll at once. A blanket `scrollbar-width:
+ * none` on every element used to hide all of that: Markdown tables, JSON
+ * trees, SSE lists, the Network table and the Inspector's own tab rail could
+ * all overflow with nothing on screen to say so (P1-02 in the 2026-08-11
+ * product design audit). `.scroll-surface` opts a container back in with a
+ * slim, low-contrast bar that only asserts itself on hover; `.scrollbar-hidden`
+ * is left for the rare container that scrolls as an implementation detail the
+ * user never needs to notice.
  */
-* {
+.scroll-surface {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
+}
+.scroll-surface:hover,
+.scroll-surface:focus-within {
+  scrollbar-color: var(--color-hairline) transparent;
+}
+.scroll-surface::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-surface::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.scroll-surface:hover::-webkit-scrollbar-thumb,
+.scroll-surface:focus-within::-webkit-scrollbar-thumb {
+  background: var(--color-hairline);
+}
+.scroll-surface::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/*
+ * The Inspector drawer goes full-screen under 640px (P1-03). `!important` is
+ * required here: `--drawer-content-width` is also set inline on the element
+ * (`Inspector.tsx`'s `INSPECTOR_DRAWER_STYLE`), and a normal-weight rule in
+ * this stylesheet cannot outrank a normal-weight inline style — only an
+ * `!important` author rule can.
+ */
+@media (max-width: 640px) {
+  [data-slot='drawer-popup'][data-swipe-axis='x'] {
+    --drawer-content-width: 100vw !important;
+    border-radius: 0 !important;
+  }
+}
+
+.scrollbar-hidden {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* legacy Edge */
 }
-
-::-webkit-scrollbar {
+.scrollbar-hidden::-webkit-scrollbar {
   display: none;
+}
+
+/* Respected globally: every transition and animation in this file and in the
+   Tailwind utilities it composes with collapses to instant when the user has
+   asked the OS for reduced motion (P2-01). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* react-json-view-lite supplies tree behaviour; these stable project classes
@@ -572,6 +682,8 @@ button:not(:disabled),
   border: 1px solid var(--color-code-border);
   border-radius: var(--radius-lg);
   background: var(--color-code);
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-hairline) transparent;
 }
 .markdown-body pre code {
   padding: 0;
@@ -599,6 +711,8 @@ button:not(:disabled),
   overflow-x: auto;
   border-collapse: collapse;
   font-size: 13px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-hairline) transparent;
 }
 .markdown-body th,
 .markdown-body td {

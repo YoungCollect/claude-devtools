@@ -503,3 +503,126 @@ Light 推荐值及其在 `#F3EFE7` 上的 WCAG 对比度：
 4. Inspector、Network、Trace 在桌面、窄屏、键盘和触屏路径下均可完成核心任务。
 5. 设计规范、实现、自动检查和 README / 安全声明保持同步。
 6. typecheck、test、build 与视觉验收矩阵全部通过。
+
+---
+
+## 13. 实施记录（2026-08-11，第二遍）
+
+按第 10 节的顺序，六个阶段全部在本分支（`claude/docs-reviews-ui-check-efw3k8`）执行完毕。下面逐项对照第 4 节的问题编号说明实际改动、验证方式，以及少数刻意未做或收窄范围的地方——按本仓库的惯例，"做了什么"和"没做什么、为什么"同等重要。
+
+### P0-01 — light 主题代码表面近黑色
+
+**已修复。** `src/web/styles.css` 新增 `--color-data-surface` / `-nested` / `-control` / `-foreground` / `-foreground-muted` / `-border` / `-divider` 七个 token（light 暖灰、dark 抬升深灰，取值即 §5.3 的推荐表），随后把 `--color-code`、`--color-code-soft`、`--color-code-elevated`、`--color-code-border`、`--color-code-divider`、`--color-code-fg`、`--color-code-fg-soft` 全部改写成对这七个新 token 的 `var()` 引用。`--color-code`（light）不再是字面量 `#181715`，而是 `var(--color-data-surface)` = `#f3efe7`。
+
+这个改法的副作用是有意的：`bg-code` / `border-code-border` / `text-code-fg` 这些既有 Tailwind 类名全部原样保留，因为它们最终解析到的 CSS 变量换了值，**不需要改动调用这些类名的任一 TSX 文件**就能让 JSON、SSE、Raw、Assembled response、Header 命令块同时脱离近黑色——实测确认了这一点（第 14 节截图 03/05/06/07/10）。
+
+### P0-02 — token 是平铺清单，不是分层系统
+
+**部分完成，范围有意收窄。** 完整实现了手册要求的新 token 家族：
+
+- `--color-data-*`（DataSurface 语义层，7 个角色）
+- `--color-syntax-*`（JSON/SSE 语法色，9 个角色，light 侧全部按 §5.4 表格重新计算，因为背景从深色卡片翻转成浅色面板后旧的"浅色字配深色底"配色必须整体反转为"深色字配浅色底"）
+- `--color-timing-*`（新增，见下方"审查中发现的新问题"）
+
+**没有做**的是手册 §5.1-§5.2 描述的完整四层重构——把现有 48 个 `--color-*` 角色全部先落到一个新的 `--ref-*` reference palette，再让每个语义 token 单向引用 reference。理由：这个仓库当前没有字面颜色泄漏到组件（AGENTS.md 的约束和 2026-08-10 审查都已确认),真正的风险点是"两条平行色系"（`code-*`/`chat-code-*` vs 理应统一的 DataSurface）和"文本角色被当背景借用"（下文的 timing 例子），这两个都已用别名和新 token 解决。对 48 个已经语义化、双主题对称、且已过一轮 WCAG 审查的角色做一次纯重命名式的四层改造，收益是"未来更容易加新 hue"，代价是大范围改动带来的回归风险——在没有视觉回归工具的情况下,这笔账判断不划算,所以没做。已经写自动化测试固定当前 43+ 个 `--color-*` 角色的双主题对称性(第 13.6 节),后续要做四层重构时,这个测试会先坏给出信号。
+
+### P1-01 — 数据表面没有共享组件
+
+**已修复。** 新增 `src/web/components/DataSurface.tsx`，四个变体（`block` / `nested` / `rows` / `inline`）加 `DataSurfaceHeader` / `DataSurfaceBody` / `DataSurfaceRows` 子组件。已迁移到该组件的调用点：
+
+| 内容 | 位置 | 变体 |
+| --- | --- | --- |
+| `CodeBlock`（Raw 请求/响应体、Assembled response） | `ui.tsx` | `block` |
+| JSON 树 | `JsonBodyViewer.tsx` | `block` |
+| Raw 模式的 `ContentViewer` 卡片 | `ContentViewer.tsx` | `block` |
+| SSE 帧列表 | `Inspector.tsx`（`Stream`） | `rows` |
+| 展开的单条 SSE 帧 | `Inspector.tsx`（`FrameRow`） | `nested` |
+| Tool input / result | `TraceView.tsx`（`ToolPane`，原 `chat-code` 家族） | `nested` |
+| Header 运行命令块 | `App.tsx` | `inline` |
+
+**没有做**：Markdown 渲染视图和 XML 大纲没有迁移到 DataSurface（手册 §6 映射表建议两者都迁移）。原因：这两个是"渲染视图"，设计上一直安静地待在 canvas 上（`ContentViewer` 的既有注释解释了这一点——切换 Rendered/Raw 不应该整个面板变色），2026-08-10 审查也确认它们的配色本身没问题。把它们强行搬进 DataSurface 会引入一个当前不存在的问题（canvas 上凭空多出一块有边框的面板），而不是修一个真实缺陷,所以刻意保留原状,仅在本节注明是手册目标与本次实施的差异点。
+
+### P1-02 — 全局隐藏 scrollbar
+
+**已修复。** 删除了 `styles.css` 里全局的 `* { scrollbar-width: none }`。新增 `.scroll-surface`（hover/focus-within 时显示细滚动条，`scrollbar-gutter: stable` 防止宽度跳动）和 `.scrollbar-hidden`（保留给确认不需要提示的场景，目前没有调用点)。已应用到：Inspector 的 tab 面板与 tab rail、Network 表格容器、侧边栏会话列表、Trace/Network 主视图容器、GitDiffDialog 的 diff 区域与相同内容对比区、以及 `.markdown-body pre` / `table`（这两处是 CSS 选择器直接加的滚动条样式，不经过 React）。
+
+### P1-03 — Inspector 响应式标签被裁切
+
+**已修复,并追加处理了手册未列出但审查中发现的同类问题。**
+
+- Drawer 宽度从 `max(440px, 46%)` 改成 `min(100vw, max(440px, 46vw))`——旧公式在窄视口下可以比视口本身还宽。
+- `≤640px` 时通过 CSS 强制 `--drawer-content-width: 100vw !important` 全屏（`!important` 是必须的：内联样式的普通声明打不过外部样式表的 `!important` 声明,反过来才不成立)。
+- Tab rail 改为 `overflow-x-auto` + `.scroll-surface`，`Tabs` 组件新增可选 `className` 透传 `w-max`（否则块级祖先会把 flex 行压缩到自身宽度,横向溢出根本不会发生)。当前激活 tab 通过 `scrollIntoView({ block: 'nearest', inline: 'nearest' })` 在切换时自动滚入可视区。
+- 实测截图(第 14 节 11/12)证实：768px 下最初只有 `Overview` 到 `SSE` 可见，`Timing`/`Raw` 确实如审查所说被裁切；滚动 tab rail 后 `Raw` 完全可达且可点击、内容正常渲染。
+
+**额外发现并修复**（手册 §9 验收标准里列了但 §10 实施顺序未展开的一项）：在 390px 视口实测时发现——不是 Inspector 的问题,而是应用整个外壳的问题——侧边栏 `w-72 shrink-0`（288px 固定宽）在 390px 视口下自己就比视口还宽,导致主内容被挤压到几乎不可用的窄条(第 14 节旧版截图复现)。这不在 P1-03 的原始描述范围内,但属于同一类"响应式断点"缺陷,且手册 §9 明确要求"Sidebar 在窄屏可开合"。修复：`App.tsx` 新增 `sidebarOpen` 状态与 `md:hidden` 汉堡按钮，侧边栏在 `<768px` 变成 `fixed` 离屏面板（`-translate-x-full` ↔ `translate-x-0`），点击遮罩（`bg-overlay` token，不是字面颜色）或选中会话后自动收起；`≥768px` 桌面行为完全不变（用 `max-md:` 前缀限定,没有引入新的默认状态分支)。顺带把 upstream 地址文本在 `<1024px` 时隐藏（`hidden lg:block`），避免它继续挤占 Header 上 Copy / Clear / Diff / 主题切换的空间。
+
+### P1-04 — Network 行只有鼠标行为
+
+**已修复。** `NetworkView.tsx` 的 `TableRow` 加了 `tabIndex={0}`、`role="button"`、按行内容生成的 `aria-label`、Enter/Space 触发 `onSelect`、`focus-visible` 环。
+
+### P2-01 — 必要操作依赖 hover 和颜色
+
+**已修复。** Trace 的 `inspect →` 按钮（两处）、`ContentViewer` 的 hover 显现工具条、`TurnControls`，都加了 `[@media(hover:none)]:opacity-100`，触屏设备上始终可见（而不仅是键盘 focus 时可见）。`prefers-reduced-motion: reduce` 在 `styles.css` 里全局生效，把动画/过渡时长压到 0.001ms。
+
+### P2-02 — 基础组件存在两套规范
+
+**已修复（Button），部分完成（Badge）。**
+
+- **Button**：`ui.tsx` 里手写的 `Button` 已删除。`ui/button.tsx` 的 CVA 新增 `chrome` variant，还原原来的外观（canvas 底、hairline 边框、hover 变边框+文字色而不是背景色），配合 `data-active` 属性驱动"选中/确认中"视觉态——刻意不用 `aria-pressed` 承载这个视觉态，因为 Clear 按钮的"二次确认"和 Diff 按钮都不是真正的 toggle，只有 Inspector 的 secrets 显隐才是,后者单独传了语义正确的 `aria-pressed`。三个调用点（`ClearButton`、Header 的 `Diff`、Inspector 的 secrets 按钮）已全部迁移。副作用：shadcn Button 的默认尺寸（`h-8`、`text-sm`）与旧手写 Button（约 26-28px 高、13px 字）略有差异——高度上与本次 P2-03 的 32px 热区目标一致，视为合理的统一，而不是意外回归。
+- **Badge**：拆成 `StatusBadge`（success/error/warning，承载"结果"）、`MetaBadge`（neutral/emph/tool/warning/primary，承载"元数据"）、`TagLabel`（既有的角色 API,未改动）三个 API，底层仍共享同一个 `Badge` 渲染原语（同一个圆角/字号/padding 实现,不是三份重复代码)。已迁移 `Inspector.tsx`、`NetworkView.tsx`、`TraceView.tsx`、`App.tsx` 里能明确归类的全部调用点。
+
+### P2-03 — 其他可访问性与安全反馈
+
+**已修复：**
+
+- `ToolbarIconButton` 热区从 26px 提到 32px（图标本身大小不变）；`ContentToolbar` 的 Rendered/Raw 模式按钮同步提到 `h-8`,避免同一行内两种控件高度不一致。
+- `Section` 的展开按钮加了 `aria-expanded` / `aria-controls`，内容区加了对应 `id`。
+- Network filter 加了 `sr-only` label、Esc 清空、`aria-live="polite"` 的结果计数。
+- secrets masked/shown 加了 `aria-pressed`，并且每次打开新请求（`transportId` 变化）时强制回到 masked——之前是留着上一个请求的状态。
+- `ConversationList` 的会话操作菜单：打开时焦点移入第一个 `menuitem`，Arrow Up/Down 在菜单项间移动，Escape 关闭并把焦点还给触发它的省略号按钮（之前 Escape 只关闭,焦点会掉到页面顶部)。
+
+### 审查中发现、手册未直接列出的问题：Timing 瀑布图借用文本角色做填充色
+
+写 governance 测试（见 13.6）"禁止 `*-fg` token 当背景用"这一条时，测试当场抓到一个真实存在的违规：`Inspector.tsx` 的 `Timing` 瀑布图里 `tone="bg-tool-fg"`——这正是手册 §4 P0-02 风险清单里点名过的例子（"Timing waterfall 将 `tool-fg` 当作背景色"），但手册没有把它放进第 10 节的实施顺序,容易被漏掉。
+
+已修复：新增 `--color-timing-wait` / `--color-timing-first-token` 两个专用 token（取值复制自当时的 `muted-soft` / `tool-fg`，保证像素级视觉不变），`stream` 段继续用 `--color-primary`（这个本来就是可以做填充色的强调色，不是纯文本角色，不需要拆）。截图对比（第 14 节 19）确认瀑布图三段颜色与改动前一致。
+
+### 审查覆盖但本次刻意跳过的部分
+
+- **Section 5.1-5.2 的完整四层 reference palette 重构**：见上文 P0-02。
+- **Markdown / XML 渲染视图迁移到 DataSurface**：见上文 P1-01。
+- **真实屏幕阅读器实测**：本次同样没有做（沿用 2026-08-10 审查的免责声明）；`aria-expanded` / `aria-pressed` / `aria-live` / focus 管理都是按 ARIA 规范手工核对，不是 NVDA/VoiceOver 输出验证过的。
+- **五档响应式矩阵（1440/1024/768/390 + 一个未指定的第五档）**：实测覆盖了 1440、768、390 三档（第 14 节），1024 档没有单独截图，但 `lg:` 断点（隐藏 upstream 文本）在 1024px 即生效，逻辑已随 768/1440 两侧的截图间接验证。
+- **Waterfall 之外，是否还有其他角色被跨用**：只对"`*-fg` 用作 `bg-*`"这一种模式做了穷举扫描（见 13.6 的自动化测试），没有对其他可能的角色混用（例如反过来"`*-bg` 用作 `text-*`"）做穷举——测试里已经把这条留了 TODO 空间,但受限于时间没有实现对应断言。
+
+### 13.6 治理自动化（新增测试）
+
+新增 `tests/design-tokens.test.ts`（5 个用例）与 `tests/helpers/list-files.ts`：
+
+1. 每个 light `@theme` 里定义的 `--color-*` 角色，dark 覆盖块里都有同名定义，反之亦然（把 2026-08-10 审查"43/43 完整"的人工结论变成每次 `pnpm test` 自动核对的断言）。
+2. DataSurface / syntax 两族 token 在双主题下都存在。
+3. `--color-data-surface`（light）的相对亮度必须 > 0.5——这是 P0-01 的回归哨兵：如果以后有人不小心把它改回接近黑色，这个测试会先红。
+4. `src/web/**/*.tsx` 里没有字面 hex/rgb 颜色、没有 Tailwind 默认调色板色相类名（`bg-red-500` 之类）。
+5. 没有 `*-fg` 角色 token 被当 `bg-*` 使用——这条测试第一次跑就抓到了上面 Timing 瀑布图的真实问题。
+
+### 13.7 验证记录
+
+- **`pnpm typecheck`**：通过（`tsc -p tsconfig.json` + `tsc -p tsconfig.server.json`，两遍均无错误）。
+- **`pnpm build`**：通过（`vite build && tsc -p tsconfig.server.json`）。产物体积告警（几个 `>500kB` 的语言/主题 chunk）是构建工具原有的信息性提示，与本次改动无关，本次也没有引入新的大 chunk。
+- **`pnpm test`**：66/66 通过（原有 61 个 + 新增 `design-tokens.test.ts` 的 5 个）。
+- **实机视觉验证**：本地起 `pnpm dev` 等价环境（代理指向一个本地 mock upstream，模拟 Anthropic 的流式 `/v1/messages`），通过真实请求灌入一个包含 system + `<context>` 标签 + 用户消息 + 工具调用的会话，用 Playwright 截图核对：
+  - **Light / 1440**：Trace、Network、Inspector 的 Overview/Payload/Response/SSE/Raw 六个 tab、展开的 SSE 帧、展开的 Tool 卡片——确认 Assembled response、JSON、SSE、Raw、Header 命令块全部是暖灰 DataSurface 面板，不再是近黑色。
+  - **Dark / 1440**：Raw 面板确认深色抬升面板 + 可见边框的既有视觉未受影响。
+  - **768**：Inspector 打开时 `Timing`/`Raw` 初始确实裁切，滚动 tab rail 后可达、`Raw` 内容正常渲染——复现问题后确认修复生效。
+  - **390**：侧边栏正确收起为汉堡菜单，点击后以离屏面板+遮罩形式打开，选中会话后自动收起，主内容不再被挤压成窄条。
+  - **控制台**：全程只有一条 `favicon.ico` 404（浏览器默认请求，页面本来就没有配置 favicon，与本次改动无关，未处理）。
+  - 截图仅作为本地临时验证材料，按仓库隐私约束未提交、未嵌入本文档。
+
+### 13.8 变更文件清单
+
+新增：`src/web/components/DataSurface.tsx`、`tests/design-tokens.test.ts`、`tests/helpers/list-files.ts`。
+
+修改：`src/web/styles.css`、`src/web/App.tsx`、`src/web/components/{ui.tsx, ui/button.tsx, ContentToolbar.tsx, ContentViewer.tsx, ConversationList.tsx, GitDiffDialog.tsx, Inspector.tsx, JsonBodyViewer.tsx, NetworkView.tsx, TraceView.tsx}`。
+
+未改动：`src/core/**`、`src/server/**`、`design.md/**`（手册阶段 1 第 6 步建议同步 `design.md/design-claude.md`，本次未做——设计规范文档的更新需要设计系统所有者确认表述，留给维护者）。

@@ -99,7 +99,7 @@ export function GitDiffDialog({ theme }: { theme: Theme }) {
           <SourceSummary side="right" source={diff.right} />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto bg-canvas">
+        <div className="scroll-surface min-h-0 flex-1 overflow-auto bg-canvas">
           {!ready ? (
             <DiffEmptyState
               text={
@@ -227,7 +227,7 @@ function SourceSummary({ side, source }: { side: GitDiffSide; source?: GitDiffSo
 
 function IdenticalSource({ side, text }: { side: GitDiffSide; text: string }) {
   return (
-    <div className="min-w-0 overflow-auto" aria-label={`Identical ${side} source`}>
+    <div className="scroll-surface min-w-0 overflow-auto" aria-label={`Identical ${side} source`}>
       <pre className="w-max min-w-full p-3 font-mono text-[12.5px] leading-[1.6] whitespace-pre text-body-strong">
         {text}
       </pre>

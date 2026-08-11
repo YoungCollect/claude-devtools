@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 
+import { DataSurface, DataSurfaceBody } from './DataSurface.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js';
 
 export function cx(...parts: (string | false | undefined | null)[]): string {
@@ -46,7 +47,55 @@ export function Badge({
   );
 }
 
-/** Uppercase category badge — 12px / 500 / 1.5px tracking, per the system. */
+/**
+ * `Badge` split three ways, per the product design audit's P2-02: status,
+ * role and metadata badges read as the same pill but answer different
+ * questions, and `Badge`'s single `Tone` union let any of them borrow any
+ * other's colour (a "pending" count in `error` red, say) with nothing to
+ * catch it. Each wrapper narrows `Tone` to the tones that question actually
+ * has an answer for; `Badge` itself stays as the shared rendering primitive
+ * underneath all three, so there is still exactly one pill implementation.
+ */
+
+/** An outcome: an HTTP status, pass/fail, error/pending counts. */
+export function StatusBadge({
+  children,
+  tone,
+  title,
+}: {
+  children: ReactNode;
+  tone: 'success' | 'error' | 'warning';
+  title?: string;
+}) {
+  return (
+    <Badge tone={tone} title={title}>
+      {children}
+    </Badge>
+  );
+}
+
+/** Context that is not an outcome: a count, a duration, a format label. */
+export function MetaBadge({
+  children,
+  tone = 'emph',
+  title,
+}: {
+  children: ReactNode;
+  tone?: 'neutral' | 'emph' | 'tool' | 'warning' | 'primary';
+  title?: string;
+}) {
+  return (
+    <Badge tone={tone} title={title}>
+      {children}
+    </Badge>
+  );
+}
+
+/**
+ * Uppercase category badge — 12px / 500 / 1.5px tracking, per the system.
+ * This is the role API: `user` / `assistant` / `system` / `tool` / `context`,
+ * and the sidebar's `subagent` marker.
+ */
 export function TagLabel({ children, tone = 'emph' }: { children: ReactNode; tone?: Tone }) {
   return (
     <span
@@ -91,6 +140,7 @@ export function Tabs<T extends string>({
   onChange,
   idPrefix,
   label,
+  className,
 }: {
   tabs: readonly { id: T; label: string; count?: number }[];
   active: T;
@@ -99,6 +149,13 @@ export function Tabs<T extends string>({
   idPrefix: string;
   /** Names the set for assistive technology, e.g. "Views". */
   label: string;
+  /**
+   * Extra classes on the `tablist` root. Pass `w-max` when the caller wraps
+   * this in its own `overflow-x-auto` — without it a plain-block ancestor
+   * stretches the flex row to its own width and the tabs squeeze instead of
+   * overflowing (Inspector's rail, at seven tabs on a narrow viewport).
+   */
+  className?: string;
 }) {
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
     const keys: Record<string, number | 'first' | 'last'> = {
@@ -125,7 +182,12 @@ export function Tabs<T extends string>({
   };
 
   return (
-    <div role="tablist" aria-label={label} onKeyDown={move} className="flex items-center gap-1 px-3">
+    <div
+      role="tablist"
+      aria-label={label}
+      onKeyDown={move}
+      className={cx('flex items-center gap-1 px-3', className)}
+    >
       {tabs.map((tab) => (
         <button
           key={tab.id}
@@ -153,23 +215,17 @@ export function Tabs<T extends string>({
   );
 }
 
-/**
- * The `code-window-card`. In light it is the system's dark navy card on cream —
- * where the cream-to-dark contrast does real work, making payloads read as
- * product chrome rather than as more page. In dark the same role inverts to a
- * raised panel, which is why the border token exists: it is invisible in light
- * and load-bearing in dark.
- */
+/** A `DataSurface` block holding one span of source text. */
 export function CodeBlock({ text, className }: { text: string; className?: string }) {
   if (!text) return <Empty>No content</Empty>;
   return (
-    <div
-      className={cx('overflow-hidden rounded-lg border border-code-border bg-code', className)}
-    >
-      <pre className="overflow-x-auto p-4 font-mono text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap text-code-fg">
-        {text}
-      </pre>
-    </div>
+    <DataSurface variant="block" className={className}>
+      <DataSurfaceBody maxHeightClass="max-h-[70vh]">
+        <pre className="p-4 font-mono text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap text-data-foreground">
+          {text}
+        </pre>
+      </DataSurfaceBody>
+    </DataSurface>
   );
 }
 
@@ -203,12 +259,19 @@ export function Section({
     setUncontrolled(!open);
     onOpenChange?.(!open);
   };
+  // Derived from the title rather than `useId`: two `Section`s with the same
+  // title never render into the DOM at once (they belong to different
+  // Inspector tabs, mounted one at a time), and a stable id means the region
+  // this button controls is nameable without an extra prop at every call site.
+  const contentId = `section-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
     <div className="border-b border-hairline-soft last:border-0">
       <div className="flex items-center justify-between gap-2 px-4 py-3">
         <button
           type="button"
           onClick={toggle}
+          aria-expanded={open}
+          aria-controls={contentId}
           className="flex items-center gap-2 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase hover:text-ink"
         >
           <Chevron open={open} />
@@ -216,7 +279,11 @@ export function Section({
         </button>
         {action}
       </div>
-      {open && <div className="px-4 pb-4">{children}</div>}
+      {open && (
+        <div id={contentId} className="px-4 pb-4">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -245,39 +312,6 @@ export function KeyValue({ rows }: { rows: [string, ReactNode][] }) {
         </div>
       ))}
     </dl>
-  );
-}
-
-/** `button-secondary`: canvas fill, hairline outline, 8px radius. */
-export function Button({
-  children,
-  onClick,
-  active = false,
-  tone = 'default',
-  title,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  active?: boolean;
-  tone?: 'default' | 'danger';
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      className={cx(
-        'rounded-md border px-3 py-1 text-[13px] font-medium transition-colors',
-        active
-          ? 'border-primary bg-primary text-primary-foreground'
-          : tone === 'danger'
-            ? 'border-hairline bg-canvas text-muted-foreground hover:border-error-fg hover:text-error-fg'
-            : 'border-hairline bg-canvas text-body hover:border-muted-soft hover:text-ink',
-      )}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -358,7 +392,11 @@ export function ToolbarIconButton({
         aria-label={label}
         closeOnClick={false}
         className={cx(
-          'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md border transition-colors',
+          // The icon itself stays the same size; the hit area is 32px — the
+          // WCAG 2.2 AA minimum is 24px and 26px already cleared it, but a
+          // uniform 32px target across the toolbar costs nothing else on the
+          // row (P2-03).
+          'flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors',
           pressed
             ? 'border-primary bg-primary text-primary-foreground'
             : confirmed

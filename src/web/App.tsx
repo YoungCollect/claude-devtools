@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Menu } from 'lucide-react';
 import { api, subscribeToRevisions, type ServerConfig } from './api.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
 import { ConversationList } from './components/ConversationList.js';
+import { DataSurface } from './components/DataSurface.js';
 import { GitDiffDialog } from './components/GitDiffDialog.js';
 import { Inspector } from './components/Inspector.js';
 import { NetworkView } from './components/NetworkView.js';
 import { TraceView } from './components/TraceView.js';
 import {
-  Badge,
-  Button,
   cx,
   Empty,
+  MetaBadge,
   SpikeMark,
   tabPanelProps,
   Tabs,
   ThemeToggle,
   useCopy,
 } from './components/ui.js';
+import { Button } from './components/ui/button.js';
 import { TooltipProvider } from './components/ui/tooltip.js';
 import { groupTrace } from './trace-groups.js';
 import { useTheme } from './theme.js';
@@ -98,6 +100,7 @@ export function App() {
   const [nodes, setNodes] = useState<TraceNode[]>([]);
   const [selection, setSelection] = useState<Selection | undefined>();
   const [connected, setConnected] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
 
   // `pinned` means the user picked a conversation explicitly; until then the UI
@@ -189,6 +192,7 @@ export function App() {
           connected={connected}
           theme={theme}
           onToggleTheme={toggleTheme}
+          onToggleSidebar={() => setSidebarOpen((open) => !open)}
           onClear={async () => {
             clearGitDiff();
             // Rejects on failure so the button can show it; refreshing on a failed
@@ -199,8 +203,27 @@ export function App() {
           onOpenDiff={() => setGitDiffOpen(true)}
         />
 
-        <div className="flex min-h-0 flex-1">
-          <nav className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-hairline">
+        <div className="relative flex min-h-0 flex-1">
+          {/* Below 768px the sidebar is 288px fixed-width against a viewport
+              that can be as narrow as 320px — on its own, wider than the
+              screen (P1-03's follow-on in the product design audit). It
+              becomes an off-canvas panel there, toggled by the header's menu
+              button; at `md` and up it is always visible, exactly as before. */}
+          {sidebarOpen && (
+            <button
+              type="button"
+              aria-label="Close conversation list"
+              onClick={() => setSidebarOpen(false)}
+              className="fixed inset-0 z-30 bg-overlay md:hidden"
+            />
+          )}
+          <nav
+            className={cx(
+              'scroll-surface flex w-72 shrink-0 flex-col overflow-y-auto border-r border-hairline bg-canvas transition-transform duration-200',
+              'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40',
+              sidebarOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full',
+            )}
+          >
             {/* h-12 on both this and the view tabs opposite it. Left to size
                 themselves, the two bars derive different heights from different
                 type scales (12px label vs 14px tab), and the rules that separate
@@ -214,6 +237,10 @@ export function App() {
               onSelect={(id) => {
                 pinned.current = true;
                 setConversationId(id);
+                // A touch user is done with the panel once they've picked a
+                // conversation — leaving it open would cover the trace they
+                // just opened it to reach.
+                setSidebarOpen(false);
               }}
               onDelete={async (id) => {
                 await api.deleteConversation(id);
@@ -247,14 +274,14 @@ export function App() {
               />
               {view === 'trace' && conversation && (
                 <div className="ml-auto flex items-center gap-2 px-4">
-                  <Badge tone="emph">{conversation.agent}</Badge>
+                  <MetaBadge tone="emph">{conversation.agent}</MetaBadge>
                   <span className="font-mono text-[12.5px] text-muted-foreground">{conversation.model}</span>
                 </div>
               )}
             </div>
 
             <div
-              className="min-h-0 flex-1 overflow-y-auto"
+              className="scroll-surface min-h-0 flex-1 overflow-y-auto"
               ref={trace.ref}
               onScroll={trace.onScroll}
               {...tabPanelProps('view', view)}
@@ -319,8 +346,10 @@ function ClearButton({ onClear }: { onClear: () => Promise<void> | void }) {
 
   return (
     <Button
-      tone="danger"
-      active={state === 'armed'}
+      type="button"
+      variant="chrome"
+      data-active={state === 'armed' ? 'true' : undefined}
+      className="hover:border-error-fg hover:text-error-fg"
       title={state === 'armed' ? 'Removes every trace from memory and disk' : 'Clear all captured traces'}
       onClick={() => {
         if (state === 'clearing') return;
@@ -345,6 +374,7 @@ function Header({
   connected,
   theme,
   onToggleTheme,
+  onToggleSidebar,
   onClear,
   onOpenDiff,
 }: {
@@ -352,6 +382,7 @@ function Header({
   connected: boolean;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  onToggleSidebar: () => void;
   onClear: () => Promise<void> | void;
   onOpenDiff: () => void;
 }) {
@@ -359,6 +390,18 @@ function Header({
   const [commandCopied, copyCommand] = useCopy();
   return (
     <header className="flex h-16 shrink-0 items-center gap-4 border-b border-hairline px-4">
+      {/* The sidebar's own toggle — visible only below `md`, where the
+          conversation list is an off-canvas panel rather than a permanent
+          column. */}
+      <button
+        type="button"
+        onClick={onToggleSidebar}
+        aria-label="Toggle conversation list"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-soft hover:text-ink md:hidden"
+      >
+        <Menu size={17} aria-hidden />
+      </button>
+
       {/* Spike mark + wordmark, per the system's brand lockup. The lockup never
           wraps or compresses: opening the Inspector narrows this header, and the
           run command below gives up its width instead. */}
@@ -391,34 +434,40 @@ function Header({
         dark code-window treatment rather than being another line of cream text.
       */}
       {config && (
-        <div className="ml-2 flex min-w-0 items-center gap-2.5 rounded-lg border border-code-border bg-code py-1.5 pr-1.5 pl-3.5">
+        <DataSurface variant="inline" className="ml-2 min-w-0 shrink">
           {/* The command truncates from ~1024px down, and Copy still takes the
               whole string — so the title is the only way to read what you are
               about to copy. */}
-          <code title={command} className="truncate font-mono text-[12.5px] text-code-fg">
+          <code title={command} className="truncate font-mono text-[12.5px] text-data-foreground">
             {command}
           </code>
           <button
             type="button"
             onClick={() => copyCommand(command)}
-            className="shrink-0 rounded-md bg-code-elevated px-2.5 py-1 text-[12px] font-medium text-code-fg hover:bg-primary hover:text-primary-foreground"
+            className="shrink-0 rounded-md bg-data-surface-control px-2.5 py-1 text-[12px] font-medium text-data-foreground hover:bg-primary hover:text-primary-foreground"
           >
             {commandCopied ? 'Copied' : 'Copy'}
           </button>
-        </div>
+        </DataSurface>
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-3">
         {config && (
           <span
             title={config.upstream}
-            className="max-w-[220px] truncate font-mono text-[12.5px] text-muted-soft"
+            // Hidden below `lg`: with the run command, Clear, Diff and the
+            // theme toggle all competing for the same row, upstream is the
+            // one that can be recovered from the tooltip instead of pushing
+            // on the controls beside it.
+            className="hidden max-w-[220px] truncate font-mono text-[12.5px] text-muted-soft lg:block"
           >
             → {config.upstream}
           </span>
         )}
         <ClearButton onClear={onClear} />
-        <Button onClick={onOpenDiff}>Diff</Button>
+        <Button type="button" variant="chrome" onClick={onOpenDiff}>
+          Diff
+        </Button>
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </div>
     </header>

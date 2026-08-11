@@ -118,7 +118,9 @@ export function ContentToolbar({
           onClick={() => viewModes.onSelect(candidate)}
           aria-pressed={candidate === viewModes.active}
           className={cx(
-            'h-[26px] rounded-md border px-2.5 text-[12px] font-medium transition-colors',
+            // Matches `ToolbarIconButton`'s 32px hit area so the row's controls
+            // share one height (P2-03).
+            'h-8 rounded-md border px-2.5 text-[12px] font-medium transition-colors',
             candidate === viewModes.active
               ? 'border-primary bg-primary text-primary-foreground'
               : onCode

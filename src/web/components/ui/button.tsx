@@ -18,6 +18,19 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        // `button-secondary` from the design system: canvas fill, hairline
+        // outline, emphasis moves to the border and text on hover rather than
+        // to a background fill (unlike `outline` above). This was a second,
+        // hand-rolled `<button>` in `ui.tsx` before P2-02 folded it in here —
+        // one CVA definition now, not two components that can drift apart.
+        //
+        // `data-active` drives the visual "selected" look and is set whenever
+        // the caller wants it (a toggle, or a two-step confirm like Clear's
+        // armed state). It is deliberately not `aria-pressed`: only an actual
+        // toggle (Inspector's secrets reveal) should announce as pressed, and
+        // this variant is also used by buttons that are not toggles at all.
+        chrome:
+          "border-hairline bg-canvas text-body hover:border-muted-soft hover:text-ink data-[active=true]:border-primary data-[active=true]:bg-primary data-[active=true]:text-primary-foreground",
       },
       size: {
         default:

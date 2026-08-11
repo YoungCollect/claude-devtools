@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { TransportSummary } from '../../core/types.js';
 import { formatBytes, formatClock, formatMs, formatTokens } from '../format.js';
-import { Badge, cx, Empty } from './ui.js';
+import { cx, Empty, StatusBadge } from './ui.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 
 export interface NetworkViewProps {
@@ -36,13 +36,26 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2.5 border-b border-hairline px-4 py-2.5">
+        <label htmlFor="network-filter" className="sr-only">
+          Filter requests by path, model, or status
+        </label>
         <input
+          id="network-filter"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && query) {
+              event.preventDefault();
+              event.stopPropagation();
+              setQuery('');
+            }
+          }}
           placeholder="Filter path, model, status…"
           className="h-9 w-64 rounded-md border border-hairline bg-canvas px-3.5 text-[14px] text-ink outline-none placeholder:text-muted-soft focus:border-primary focus:ring-3 focus:ring-primary/15"
         />
-        <span className="ml-auto text-[13px] text-muted-foreground">{rows.length} requests</span>
+        <span role="status" aria-live="polite" className="ml-auto text-[13px] text-muted-foreground">
+          {rows.length} requests
+        </span>
       </div>
 
       {rows.length === 0 ? (
@@ -50,7 +63,7 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
           <Empty>No requests captured yet.</Empty>
         </div>
       ) : (
-        <Table containerClassName="min-h-0 flex-1 overflow-auto" className="text-[13px]">
+        <Table containerClassName="scroll-surface min-h-0 flex-1 overflow-auto" className="text-[13px]">
           <TableHeader className="sticky top-0 z-10 bg-surface-soft">
             <TableRow className="hover:bg-surface-soft">
               <TableHead className={HEAD}>time</TableHead>
@@ -68,12 +81,22 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
             {rows.map((row) => (
               <TableRow
                 key={row.id}
+                tabIndex={0}
+                role="button"
+                aria-label={`Inspect ${row.method ?? row.kind} ${row.path}${
+                  row.status !== undefined ? `, status ${row.status}` : ''
+                }`}
                 onClick={() => onSelect(row.id)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' && event.key !== ' ') return;
+                  event.preventDefault();
+                  onSelect(row.id);
+                }}
                 // `data-state` is shadcn's own selected-row hook; the fill it
                 // resolves to is this system's selected surface, not the default.
                 data-state={row.id === selectedId ? 'selected' : undefined}
                 className={cx(
-                  'cursor-pointer border-hairline-soft hover:bg-surface-soft data-[state=selected]:bg-surface-card',
+                  'cursor-pointer border-hairline-soft outline-none hover:bg-surface-soft focus-visible:bg-surface-soft focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset data-[state=selected]:bg-surface-card',
                   row.kind !== 'conversation' && 'text-muted-soft',
                 )}
               >
@@ -88,11 +111,11 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
                 </TableCell>
                 <TableCell className="px-3 py-2">
                   {row.error ? (
-                    <Badge tone="error">err</Badge>
+                    <StatusBadge tone="error">err</StatusBadge>
                   ) : row.status === undefined ? (
-                    <Badge tone="warning">…</Badge>
+                    <StatusBadge tone="warning">…</StatusBadge>
                   ) : (
-                    <Badge tone={row.status >= 400 ? 'error' : 'success'}>{row.status}</Badge>
+                    <StatusBadge tone={row.status >= 400 ? 'error' : 'success'}>{row.status}</StatusBadge>
                   )}
                 </TableCell>
                 <TableCell className="max-w-[160px] truncate px-3 py-2 font-mono text-[12.5px]">

@@ -10,6 +10,7 @@ import {
 } from '../../core/xml-outline.js';
 import type { GitDiffFormat, GitDiffSourceIdentity } from '../git-diff.js';
 import { ContentToolbar, type ContentFormat, type ViewMode } from './ContentToolbar.js';
+import { DataSurface } from './DataSurface.js';
 import { Chevron, cx, Empty } from './ui.js';
 
 export type { ContentFormat };
@@ -178,7 +179,7 @@ export function ContentViewer({
           ? // Opacity, not `hidden`: the buttons keep their space (no reflow on
             // hover) and stay in the tab order, and `focus-within` brings them
             // back for a keyboard user who can never trigger `group-hover`.
-            'opacity-0 transition-opacity group-hover/content:opacity-100 focus-within:opacity-100'
+            'opacity-0 transition-opacity group-hover/content:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100'
           : undefined
       }
     >
@@ -196,33 +197,45 @@ export function ContentViewer({
     </div>
   );
 
+  // Raw source in a card is the one mode this panel puts on the DataSurface —
+  // markdown and the XML outline are rendered views and stay on the canvas
+  // (see the note on `onCode` above), so only this branch goes through the
+  // shared data-surface container; every other combination keeps its own
+  // plain div.
+  const body = (
+    <div className={cx('scroll-surface overflow-auto', maxHeightClass)}>
+      {active === 'raw' ? (
+        <RawPanel text={text} bare={variant === 'bare'} />
+      ) : active === 'markdown' ? (
+        <MarkdownPanel text={text} bare={variant === 'bare'} className={proseClassName} />
+      ) : (
+        <XmlPanel text={text} bare={variant === 'bare'} />
+      )}
+    </div>
+  );
+
+  if (variant === 'card' && onCode) {
+    return (
+      <DataSurface variant="block" className={cx('group/content', className)}>
+        {controlsPlacement === 'top' && toolbar}
+        {body}
+        {controlsPlacement === 'bottom' && toolbar}
+      </DataSurface>
+    );
+  }
+
   return (
     <div
       className={cx(
         // Named group so the reveal keys off *this* panel and not whichever
         // ancestor happens to carry a bare `group` — the trace rows do.
         'group/content',
-        variant === 'card'
-          ? cx(
-              'overflow-hidden rounded-lg border',
-              onCode ? 'border-code-border bg-code' : 'border-hairline bg-canvas',
-            )
-          : 'flex flex-col',
+        variant === 'card' ? 'overflow-hidden rounded-lg border border-hairline bg-canvas' : 'flex flex-col',
         className,
       )}
     >
       {controlsPlacement === 'top' && toolbar}
-
-      <div className={cx('overflow-auto', maxHeightClass)}>
-        {active === 'raw' ? (
-          <RawPanel text={text} bare={variant === 'bare'} />
-        ) : active === 'markdown' ? (
-          <MarkdownPanel text={text} bare={variant === 'bare'} className={proseClassName} />
-        ) : (
-          <XmlPanel text={text} bare={variant === 'bare'} />
-        )}
-      </div>
-
+      {body}
       {controlsPlacement === 'bottom' && toolbar}
     </div>
   );

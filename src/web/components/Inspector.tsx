@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { api, type TransportDetail } from '../api.js';
 import { formatBytes, formatClock, formatMs, formatTokens, pretty, truncate } from '../format.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
@@ -6,18 +6,20 @@ import type { SseFrame, TraceNode } from '../../core/types.js';
 import { focusBodyField } from '../inspect-focus.js';
 import { ContentToolbar } from './ContentToolbar.js';
 import { ContentViewer, type ContentFormat } from './ContentViewer.js';
+import { DataSurface, DataSurfaceBody, DataSurfaceRows } from './DataSurface.js';
 import { JsonBodyViewer } from './JsonBodyViewer.js';
 import {
-  Badge,
-  Button,
   CodeBlock,
   cx,
   Empty,
   KeyValue,
+  MetaBadge,
   Section,
+  StatusBadge,
   tabPanelProps,
   Tabs,
 } from './ui.js';
+import { Button } from './ui/button.js';
 import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from './ui/drawer.js';
 
 const TABS = [
@@ -32,8 +34,16 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]['id'];
 
+/*
+ * `max(440px, 46%)` of the viewport width let the drawer overflow a narrow
+ * viewport outright: at 768px it resolved to ~440px against ~537px of tab
+ * label content, clipping `Timing` and hiding `Raw` entirely (P1-03 in the
+ * 2026-08-11 product design audit). Capping at `100vw` makes the drawer at
+ * most the full viewport instead of wider than it, and the `<=640px` rule
+ * below takes it the rest of the way to a true full-screen sheet.
+ */
 const INSPECTOR_DRAWER_STYLE: CSSProperties & Record<'--drawer-content-width', string> = {
-  '--drawer-content-width': 'max(440px, 46%)',
+  '--drawer-content-width': 'min(100vw, max(440px, 46vw))',
 };
 
 export interface InspectorProps {
@@ -89,6 +99,24 @@ function InspectorPanel({
   const [tab, setTab] = useState<TabId>(focusNode ? 'payload' : 'overview');
   const [reveal, setReveal] = useState(false);
   const [record, setRecord] = useState<TransportDetail | undefined>();
+  const tabRailRef = useRef<HTMLDivElement>(null);
+
+  // Credentials default masked every time a new request is opened — reusing
+  // whatever the previous request left `reveal` at would silently leave
+  // secrets visible on a request the user never asked to reveal.
+  useEffect(() => {
+    setReveal(false);
+  }, [transportId]);
+
+  // The active tab scrolls into view when the rail is horizontally clipped
+  // (narrow Inspector, or `Tabs`' own arrow-key navigation moving focus past
+  // the visible edge) rather than leaving it off-screen with no indication
+  // there was somewhere to scroll.
+  useEffect(() => {
+    tabRailRef.current
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [tab]);
 
   // Arriving from a trace node is a question about the request body, so the
   // drawer opens on Payload rather than on the overview. Keyed on the node id,
@@ -122,13 +150,16 @@ function InspectorPanel({
           {record ? `${record.method} ${truncate(record.path, 36)}` : 'loading…'}
         </DrawerTitle>
         {record?.status !== undefined && (
-          <Badge tone={record.status >= 400 ? 'error' : 'success'}>{record.status}</Badge>
+          <StatusBadge tone={record.status >= 400 ? 'error' : 'success'}>{record.status}</StatusBadge>
         )}
-        {record?.isStream && <Badge tone="emph">stream</Badge>}
+        {record?.isStream && <MetaBadge tone="emph">stream</MetaBadge>}
         <div className="ml-auto flex items-center gap-2">
           <Button
+            type="button"
+            variant="chrome"
+            data-active={reveal ? 'true' : undefined}
+            aria-pressed={reveal}
             onClick={() => setReveal((v) => !v)}
-            active={reveal}
             title="Reveal credentials in headers"
           >
             {reveal ? 'secrets shown' : 'secrets masked'}
@@ -142,11 +173,28 @@ function InspectorPanel({
         </div>
       </header>
 
-      <div className="shrink-0 border-b border-hairline py-2">
-        <Tabs tabs={TABS} active={tab} onChange={setTab} idPrefix="inspector" label="Request detail" />
+      {/* `scroll-surface` + `overflow-x-auto` rather than the seven tabs
+          silently clipping under a narrow Inspector (P1-03): the rail scrolls
+          on its own axis and shows a scrollbar once it does, and `Tabs`' own
+          Home/End/Arrow model keeps working inside it. */}
+      <div
+        ref={tabRailRef}
+        className="scroll-surface shrink-0 overflow-x-auto border-b border-hairline py-2"
+      >
+        <Tabs
+          tabs={TABS}
+          active={tab}
+          onChange={setTab}
+          idPrefix="inspector"
+          label="Request detail"
+          className="w-max"
+        />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto" {...tabPanelProps('inspector', tab)}>
+      <div
+        className="scroll-surface min-h-0 flex-1 overflow-y-auto"
+        {...tabPanelProps('inspector', tab)}
+      >
         {!record ? (
           <Empty>Request not found — it may have been evicted from the buffer.</Empty>
         ) : (
@@ -397,9 +445,9 @@ function Payload({ record, focusNode }: { record: TransportDetail; focusNode?: T
           {inspection.toolNames.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {inspection.toolNames.map((toolName, i) => (
-                <Badge key={i} tone="tool">
+                <MetaBadge key={i} tone="tool">
                   {toolName}
-                </Badge>
+                </MetaBadge>
               ))}
             </div>
           ) : (
@@ -419,7 +467,7 @@ function Response({ record }: { record: TransportDetail }) {
     return (
       <Section
         title="Assembled response"
-        action={<Badge tone="emph">{record.sseFrames.length} frames</Badge>}
+        action={<MetaBadge tone="emph">{record.sseFrames.length} frames</MetaBadge>}
       >
         {assembled ? (
           <CodeBlock text={assembled} />
@@ -465,13 +513,15 @@ function Stream({ record }: { record: TransportDetail }) {
       <div className="mb-3 text-[13px] text-muted-foreground">
         {frames.length} raw frames
       </div>
-      <div className="overflow-hidden rounded-lg border border-code-border bg-code">
-        <div className="divide-y divide-code-divider">
-          {frames.slice(0, 800).map((frame, i) => (
-            <FrameRow key={i} frame={frame} offsetMs={frame.t - start} />
-          ))}
-        </div>
-      </div>
+      <DataSurface variant="rows">
+        <DataSurfaceBody scroll={false}>
+          <DataSurfaceRows>
+            {frames.slice(0, 800).map((frame, i) => (
+              <FrameRow key={i} frame={frame} offsetMs={frame.t - start} />
+            ))}
+          </DataSurfaceRows>
+        </DataSurfaceBody>
+      </DataSurface>
       {frames.length > 800 && (
         <div className="mt-2 text-[12px] text-muted-soft">
           showing first 800 frames of {frames.length}
@@ -488,22 +538,27 @@ function FrameRow({ frame, offsetMs }: { frame: SseFrame; offsetMs: number }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-baseline gap-3 text-left"
       >
-        <span className="w-16 shrink-0 text-right font-mono text-[12px] text-code-fg-soft">
+        <span className="w-16 shrink-0 text-right font-mono text-[12px] text-data-foreground-muted">
           +{formatMs(offsetMs)}
         </span>
-        <span className="w-48 shrink-0 truncate font-mono text-[12.5px] text-code-accent">
+        <span className="w-48 shrink-0 truncate font-mono text-[12.5px] text-syntax-event">
           {frame.event ?? '(no event)'}
         </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-code-fg-soft">
+        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-data-foreground-muted">
           {truncate(frame.raw.replace(/\s+/g, ' '), 120)}
         </span>
       </button>
       {open && (
-        <pre className="mt-1.5 overflow-x-auto rounded-md border border-code-border bg-code-soft p-3 font-mono text-[12px] leading-[1.6] whitespace-pre-wrap text-code-fg">
-          {frame.data ? pretty(frame.data) : frame.raw}
-        </pre>
+        <DataSurface variant="nested" className="mt-1.5">
+          <DataSurfaceBody maxHeightClass="max-h-[400px]" className="p-3">
+            <pre className="font-mono text-[12px] leading-[1.6] whitespace-pre-wrap text-data-foreground">
+              {frame.data ? pretty(frame.data) : frame.raw}
+            </pre>
+          </DataSurfaceBody>
+        </DataSurface>
       )}
     </div>
   );
@@ -523,14 +578,14 @@ function Timing({ record }: { record: TransportDetail }) {
               label="wait (ttfb)"
               widthPct={scale(t.ttfbMs)}
               offsetPct={0}
-              tone="bg-muted-soft"
+              tone="bg-timing-wait"
               value={t.ttfbMs}
             />
             <Bar
               label="→ first token"
               widthPct={scale((t.firstTokenMs ?? 0) - (t.ttfbMs ?? 0))}
               offsetPct={scale(t.ttfbMs)}
-              tone="bg-tool-fg"
+              tone="bg-timing-first-token"
               value={
                 t.firstTokenMs !== undefined && t.ttfbMs !== undefined
                   ? t.firstTokenMs - t.ttfbMs
