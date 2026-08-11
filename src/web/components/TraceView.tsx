@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { createContext, useContext, useMemo, useState } from 'react';
 import { UserRound } from 'lucide-react';
-import { BrandMark, useAgent } from '../agent.js';
+import { agentForProvider, BrandMark, useAgent } from '../agent.js';
 import { splitTaggedUserContent } from '../../core/tagged-content.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
 import { ContentToolbar, type ContentToolbarProps } from './ContentToolbar.js';
@@ -12,7 +12,7 @@ import {
 } from './ContentViewer.js';
 import { DataSurface, DataSurfaceBody } from './DataSurface.js';
 import type { GitDiffFormat, GitDiffSourceIdentity } from '../git-diff.js';
-import type { TraceNode, TransportSummary } from '../../core/types.js';
+import type { ProviderId, TraceNode, TransportSummary } from '../../core/types.js';
 import {
   groupByRequest,
   groupTrace,
@@ -49,6 +49,8 @@ const SHOW_CHAT_VIEW_MODES = false;
 
 export interface TraceViewProps {
   nodes: TraceNode[];
+  /** The provider this conversation was captured from, when it is known. */
+  provider?: ProviderId;
   /**
    * The captured requests for this conversation, so each block can name the
    * exchange it was rebuilt from. Absent while the snapshot is still loading —
@@ -75,6 +77,7 @@ export interface TraceViewProps {
  */
 export function TraceView({
   nodes,
+  provider,
   transport,
   selectedNodeId,
   selectedRequestId,
@@ -93,21 +96,32 @@ export function TraceView({
     return <Empty>No trace events yet. Point an agent at the proxy and send a message.</Empty>;
   }
   return (
-    <div className="flex flex-col gap-3 p-3">
-      {exchanges.map((exchange) => (
-        <ExchangeBlock
-          key={exchange.key}
-          exchange={exchange}
-          request={exchange.requestId ? requestsById.get(exchange.requestId) : undefined}
-          selected={exchange.requestId !== undefined && exchange.requestId === selectedRequestId}
-          selectedNodeId={selectedNodeId}
-          onInspect={onInspect}
-          onInspectRequest={onInspectRequest}
-        />
-      ))}
-    </div>
+    <ConversationProvider.Provider value={provider}>
+      <div className="flex flex-col gap-3 p-3">
+        {exchanges.map((exchange) => (
+          <ExchangeBlock
+            key={exchange.key}
+            exchange={exchange}
+            request={exchange.requestId ? requestsById.get(exchange.requestId) : undefined}
+            selected={exchange.requestId !== undefined && exchange.requestId === selectedRequestId}
+            selectedNodeId={selectedNodeId}
+            onInspect={onInspect}
+            onInspectRequest={onInspectRequest}
+          />
+        ))}
+      </div>
+    </ConversationProvider.Provider>
   );
 }
+
+/**
+ * The provider the open conversation came from, for the turns beneath it.
+ *
+ * Context rather than a prop threaded through five components: the only reader
+ * is the assistant mark at the bottom of the tree, and every layer in between
+ * would otherwise carry a value it has no use for.
+ */
+const ConversationProvider = createContext<ProviderId | undefined>(undefined);
 
 /**
  * One request and everything it produced, inside a dashed frame.
@@ -679,13 +693,18 @@ const TURN_BUBBLE = 'mt-1.5 rounded-2xl rounded-tl-sm border border-hairline bg-
 
 /** The assistant's own mark and screen-reader name, on both good turns and bad. */
 function AssistantMark() {
-  // The mark follows the header's picker. The trace is a record of one agent's
-  // run, so the two must never show different vendors at once — they read the
-  // same context rather than each holding a copy (see `AgentProvider`).
+  // What was captured outranks what was picked. The header's selection is a
+  // preference about this session; the conversation's provider is an
+  // observation about this trace, and with both providers proxied through one
+  // port they can disagree — a gpt-5 turn must not be drawn under Claude's
+  // mark. The picker still supplies the mark when the capture names no
+  // provider, which is what keeps the two in step in the ordinary case (see
+  // `AgentProvider`).
   const { agent } = useAgent();
+  const captured = agentForProvider(useContext(ConversationProvider));
   return (
     <>
-      <BrandMark svg={agent.mark} size={28} />
+      <BrandMark svg={(captured ?? agent).mark} size={28} />
       {/* The role, not the vendor: what a screen reader needs here is whose
           turn this is. */}
       <span className="sr-only">Assistant</span>

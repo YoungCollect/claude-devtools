@@ -1,5 +1,6 @@
 import { fingerprint } from '../fingerprint.js';
 import { splitTaggedUserContent } from '../tagged-content.js';
+import { asRecord, asString, numberOr, numberOrUndefined, pathname } from './wire.js';
 import type { SseFrame, TokenUsage, TransportRecord } from '../types.js';
 import type {
   HistoryItem,
@@ -21,9 +22,10 @@ const fpToolResult = (toolUseId: string, content: unknown) =>
 
 export const anthropicAdapter: ProviderAdapter = {
   id: 'anthropic',
+  provider: 'anthropic',
 
-  matches(record) {
-    return pathname(record.path).includes('/v1/messages');
+  claimsPath(path) {
+    return pathname(path).includes('/v1/messages');
   },
 
   parseRequest(record) {
@@ -406,29 +408,6 @@ function readUsage(raw: unknown): TokenUsage | undefined {
     cacheReadInputTokens: numberOrUndefined(usage.cache_read_input_tokens),
   };
   return Object.values(out).some((v) => v !== undefined) ? out : undefined;
-}
-
-export function pathname(path: string): string {
-  const query = path.indexOf('?');
-  return query === -1 ? path : path.slice(0, query);
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
-
-function numberOr(value: unknown, fallback: number): number {
-  return typeof value === 'number' ? value : fallback;
-}
-
-function numberOrUndefined(value: unknown): number | undefined {
-  return typeof value === 'number' ? value : undefined;
 }
 
 export type { SseFrame, TransportRecord, ParsedRequest };

@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import type { ProviderId } from '../core/types.js';
 import claudeCodeMark from '@lobehub/icons-static-svg/icons/claudecode.svg?raw';
 import openaiMark from '@lobehub/icons-static-svg/icons/openai.svg?raw';
 
@@ -17,14 +18,26 @@ import openaiMark from '@lobehub/icons-static-svg/icons/openai.svg?raw';
  * that silently goes stale.
  */
 export const AGENTS = [
-  { id: 'claude-code', label: 'Claude Code', mark: claudeCodeMark },
-  { id: 'openai', label: 'OpenAI', mark: openaiMark },
+  { id: 'claude-code', label: 'Claude Code', provider: 'anthropic', mark: claudeCodeMark },
+  { id: 'openai', label: 'OpenAI', provider: 'openai', mark: openaiMark },
 ] as const;
 
 export type Agent = (typeof AGENTS)[number];
 export type AgentId = Agent['id'];
 
 export const DEFAULT_AGENT: Agent = AGENTS[0];
+
+/**
+ * The agent a captured provider belongs to, when the capture names one.
+ *
+ * The header's picker says which vendor this session is *about*; a conversation
+ * reconstructed from traffic says which vendor it actually came from. With both
+ * providers proxied through one port those can differ, and the observation has
+ * to win — a trace of a gpt-5 run must not be drawn under Claude's mark.
+ */
+export function agentForProvider(provider: ProviderId | undefined): Agent | undefined {
+  return AGENTS.find((candidate) => candidate.provider === provider);
+}
 
 /**
  * A brand logo, inlined so it can take the colour of whatever it sits in.

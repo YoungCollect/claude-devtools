@@ -37,6 +37,7 @@ import {
   TooltipTrigger,
 } from './components/ui/tooltip.js';
 import { groupTrace } from './trace-groups.js';
+import { primaryRunCommand, runCommands, type RunCommand } from './run-command.js';
 import { useUrlRoute } from './route.js';
 import { useTheme } from './theme.js';
 import { clearGitDiff, setGitDiffOpen } from './git-diff.js';
@@ -61,51 +62,61 @@ interface Selection {
  */
 const BOTTOM_SLACK_PX = 48;
 
-/** The one line a user has to run to point an agent at this proxy. */
-function runCommand(config: ServerConfig | undefined): string {
-  return config ? `ANTHROPIC_BASE_URL=${config.proxyUrl} claude` : '';
-}
-
 /**
  * The empty trace pane, which doubles as the onboarding step.
  *
  * The header no longer prints the run command — it is a shell mark there — so
- * this is the one place the command is spelled out, and it is exactly where
+ * this is the one place the commands are spelled out, and it is exactly where
  * someone who has captured nothing yet is already looking. The old copy sent
  * them to "the proxy base URL shown above", which is no longer shown at all.
+ *
+ * Every supported client is listed, because the proxy serves them all at once:
+ * one port, routed per request path. Showing only one would suggest a choice
+ * that does not exist.
  */
-function WaitingForTraffic({ command }: { command: string }) {
-  const [copied, copy] = useCopy();
-  const label = copied ? 'Copied' : 'Copy run command';
+function WaitingForTraffic({ commands }: { commands: RunCommand[] }) {
   return (
     <div className="flex flex-col items-start gap-3 px-1 py-4">
       <p className="text-[14px] text-muted-soft italic">
         Waiting for traffic. Start an agent pointed at the capture proxy:
       </p>
-      {command && (
-        <DataSurface variant="inline" className="max-w-full">
-          <code className="truncate font-mono text-[12.5px] text-data-foreground">{command}</code>
-          {/* A code-surface control, not a header one: it sits on the dark
-              surface and takes its fill from the `data-*` tokens. */}
-          <Tooltip>
-            <TooltipTrigger
-              type="button"
-              onClick={() => copy(command)}
-              aria-label={label}
-              closeOnClick={false}
-              className={cx(
-                'flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-data-surface-control transition-colors',
-                copied
-                  ? 'text-success-fg'
-                  : 'text-data-foreground-muted hover:bg-primary hover:text-primary-foreground',
-              )}
-            >
-              {copied ? <Check size={14} aria-hidden /> : <Terminal size={14} aria-hidden />}
-            </TooltipTrigger>
-            <TooltipContent>{label}</TooltipContent>
-          </Tooltip>
-        </DataSurface>
-      )}
+      {commands.map(({ provider, label, command }) => (
+        <CommandLine key={provider} label={label} command={command} />
+      ))}
+    </div>
+  );
+}
+
+function CommandLine({ label, command }: { label: string; command: string }) {
+  const [copied, copy] = useCopy();
+  const copyLabel = copied ? 'Copied' : `Copy the ${label} run command`;
+  return (
+    <div className="flex max-w-full flex-col gap-1">
+      <span className="text-[11px] font-medium tracking-[1.5px] text-muted-soft uppercase">
+        {label}
+      </span>
+      <DataSurface variant="inline" className="max-w-full">
+        <code className="truncate font-mono text-[12.5px] text-data-foreground">{command}</code>
+        {/* A code-surface control, not a header one: it sits on the dark
+            surface and takes its fill from the `data-*` tokens. */}
+        <Tooltip>
+          <TooltipTrigger
+            type="button"
+            onClick={() => copy(command)}
+            aria-label={copyLabel}
+            closeOnClick={false}
+            className={cx(
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-data-surface-control transition-colors',
+              copied
+                ? 'text-success-fg'
+                : 'text-data-foreground-muted hover:bg-primary hover:text-primary-foreground',
+            )}
+          >
+            {copied ? <Check size={14} aria-hidden /> : <Terminal size={14} aria-hidden />}
+          </TooltipTrigger>
+          <TooltipContent>{copyLabel}</TooltipContent>
+        </Tooltip>
+      </DataSurface>
     </div>
   );
 }
@@ -424,6 +435,7 @@ export function App() {
                 conversation ? (
                   <TraceView
                   nodes={nodes}
+                  provider={conversation.provider}
                   transport={conversationTransport}
                   selectedNodeId={selection?.node?.id}
                   selectedRequestId={selection?.transportId}
@@ -431,7 +443,7 @@ export function App() {
                   onInspectRequest={(transportId) => setSelection({ transportId })}
                 />
                 ) : (
-                  <WaitingForTraffic command={runCommand(config)} />
+                  <WaitingForTraffic commands={runCommands(config)} />
                 )
               ) : (
                 <NetworkView
@@ -543,7 +555,7 @@ function SettingsPopover({ config }: { config: ServerConfig }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const [copied, copy] = useCopy();
-  const command = runCommand(config);
+  const command = primaryRunCommand(config);
   const copyLabel = copied ? 'Copied' : 'Copy run command';
 
   useEffect(() => {
@@ -585,7 +597,11 @@ function SettingsPopover({ config }: { config: ServerConfig }) {
         >
           <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2 text-[12.5px]">
             <SettingRow label="Proxy" value={config.proxyUrl} />
-            <SettingRow label="Upstream" value={config.upstream} />
+            {/* One row per provider: the proxy forwards to all of them from the
+                single port above, so naming only one would misdescribe it. */}
+            {Object.entries(config.upstreams).map(([provider, upstream]) => (
+              <SettingRow key={provider} label={provider} value={upstream} />
+            ))}
             <SettingRow label="UI port" value={String(config.uiPort)} />
           </dl>
 
@@ -657,7 +673,7 @@ function Header({
   onClear: () => Promise<void> | void;
   onOpenDiff: () => void;
 }) {
-  const command = runCommand(config);
+  const command = primaryRunCommand(config);
   const [commandCopied, copyCommand] = useCopy();
   const copyLabel = commandCopied ? 'Copied' : `Copy run command: ${command}`;
   return (

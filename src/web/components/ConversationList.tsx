@@ -272,6 +272,10 @@ function Row({
         {/* Time, then the two counts that name the tabs this row opens. */}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[12px] text-muted-soft">
           <span>{formatClock(conversation.startedAt)}</span>
+          {/* One proxy port now carries every provider, so which one a trace
+              came from is no longer implied by the tool being open at all. It
+              is stated on the row, where the traces sit side by side. */}
+          {conversation.provider !== 'unknown' && <span>· {conversation.provider}</span>}
           {/* <span>· {conversation.nodeCount} trace</span> */}
           {/* <span>· {conversation.requestCount} network</span> */}
         </div>

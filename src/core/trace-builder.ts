@@ -6,12 +6,32 @@ import type {
   StreamBlockEvent,
 } from './adapters/types.js';
 import type { Store } from './store.js';
-import type { Conversation, SseFrame, TokenUsage, TraceNode, TransportRecord } from './types.js';
+import type {
+  Conversation,
+  KnownProviderId,
+  ProviderId,
+  SseFrame,
+  TokenUsage,
+  TraceNode,
+  TransportRecord,
+} from './types.js';
 
 /** Reconstruction state for one conversation. Persisted so a restart resumes
  * an in-flight agent session instead of starting a second trace for it. */
 export interface ConversationState {
   id: string;
+  /**
+   * The provider this trace belongs to.
+   *
+   * A precondition for continuing it, never a tiebreaker: with two providers
+   * proxied through one port, an Anthropic run and an OpenAI run can open with
+   * byte-identical injected context (the same CLAUDE.md, the same environment
+   * block) and would otherwise be free to absorb each other's requests into one
+   * trace. Optional because a conversation restored from a database written
+   * before this field existed has no answer, and inventing one would split a
+   * trace that is mid-run.
+   */
+  provider?: KnownProviderId;
   /** The transcript we believe the agent is holding, as block fingerprints. */
   fps: string[];
   /** Fingerprints we materialised from a response stream rather than from history. */
@@ -27,6 +47,8 @@ interface StreamBlock {
   node: TraceNode;
   /** Raw accumulator: display text for text/thinking, partial JSON for tool calls. */
   buffer: string;
+  /** Finalised once. Guards the two paths that can close a block (see `onComplete`). */
+  closed?: boolean;
 }
 
 interface StreamState {
@@ -114,7 +136,7 @@ export class TraceBuilder {
     // request held 3, which the rewind branch below then read as a compaction.
     let best: { state: ConversationState; score: [number, number] } | undefined;
     for (const state of this.conversations.values()) {
-      if (!sameSession(state, sessionId, systemFp)) continue;
+      if (!sameSession(state, parsed.provider, sessionId, systemFp)) continue;
       const common = commonPrefixLength(state.fps, fps);
       if (common === 0) continue;
       const score: [number, number] = [common, state.updatedAt];
@@ -152,6 +174,7 @@ export class TraceBuilder {
     const id = `conv_${++this.counter}`;
     const state: ConversationState = {
       id,
+      ...(parsed.provider !== 'unknown' ? { provider: parsed.provider } : {}),
       fps: [],
       producedFps: new Set(),
       sessionId,
@@ -338,6 +361,7 @@ export class TraceBuilder {
     if (adapter && record.conversationId && !record.isStream) {
       this.applyEvents(adapter, record, adapter.parseResponseBody(record));
     }
+    if (adapter) this.closeOpenBlocks(adapter, record);
     if (record.error && record.conversationId) {
       // The model is this exchange's own — set from the request body, and
       // overwritten by `message_start` if the response got that far. Unlike a
@@ -446,12 +470,39 @@ export class TraceBuilder {
     if (conversation && record.model) conversation.model = record.model;
   }
 
+  /**
+   * Finalises whatever the response left open when the exchange ended.
+   *
+   * Not every protocol closes its blocks. Anthropic sends `content_block_stop`
+   * for each one; OpenAI's chat completions send nothing of the kind, and a
+   * block whose last chunk arrived in an earlier network batch cannot be closed
+   * from the frames of the batch that carries `finish_reason`. Leaving those
+   * open would keep their fingerprints out of the transcript, and the next
+   * request — replaying that same assistant turn in its history — would fail to
+   * match and open a second trace for the same conversation.
+   *
+   * A client that hung up mid-stream lands here too, which is the honest
+   * outcome: the partial block is recorded as what was actually received.
+   */
+  private closeOpenBlocks(adapter: ProviderAdapter, record: TransportRecord): void {
+    const stream = this.streams.get(record.id);
+    if (!stream) return;
+    const state = this.conversations.get(stream.conversationId);
+    if (!state) return;
+    const t = record.timing.endedAt ?? Date.now();
+    for (const block of stream.blocks.values()) {
+      if (!block.closed) this.finalizeBlock(adapter, state, block, t);
+    }
+  }
+
   private finalizeBlock(
     adapter: ProviderAdapter,
     state: ConversationState,
     block: StreamBlock,
     t: number,
   ): void {
+    if (block.closed) return;
+    block.closed = true;
     const node = block.node;
     node.durationMs = Math.max(0, t - node.ts);
     this.markDirty(node);
@@ -621,9 +672,11 @@ export class TraceBuilder {
  */
 function sameSession(
   state: ConversationState,
+  provider: ProviderId,
   sessionId: string | undefined,
   systemFp: string,
 ): boolean {
+  if (state.provider && state.provider !== provider) return false;
   if (state.sessionId && sessionId && state.sessionId !== sessionId) return false;
   return state.systemFp === systemFp;
 }

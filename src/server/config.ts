@@ -1,15 +1,28 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+/** Providers this proxy can forward to. Adding one is a route plus an adapter. */
+export const PROVIDERS = ['anthropic', 'openai'] as const;
+export type ProviderTarget = (typeof PROVIDERS)[number];
+
 export interface Config {
-  /** Port the agent points `ANTHROPIC_BASE_URL` at. */
+  /** Port every client points its base URL at, whichever provider it speaks. */
   proxyPort: number;
   /** Port serving the devtools UI and its API. */
   uiPort: number;
   /** Where the Vite dev server runs. Must match vite.config.ts (strictPort). */
   vitePort: number;
-  /** Where intercepted traffic is forwarded. */
-  upstream: string;
+  /**
+   * Where each provider's traffic is forwarded.
+   *
+   * One listening port, one upstream per provider: the route is chosen per
+   * request from the path the client asked for (see `resolveUpstream`), so a
+   * Claude Code session and a Codex session can share this proxy without either
+   * knowing the other is there.
+   */
+  upstreams: Record<ProviderTarget, string>;
+  /** Where traffic belonging to no known provider goes — auth, models, probes. */
+  defaultProvider: ProviderTarget;
   /** Loopback only. This tool holds credentials and source code in memory. */
   host: string;
   /** In-memory index size. Bodies live on disk, so this bounds metadata only. */
@@ -20,6 +33,11 @@ export interface Config {
   /** Stored body bytes retained before the oldest conversations are dropped. */
   maxBytes: number;
 }
+
+const DEFAULT_UPSTREAMS: Record<ProviderTarget, string> = {
+  anthropic: 'https://api.anthropic.com',
+  openai: 'https://api.openai.com',
+};
 
 function intFromEnv(
   env: NodeJS.ProcessEnv,
@@ -51,7 +69,16 @@ export function loadConfig(
     proxyPort: intFromEnv(env, 'AGENT_DEVTOOLS_PROXY_PORT', 4141, 65_535),
     uiPort: intFromEnv(env, 'AGENT_DEVTOOLS_UI_PORT', 4142, 65_535),
     vitePort: intFromEnv(env, 'AGENT_DEVTOOLS_VITE_PORT', 5173, 65_535),
-    upstream: env.AGENT_DEVTOOLS_UPSTREAM ?? 'https://api.anthropic.com',
+    upstreams: {
+      // `AGENT_DEVTOOLS_UPSTREAM` predates multi-provider support and meant
+      // "the upstream", which was Anthropic's. It keeps that meaning.
+      anthropic:
+        env.AGENT_DEVTOOLS_ANTHROPIC_UPSTREAM ??
+        env.AGENT_DEVTOOLS_UPSTREAM ??
+        DEFAULT_UPSTREAMS.anthropic,
+      openai: env.AGENT_DEVTOOLS_OPENAI_UPSTREAM ?? DEFAULT_UPSTREAMS.openai,
+    },
+    defaultProvider: 'anthropic',
     host: requestedHost,
     maxRequests: intFromEnv(env, 'AGENT_DEVTOOLS_MAX_REQUESTS', 5000),
     persist: !argv.includes('--no-persist'),

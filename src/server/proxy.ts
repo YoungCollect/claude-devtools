@@ -37,22 +37,42 @@ export interface ProxyHooks {
 }
 
 export interface ProxyOptions {
-  upstream: string;
+  /**
+   * Where to forward a request, chosen from the path the client asked for.
+   *
+   * A function rather than a single URL because one port serves every provider:
+   * `/v1/messages` goes to Anthropic and `/v1/chat/completions` to OpenAI, from
+   * the same listener, so two agents can run against one proxy at once.
+   */
+  resolveUpstream: (path: string) => string;
   host: string;
   port: number;
   hooks: ProxyHooks;
 }
 
 export function createProxy(options: ProxyOptions): http.Server {
-  const upstreamUrl = new URL(options.upstream);
-  const isTls = upstreamUrl.protocol === 'https:';
-  const transport = isTls ? https : http;
   // Keep-alive matters: Claude Code fires many requests per turn and a fresh
   // TLS handshake each time would show up as latency we invented ourselves.
-  const agent = new transport.Agent({ keepAlive: true, maxSockets: 64 });
+  // One pool per upstream origin, created on first use — a shared pool would
+  // hand a socket opened to one provider to a request bound for another.
+  const agents = new Map<string, http.Agent | https.Agent>();
+  const agentFor = (url: URL): http.Agent | https.Agent => {
+    const existing = agents.get(url.origin);
+    if (existing) return existing;
+    const created =
+      url.protocol === 'https:'
+        ? new https.Agent({ keepAlive: true, maxSockets: 64 })
+        : new http.Agent({ keepAlive: true, maxSockets: 64 });
+    agents.set(url.origin, created);
+    return created;
+  };
 
   const server = http.createServer((req, res) => {
     req.socket.setNoDelay(true);
+
+    const upstreamUrl = new URL(options.resolveUpstream(req.url ?? '/'));
+    const isTls = upstreamUrl.protocol === 'https:';
+    const transport = isTls ? https : http;
 
     const record: TransportRecord = {
       id: randomUUID(),
@@ -79,7 +99,7 @@ export function createProxy(options: ProxyOptions): http.Server {
         method: req.method,
         path: upstreamPath,
         headers: buildUpstreamHeaders(req.headers, upstreamUrl.host),
-        agent,
+        agent: agentFor(upstreamUrl),
       },
       (upstreamRes) => {
         upstreamRes.socket?.setNoDelay(true);

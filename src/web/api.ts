@@ -1,5 +1,6 @@
 import type {
   AssembledResponse,
+  KnownProviderId,
   RequestInspection,
   StateSnapshot,
   TraceNode,
@@ -21,8 +22,12 @@ export type TransportDetail = TransportRecord & {
 };
 
 export interface ServerConfig {
+  /** The one port every client points at, whichever provider it speaks. */
   proxyUrl: string;
-  upstream: string;
+  /** Where each provider's traffic is forwarded. */
+  upstreams: Record<KnownProviderId, string>;
+  /** Which client the server was started for, and where unclaimed paths go. */
+  defaultProvider: KnownProviderId;
   uiPort: number;
 }
 

@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { assembleStreamResponse } from '../src/core/adapters/index.js';
+import { assembleStreamResponse, providerForPath } from '../src/core/adapters/index.js';
 import { anthropicAdapter } from '../src/core/adapters/anthropic.js';
+import { openaiAdapter } from '../src/core/adapters/openai.js';
 import { isSensitiveHeader, redactHeaders } from '../src/core/redact.js';
 import { SseParser } from '../src/core/sse.js';
 import { Store } from '../src/core/store.js';
@@ -14,6 +17,7 @@ import type { TransportRecord } from '../src/core/types.js';
 import { createApi } from '../src/server/api.js';
 import { loadConfig } from '../src/server/config.js';
 import { Persistence } from '../src/server/persistence.js';
+import { createProxy, serverPort } from '../src/server/proxy.js';
 import { CaptureRuntime } from '../src/server/runtime.js';
 
 test('clear prevents an in-flight request from repopulating the store', () => {
@@ -867,3 +871,284 @@ test('a record restored from disk with no end time is not reported as traffic', 
   assert.equal(store.snapshot().transport.length, 1);
   assert.equal(store.snapshot().activeRequests, 0);
 });
+
+/**
+ * The OpenAI wire format differs from Anthropic's in the two places the
+ * reconstruction actually depends on: the system prompt is the leading
+ * messages rather than a field, and nothing on the stream says a block ended.
+ * This walks one tool round through both halves and then replays it as the
+ * next request's history, which is the only thing that proves the two paths
+ * fingerprint identically.
+ */
+test('an OpenAI tool round is reconstructed and continued by the next request', () => {
+  const store = new Store();
+  const builder = new TraceBuilder(store);
+
+  const first = openaiRequest('openai_r1', [
+    { role: 'system', content: 'You are Codex.' },
+    { role: 'user', content: 'list the files' },
+  ]);
+  builder.onRequestBody(first);
+  const conversationId = first.conversationId ?? '';
+
+  assert.ok(conversationId);
+  assert.equal(first.provider, 'openai');
+  assert.equal(first.kind, 'conversation');
+  assert.equal(store.getConversation(conversationId)?.agent, 'codex');
+
+  first.isStream = true;
+  builder.onStreamFrames(first, [
+    chunk({ model: 'gpt-5', choices: [{ index: 0, delta: { role: 'assistant', content: '' } }] }),
+    chunk({ choices: [{ index: 0, delta: { content: 'On it.' } }] }),
+    chunk({
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              { index: 0, id: 'call_1', type: 'function', function: { name: 'shell', arguments: '' } },
+            ],
+          },
+        },
+      ],
+    }),
+    chunk({
+      choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '{"cmd":' } }] } }],
+    }),
+  ]);
+  builder.onStreamFrames(first, [
+    chunk({
+      choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '"ls"}' } }] } }],
+    }),
+  ]);
+  // `finish_reason` in a batch of its own: the adapter can no longer name the
+  // tool block from these frames alone, so closing it falls to the builder.
+  builder.onStreamFrames(first, [
+    chunk({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
+    chunk({ choices: [], usage: { prompt_tokens: 12, completion_tokens: 7 } }),
+  ]);
+  first.timing.endedAt = 5;
+  builder.onComplete(first);
+
+  assert.deepEqual(
+    store.getNodes(conversationId).map((node) => node.kind),
+    ['system', 'user', 'assistant', 'tool_call'],
+  );
+  const call = store.getNodes(conversationId)[3];
+  assert.equal(call?.toolName, 'shell');
+  // Reassembled from four fragments across three network batches.
+  assert.deepEqual(call?.toolInput, { cmd: 'ls' });
+  assert.deepEqual(first.usage, { inputTokens: 12, outputTokens: 7 });
+
+  // The same turn, replayed as history — `arguments` is a JSON string here and
+  // was a parsed object on the stream, so this only matches because the adapter
+  // parses it on the way in.
+  const second = openaiRequest(
+    'openai_r2',
+    [
+      { role: 'system', content: 'You are Codex.' },
+      { role: 'user', content: 'list the files' },
+      {
+        role: 'assistant',
+        content: 'On it.',
+        tool_calls: [
+          { id: 'call_1', type: 'function', function: { name: 'shell', arguments: '{"cmd":"ls"}' } },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'call_1', content: 'AGENTS.md\nsrc' },
+    ],
+    6,
+  );
+  builder.onRequestBody(second);
+
+  assert.equal(second.conversationId, conversationId);
+  assert.equal(store.listConversations().length, 1);
+  assert.deepEqual(
+    store.getNodes(conversationId).map((node) => node.kind),
+    ['system', 'user', 'assistant', 'tool_call', 'tool_result'],
+  );
+  const result = store.getNodes(conversationId)[4];
+  assert.equal(result?.toolUseId, 'call_1');
+  assert.equal(result?.toolName, 'shell');
+});
+
+test('the OpenAI system prompt is the leading messages, and a later one stays history', () => {
+  const record = openaiRequest('openai_system', [
+    { role: 'system', content: 'Rules.' },
+    { role: 'developer', content: 'More rules.' },
+    { role: 'user', content: 'hi' },
+    { role: 'system', content: 'Reminder mid-run.' },
+    { role: 'user', content: 'still there?' },
+  ]);
+  const parsed = openaiAdapter.parseRequest(record);
+
+  assert.equal(parsed.system, 'Rules.\n\nMore rules.');
+  assert.deepEqual(
+    parsed.history.map((item) => item.kind),
+    ['user', 'system', 'user'],
+  );
+
+  // The prompt has no field of its own, so the Inspector's drill-down points
+  // at the array it actually lives in.
+  assert.equal(openaiAdapter.inspectRequest(record)?.bodyFields?.system, 'messages');
+  assert.equal(openaiAdapter.inspectRequest(record)?.systemText, 'Rules.\n\nMore rules.');
+  assert.deepEqual(openaiAdapter.inspectRequest(record)?.toolNames, ['shell']);
+});
+
+test('an OpenAI stream assembles into the same neutral response model', () => {
+  const record = openaiRequest('openai_assemble', [{ role: 'user', content: 'hi' }]);
+  record.isStream = true;
+  record.sseFrames = [
+    chunk({ model: 'gpt-5', choices: [{ index: 0, delta: { role: 'assistant', content: 'he' } }] }),
+    chunk({ choices: [{ index: 0, delta: { content: 'llo' } }] }),
+    chunk({
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              { index: 0, id: 'call_9', type: 'function', function: { name: 'shell', arguments: '{}' } },
+            ],
+          },
+        },
+      ],
+    }),
+    chunk({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
+  ];
+
+  assert.deepEqual(assembleStreamResponse(record), {
+    blocks: [
+      { index: 0, kind: 'assistant', text: 'hello' },
+      { index: 2, kind: 'tool_call', name: 'shell', text: '{}' },
+    ],
+    stopReason: 'tool_calls',
+  });
+});
+
+function openaiRequest(id: string, messages: unknown[], startedAt = 1): TransportRecord {
+  return {
+    id,
+    provider: 'unknown',
+    kind: 'other',
+    method: 'POST',
+    path: '/v1/chat/completions',
+    url: 'https://api.openai.com/v1/chat/completions',
+    requestHeaders: { 'user-agent': 'codex_cli_rs/0.4.0', session_id: 'session-under-test' },
+    requestBody: {
+      model: 'gpt-5',
+      tools: [{ type: 'function', function: { name: 'shell', parameters: {} } }],
+      messages,
+    },
+    isStream: false,
+    sseFrames: [],
+    timing: { startedAt },
+    requestBytes: 1,
+    responseBytes: 0,
+  };
+}
+
+/** Chat completions carry no `event:` field — only `data:` chunks. */
+function chunk(data: unknown) {
+  return { data, raw: '', t: 1 };
+}
+
+test('paths are routed to the provider that claims them', () => {
+  assert.equal(providerForPath('/v1/messages'), 'anthropic');
+  assert.equal(providerForPath('/v1/messages?beta=true'), 'anthropic');
+  assert.equal(providerForPath('/v1/chat/completions'), 'openai');
+  // A gateway that mounts the API under a prefix is still recognisable.
+  assert.equal(providerForPath('/openai/deployments/gpt-5/chat/completions'), 'openai');
+  // Nothing in these paths says which provider they belong to; the caller
+  // decides where they go rather than the adapter guessing.
+  assert.equal(providerForPath('/v1/models'), undefined);
+  assert.equal(providerForPath('/oauth/token'), undefined);
+});
+
+test('one proxy port forwards each provider to its own upstream', async () => {
+  const anthropic = await stubUpstream('anthropic-upstream');
+  const openai = await stubUpstream('openai-upstream');
+  const captured: string[] = [];
+
+  const proxy = createProxy({
+    resolveUpstream: (path) => (providerForPath(path) === 'openai' ? openai.url : anthropic.url),
+    host: '127.0.0.1',
+    port: 0,
+    hooks: {
+      onRequestStart: (record) => captured.push(record.path),
+      onRequestBody: () => undefined,
+      onResponseStart: () => undefined,
+      onStreamFrames: () => undefined,
+      onComplete: () => undefined,
+    },
+  });
+  await once(proxy, 'listening');
+  const base = `http://127.0.0.1:${serverPort(proxy)}`;
+
+  try {
+    assert.equal(await postTo(`${base}/v1/messages`), 'anthropic-upstream');
+    assert.equal(await postTo(`${base}/v1/chat/completions`), 'openai-upstream');
+    // Two providers, back to back, on the one listener — and a path neither
+    // adapter claims still reaches the fallback rather than failing.
+    assert.equal(await postTo(`${base}/v1/models`), 'anthropic-upstream');
+    assert.deepEqual(captured, ['/v1/messages', '/v1/chat/completions', '/v1/models']);
+  } finally {
+    proxy.close();
+    anthropic.close();
+    openai.close();
+  }
+});
+
+/**
+ * Two runs that differ *only* by provider.
+ *
+ * Same system prompt, same opening message, so every fingerprint the matcher
+ * compares is identical — the merge this prevents is not hypothetical, it is
+ * what happens the moment a Claude Code session and a Codex session share a
+ * directory and a proxy port.
+ */
+test('an OpenAI run and an Anthropic run are never merged into one trace', () => {
+  const store = new Store();
+  const builder = new TraceBuilder(store);
+
+  const claude = request('shared_anthropic');
+  claude.requestBody = {
+    model: 'test-model',
+    system: 'Shared instructions.',
+    tools: [{ name: 'Bash' }],
+    messages: [{ role: 'user', content: 'hello' }],
+  };
+  builder.onRequestBody(claude);
+
+  const codex = openaiRequest('shared_openai', [
+    { role: 'system', content: 'Shared instructions.' },
+    { role: 'user', content: 'hello' },
+  ]);
+  builder.onRequestBody(codex);
+
+  assert.equal(claude.provider, 'anthropic');
+  assert.equal(codex.provider, 'openai');
+  assert.notEqual(claude.conversationId, codex.conversationId);
+  assert.deepEqual(
+    store.listConversations().map((conversation) => conversation.provider),
+    ['anthropic', 'openai'],
+  );
+});
+
+/** An upstream that answers every request with its own name. */
+async function stubUpstream(name: string) {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end(name);
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  return {
+    url: `http://127.0.0.1:${serverPort(server)}`,
+    close: () => server.close(),
+  };
+}
+
+async function postTo(url: string): Promise<string> {
+  const response = await fetch(url, { method: 'POST', body: '{}' });
+  return response.text();
+}

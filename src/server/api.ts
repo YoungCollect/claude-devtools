@@ -66,7 +66,8 @@ export function createApi({
   app.get('/api/config', (c) =>
     c.json({
       proxyUrl: `http://${config.host}:${config.proxyPort}`,
-      upstream: config.upstream,
+      upstreams: config.upstreams,
+      defaultProvider: config.defaultProvider,
       uiPort: config.uiPort,
     }),
   );

@@ -24,6 +24,13 @@
 export type ProviderId = 'anthropic' | 'openai' | 'unknown';
 
 /**
+ * A provider this build can actually read — everything except the
+ * not-yet-identified case. This is the routing key: one adapter, one upstream,
+ * one set of conversations per value.
+ */
+export type KnownProviderId = Exclude<ProviderId, 'unknown'>;
+
+/**
  * How a request relates to the agent's conversation.
  *
  * `utility` covers the side calls every agent runtime makes (title generation,

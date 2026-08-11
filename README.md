@@ -27,10 +27,13 @@ npm run build
 npm start
 ```
 
-Then point an agent at the proxy:
+Then point an agent at the proxy. One port serves every supported provider — the
+route is chosen per request path — so these are alternatives you can also run at
+the same time:
 
 ```bash
 ANTHROPIC_BASE_URL=http://127.0.0.1:4141 claude
+OPENAI_BASE_URL=http://127.0.0.1:4141/v1 codex
 ```
 
 Open <http://127.0.0.1:4142>. Traffic appears live.
@@ -52,13 +55,23 @@ Editing anything under `src/server` or `src/core` restarts the process and brief
 
 | Port | What |
 | ---- | ---- |
-| 4141 | Capture proxy — the agent's `ANTHROPIC_BASE_URL` |
+| 4141 | Capture proxy — the agent's `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` |
 | 4142 | API; serves the built UI in production, redirects to Vite in dev |
 | 5173 | Vite dev server — **the URL to open during `pnpm dev`** |
 
 Environment overrides: `AGENT_DEVTOOLS_PROXY_PORT`, `AGENT_DEVTOOLS_UI_PORT`,
-`AGENT_DEVTOOLS_UPSTREAM`, `AGENT_DEVTOOLS_MAX_REQUESTS`, `AGENT_DEVTOOLS_DB`, and
-`AGENT_DEVTOOLS_MAX_BYTES`. Both servers are intentionally fixed to `127.0.0.1`.
+`AGENT_DEVTOOLS_ANTHROPIC_UPSTREAM` (or its former name `AGENT_DEVTOOLS_UPSTREAM`),
+`AGENT_DEVTOOLS_OPENAI_UPSTREAM`, `AGENT_DEVTOOLS_MAX_REQUESTS`, `AGENT_DEVTOOLS_DB`,
+and `AGENT_DEVTOOLS_MAX_BYTES`. Both servers are intentionally fixed to `127.0.0.1`.
+
+### One port, two providers
+
+`/v1/messages` is forwarded to Anthropic and `/v1/chat/completions` to OpenAI, from
+the same listener: the provider comes from the path, before the request body has even
+arrived, and paths neither adapter claims (token refresh, `/v1/models`) go to the
+default provider. Everything downstream stays separated — each provider keeps its own
+upstream connection pool, and a conversation is never continued by a request from a
+different provider, even when two runs open with byte-identical prompts.
 
 ---
 
@@ -405,7 +418,8 @@ Captured traffic contains live credentials and whole source files.
 
 ## V0 scope and known limits
 
-Shipped: Claude Code → Anthropic, HTTP + SSE capture, Chat Trace, Inspector
+Shipped: Claude Code → Anthropic and Codex → OpenAI (chat completions) on one port,
+HTTP + SSE capture, Chat Trace, Inspector
 (Overview / Headers / Payload / Response / SSE / Timing / Raw), Network list, live
 streaming updates, subagent nesting.
 
@@ -414,8 +428,9 @@ Known limits, honestly:
 1. **Context compaction starts a new trace.** Compaction rewrites the head of the
    transcript, so the prefix match legitimately fails. A rewind that keeps a shared
    prefix is detected and marked; a full compaction is not.
-2. **Only agents that honour `ANTHROPIC_BASE_URL` are captured.** No CA certificate, no
-   system proxy — which is the point, but it also means nothing else is intercepted.
+2. **Only agents that honour `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` are captured.** No
+   CA certificate, no system proxy — which is the point, but it also means nothing else
+   is intercepted.
 3. **Tool timing includes agent overhead.** The measured window is
    response-end → next-request-start, so it also contains the agent's own bookkeeping and
    any permission prompt the human sat on. Parallel batches share one window and are
@@ -424,4 +439,6 @@ Known limits, honestly:
    captured request or hand a session file to someone else.
 5. `accept-encoding` is rewritten to `identity` upstream so bodies stay readable; the
    Headers tab shows what the agent actually sent and notes the rewrite.
-6. Only the Anthropic adapter exists. The seam for others is in place but unexercised.
+6. **OpenAI support is Chat Completions only.** The Responses API (`/v1/responses`) is a
+   different protocol and is not claimed by the adapter, so traffic to it shows up as
+   unmatched transport in the Network view rather than as a trace.

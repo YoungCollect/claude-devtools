@@ -3,10 +3,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 
+import { providerForPath } from '../core/adapters/index.js';
 import { Store } from '../core/store.js';
 import { TraceBuilder } from '../core/trace-builder.js';
 import { createApi } from './api.js';
-import { loadConfig } from './config.js';
+import { loadConfig, PROVIDERS } from './config.js';
 import { Persistence } from './persistence.js';
 import { createProxy } from './proxy.js';
 import { CaptureRuntime } from './runtime.js';
@@ -46,7 +47,11 @@ const runtime = new CaptureRuntime({
 });
 
 createProxy({
-  upstream: config.upstream,
+  // One listener, one upstream per provider. A path no adapter claims — token
+  // refresh, `/v1/models`, a health probe — has nothing in it to route on, so
+  // it goes to the default rather than being rejected: those calls are part of
+  // a real session and dropping them would break the client that made them.
+  resolveUpstream: (path) => config.upstreams[providerForPath(path) ?? config.defaultProvider],
   host: config.host,
   port: config.proxyPort,
   hooks: runtime.hooks,
@@ -110,16 +115,27 @@ const storageLine = persistence
     `${restored.conversations > 0 ? `, restored ${restored.conversations} conversations / ${restored.requests} requests` : ''})`
   : `off (--no-persist) — bodies stay in memory under ${formatBytes(config.maxBytes)}, lost on restart`;
 
+/**
+ * Both providers, on the one port. Which line you need depends on the client
+ * you are about to start, and nothing about running one rules out the other —
+ * so both are printed, and the traffic is separated by path, not by port.
+ */
+const upstreamLines = PROVIDERS.map(
+  (provider) => `            ${provider.padEnd(10)} →  ${config.upstreams[provider]}`,
+).join('\n');
+
 console.log(`
   agent-devtools${devMode ? '  ·  dev' : ''}
 
-  proxy     ${proxyUrl}  →  ${config.upstream}
+  proxy     ${proxyUrl}
+${upstreamLines}
   ui        ${uiLine}
   storage   ${storageLine}
 
   Point an agent at the proxy:
 
     ANTHROPIC_BASE_URL=${proxyUrl} claude
+    OPENAI_BASE_URL=${proxyUrl}/v1 codex
 `);
 
 function formatBytes(bytes: number): string {
