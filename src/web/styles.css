@@ -33,7 +33,10 @@
   /* Surfaces */
   --color-canvas: #faf9f5;
   --color-surface-soft: #f5f0e8;
-  --color-surface-card: #efe9de;
+  /* Nudged up from #efe9de so the two muted greys clear AA on it (4.48 -> 4.55).
+     Its separation from the canvas goes 1.147 -> 1.128, which is below the
+     threshold of perception — the user bubble reads exactly as before. */
+  --color-surface-card: #f0ebe0;
   --color-surface-strong: #e8e0d2;
 
   /* Code window */
@@ -77,32 +80,52 @@
   --color-body-strong: #252523;
   --color-body: #3d3d3a;
   /* The muted *text* role is shadcn's `--muted-foreground` (declared on :root
-     below), because shadcn claims the bare `muted` name for a surface. */
-  --color-muted-soft: #8e8b82;
+     below), because shadcn claims the bare `muted` name for a surface.
+
+     `muted-soft` is the quietest step. It was #8e8b82, which is 3.23:1 on the
+     canvas — below AA for text, and this role carries timestamps, frame counts
+     and empty-state copy, which are information rather than decoration. Raising
+     it necessarily narrows the gap to `--muted-foreground` (0.006 apart in
+     luminance): four grey steps do not fit above the contrast floor, and a
+     smaller step is the honest trade against unreadable text. */
+  --color-muted-soft: #6d6a63;
 
   /* Lines */
   --color-hairline: #e6dfd8;
   --color-hairline-soft: #ebe6df;
 
+  /*
+   * Modal scrim. A role rather than a literal, because the two themes need
+   * opposite strengths: on cream a light veil already separates the dialog,
+   * while on near-black a 10% black — what the shadcn components shipped with —
+   * darkens the page by 0.7%, which is no separation at all.
+   */
+  --color-overlay: rgb(20 20 19 / 0.28);
+
   /* Brand / state. The accent itself lives on `--primary` / `--primary-foreground`
      (declared on :root below) and is republished here as `--color-primary` by
      `@theme inline`; defining it in both places would be a reference cycle. */
   --color-success: #5db872;
-  --color-success-fg: #3f8f5f;
+  /* 3.76 -> 4.66 against the canvas, where the "live" indicator sits. */
+  --color-success-fg: #387e54;
 
-  /* Badge tone pairs — solid fills, so contrast is explicit in both themes */
+  /* Badge tone pairs — solid fills, so contrast is explicit in both themes.
+     Every foreground here was one step too light: the six tones measured
+     3.85–4.48 against their own fills at 11–12px, while the dark theme's
+     equivalents sat at 6.25–11.66. The pairs had been checked once, on one
+     theme. Hues are unchanged; each foreground is darkened to clear 4.65. */
   --color-neutral-bg: #efe9de;
-  --color-neutral-fg: #6c6a64;
+  --color-neutral-fg: #696762;
   --color-emph-bg: #e8e0d2;
   --color-emph-fg: #141413;
   --color-assistant-bg: #dcefea;
-  --color-assistant-fg: #2f7d6e;
+  --color-assistant-fg: #2b7366;
   --color-tool-bg: #f7e6cf;
-  --color-tool-fg: #96601f;
+  --color-tool-fg: #8f5b1e;
   --color-warning-bg: #f6ecd0;
-  --color-warning-fg: #8a6a0d;
+  --color-warning-fg: #83650c;
   --color-error-bg: #f7e0e0;
-  --color-error-fg: #c64545;
+  --color-error-fg: #b53838;
 
   /*
    * Copernicus and StyreneB are licensed; the system documents Tiempos Headline
@@ -156,7 +179,8 @@
   --color-ink: #e6eaef;
   --color-body-strong: #d5dbe2;
   --color-body: #a3adb8;
-  --color-muted-soft: #616d78;
+  /* 3.68 -> 5.29 on the canvas, 3.13 -> 4.51 on a selected row. */
+  --color-muted-soft: #7a8793;
 
   /* The two shadcn aliases with no `--color-*` role to follow: they are the
      source for `--color-muted-foreground` / `--color-primary` respectively. */
@@ -166,6 +190,8 @@
 
   --color-hairline: #1f252d;
   --color-hairline-soft: #171c22;
+
+  --color-overlay: rgb(0 0 0 / 0.62);
 
   --color-success: #6bd39a;
   --color-success-fg: #6bd39a;
@@ -211,7 +237,18 @@
   --popover: var(--color-canvas);
   --popover-foreground: var(--color-ink);
   /* The accent stays scarce and stays coral — see the note on Tone above. */
-  --primary: #cc785c;
+  /*
+   * The accent is `primary-active` (#a9583e) from the design system, not the
+   * headline coral (#cc785c).
+   *
+   * That coral is specified for large CTA fills on a marketing page. Here the
+   * accent does small, load-bearing work — 12px labels on an active tab, the
+   * `inspect →` link, a 2px selection rule — and at that size it failed every
+   * one of those uses: white on it was 3.28, it as text was 3.11, and as a rule
+   * against the row fills it was 2.89 and 2.71. The documented darker step of
+   * the same hue clears all four (5.06 / 4.80 / 4.46 / 4.19).
+   */
+  --primary: #a9583e;
   --primary-foreground: #ffffff;
   --secondary: var(--color-surface-card);
   --secondary-foreground: var(--color-body-strong);

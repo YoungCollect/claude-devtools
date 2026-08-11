@@ -245,7 +245,7 @@ function ToolPane({
       <div className="mb-1 text-[11px] font-medium tracking-[1.5px] text-muted-soft uppercase">
         {label}
       </div>
-      <div className="max-h-[260px] overflow-auto rounded-md bg-code">
+      <div className="max-h-[260px] overflow-auto rounded-md border border-code-border bg-code">
         <pre
           className={cx(
             'px-3 py-2.5 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap',
@@ -444,6 +444,8 @@ function AssistantNode({ node }: { node: TraceNode }) {
           formats={PROSE_FORMATS}
           maxHeightClass="max-h-none"
           proseClassName="markdown-chat"
+          // The assistant sits on the left, so its controls mirror the user's.
+          controlsAlign="start"
           diffSource={{ sourceId: node.id, sessionId: node.conversationId, label: 'assistant message' }}
         />
       </div>
