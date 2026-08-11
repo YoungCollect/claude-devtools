@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { transportForConversation } from '../src/web/transport.js';
+import { feedStatus } from '../src/web/activity.js';
 import { jsonContainer } from '../src/web/json.js';
 import { focusBodyField } from '../src/web/inspect-focus.js';
 import { groupTrace, turnNodes } from '../src/web/trace-groups.js';
@@ -202,4 +203,16 @@ test('an assistant block with no text yet is not a row', () => {
   assert.equal(withTool.length, 1);
   assert.equal(withTool[0]?.type === 'turn' ? withTool[0].messages.length : -1, 0);
   assert.equal(withTool[0]?.type === 'turn' ? withTool[0].tools[0]?.call?.id : '', 'c1');
+});
+
+test('the header indicator separates the change feed from traffic through the proxy', () => {
+  // A running devtools server with no agent attached is `idle`, not `live`:
+  // the connection being up says nothing about anyone using the proxy.
+  assert.equal(feedStatus(true, false), 'idle');
+  assert.equal(feedStatus(true, true), 'live');
+
+  // A closed feed outranks whatever the last snapshot said about traffic —
+  // that snapshot is exactly what has stopped being updated.
+  assert.equal(feedStatus(false, false), 'offline');
+  assert.equal(feedStatus(false, true), 'offline');
 });

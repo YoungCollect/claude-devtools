@@ -772,3 +772,98 @@ test('error nodes carry the model of the exchange that failed', () => {
     .at(-1);
   assert.equal(streamed?.model, 'test-model-20260101', 'the response model wins once it arrives');
 });
+
+/**
+ * The header's indicator has to answer "is the agent talking through the proxy
+ * right now", not "is the devtools server up". The two diverged in the obvious
+ * way: with every agent closed, the process kept running and the dot kept
+ * pulsing all night.
+ */
+test('the in-flight count follows exchanges through the proxy, not captured records', () => {
+  const store = new Store();
+  const runtime = new CaptureRuntime({ store, builder: new TraceBuilder(store) });
+  assert.equal(store.snapshot().activeRequests, 0);
+
+  const streamed = request('active_streamed');
+  const aborted = request('active_aborted', 'second question');
+
+  // Counted from the request line, before the body identifies the provider —
+  // the earliest moment there is traffic to report.
+  runtime.hooks.onRequestStart(streamed);
+  assert.equal(store.snapshot().activeRequests, 1);
+  runtime.hooks.onRequestStart(aborted);
+  assert.equal(store.snapshot().activeRequests, 2);
+
+  runtime.hooks.onRequestBody(streamed);
+  streamed.status = 200;
+  streamed.timing.endedAt = 2;
+  runtime.hooks.onResponseStart(streamed);
+  runtime.hooks.onComplete(streamed);
+  assert.equal(store.snapshot().activeRequests, 1);
+
+  // Esc in Claude Code: the client hangs up before a response ever starts.
+  aborted.error = 'client aborted';
+  aborted.timing.endedAt = 3;
+  runtime.hooks.onComplete(aborted);
+  assert.equal(store.snapshot().activeRequests, 0);
+
+  // Repeated completions reach the runtime on the error paths (`res.close`
+  // after an upstream failure); they must not drive the count negative.
+  runtime.hooks.onComplete(aborted);
+  assert.equal(store.snapshot().activeRequests, 0);
+
+  // Both records outlive their exchanges — the aborted one is still worth
+  // inspecting. The indicator must not outlive them the same way.
+  assert.equal(store.snapshot().transport.length, 2);
+});
+
+test('an exchange that outlives Clear counts as traffic until its socket closes', () => {
+  const store = new Store();
+  const runtime = new CaptureRuntime({ store, builder: new TraceBuilder(store) });
+  const record = request('active_across_clear');
+
+  runtime.hooks.onRequestStart(record);
+  runtime.hooks.onRequestBody(record);
+  runtime.clear();
+
+  // Clear wipes what was captured; it does not close the agent's connection.
+  assert.deepEqual(store.snapshot().transport, []);
+  assert.deepEqual(store.snapshot().conversations, []);
+  assert.equal(store.snapshot().activeRequests, 1);
+
+  record.status = 200;
+  record.timing.endedAt = 2;
+  runtime.hooks.onResponseStart(record);
+  runtime.hooks.onComplete(record);
+
+  // Settled even though the generation check drops the capture on the floor.
+  assert.equal(store.snapshot().activeRequests, 0);
+  assert.deepEqual(store.snapshot().transport, []);
+});
+
+test('deleting a conversation mid-request still releases its in-flight exchange', () => {
+  const store = new Store();
+  const runtime = new CaptureRuntime({ store, builder: new TraceBuilder(store) });
+  const record = request('active_across_delete');
+
+  runtime.hooks.onRequestStart(record);
+  runtime.hooks.onRequestBody(record);
+  assert.equal(runtime.deleteConversation(record.conversationId ?? ''), true);
+  assert.equal(store.snapshot().activeRequests, 1);
+
+  record.timing.endedAt = 2;
+  runtime.hooks.onComplete(record);
+  assert.equal(store.snapshot().activeRequests, 0);
+});
+
+test('a record restored from disk with no end time is not reported as traffic', () => {
+  const store = new Store();
+  // What restore does with a row whose process died mid-stream: the record has
+  // a start and no end, and nothing about it is live.
+  const record = request('restored_mid_stream');
+  record.bodiesOffloaded = true;
+  store.putTransport(record);
+
+  assert.equal(store.snapshot().transport.length, 1);
+  assert.equal(store.snapshot().activeRequests, 0);
+});

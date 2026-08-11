@@ -228,6 +228,13 @@ export interface StateSnapshot {
   rev: number;
   conversations: Conversation[];
   transport: TransportSummary[];
+  /**
+   * Exchanges open through the proxy right now — the agent is mid-request or
+   * mid-stream. Distinct from anything derivable from `transport`: a restored
+   * record whose process died mid-stream also lacks an end time, and a request
+   * that outlives Clear is no longer listed at all.
+   */
+  activeRequests: number;
 }
 
 /** Provider-neutral materialisation of a streamed assistant response for the UI. */

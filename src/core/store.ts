@@ -24,6 +24,7 @@ export class Store {
   private readonly conversations = new Map<string, Conversation>();
   private readonly nodesByConversation = new Map<string, TraceNode[]>();
   private readonly listeners = new Set<(rev: number) => void>();
+  private readonly activeRequests = new Set<string>();
 
   constructor(private readonly maxRequests = 1000) {}
 
@@ -42,6 +43,24 @@ export class Store {
 
   getRev(): number {
     return this.rev;
+  }
+
+  // -- in-flight exchanges --------------------------------------------------
+
+  /**
+   * Tracks connections rather than captured data, which is why it is a set of
+   * its own instead of a scan for records without an end time. A record can be
+   * evicted, dropped by retention, or wiped by Clear while its stream is still
+   * running, and a record restored from disk can carry no end time because the
+   * previous process died — neither says anything about traffic right now.
+   */
+  markRequestActive(id: string): void {
+    this.activeRequests.add(id);
+  }
+
+  /** Returns whether this call is the one that ended the exchange. */
+  markRequestSettled(id: string): boolean {
+    return this.activeRequests.delete(id);
   }
 
   // -- transport ------------------------------------------------------------
@@ -136,6 +155,12 @@ export class Store {
     this.transportOrder.push(...kept);
   }
 
+  /**
+   * Clear wipes what was captured. `activeRequests` deliberately survives it:
+   * an exchange the user cleared mid-stream is still an open socket carrying
+   * the agent's response, and it settles when that socket closes. Resetting it
+   * here would report "no traffic" over a turn the user can watch arriving.
+   */
   clear(): void {
     this.transport.clear();
     this.transportOrder.length = 0;
@@ -151,6 +176,7 @@ export class Store {
       rev: this.rev,
       conversations: this.listConversations(),
       transport: this.listTransport().map(summarizeTransport),
+      activeRequests: this.activeRequests.size,
     };
   }
 }

@@ -105,8 +105,17 @@ export class CaptureRuntime {
     return true;
   }
 
+  /**
+   * The earliest point the UI can know traffic is moving: request line and
+   * headers are in, the body has not arrived and the provider is not yet known.
+   * Marking the exchange active here — before any generation check — is what
+   * makes the header's indicator mean "the agent is talking to upstream now"
+   * rather than "something was captured at some point".
+   */
   private onRequestStart(record: TransportRecord): void {
     this.requestGeneration.set(record, this.generation);
+    this.options.store.markRequestActive(record.id);
+    this.options.store.touch();
   }
 
   private onRequestBody(record: TransportRecord): void {
@@ -134,7 +143,16 @@ export class CaptureRuntime {
   private onComplete(record: TransportRecord): void {
     if (this.completedRequests.has(record)) return;
     this.completedRequests.add(record);
-    if (!this.isCurrent(record)) return;
+    // Settles ahead of the generation check, and covers every way the proxy
+    // ends an exchange: normal end, upstream error, and the client hanging up
+    // mid-stream. A request cleared or deleted while in flight stops being
+    // captured but is still an open connection, so it has to be released here
+    // or the indicator would claim traffic forever.
+    const wasActive = this.options.store.markRequestSettled(record.id);
+    if (!this.isCurrent(record)) {
+      if (wasActive) this.options.store.touch();
+      return;
+    }
 
     this.options.builder.onComplete(record);
     this.persistAndOffload(record);

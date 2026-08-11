@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, Columns2, Menu, Settings, Terminal, Trash2 } from 'lucide-react';
 import { api, subscribeToRevisions, type ServerConfig } from './api.js';
+import { feedStatus, useTrafficActive, type FeedStatus } from './activity.js';
 import { DataSurface } from './components/DataSurface.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
 import { AgentSelect } from './components/AgentSelect.js';
@@ -158,6 +159,7 @@ export function App() {
     rev: 0,
     conversations: [],
     transport: [],
+    activeRequests: 0,
   });
   const [view, setView] = useState<ViewId>('trace');
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -262,6 +264,11 @@ export function App() {
     enabled: view === 'trace',
   });
 
+  // Two independent facts: whether the change feed is open, and whether the
+  // agent is actually driving traffic through the proxy right now.
+  const trafficActive = useTrafficActive(snapshot.activeRequests);
+  const status = feedStatus(connected, trafficActive);
+
   return (
     // One provider for the whole app, because the delay is a property of the
     // *set* of tooltips: after the first one opens, moving along a row of icon
@@ -270,7 +277,7 @@ export function App() {
       <div className="flex h-full flex-col bg-canvas">
         <Header
           config={config}
-          connected={connected}
+          status={status}
           theme={theme}
           onToggleTheme={toggleTheme}
           sidebarOpen={sidebarOpen}
@@ -582,9 +589,20 @@ function SettingRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * One word cannot say what is being measured, and the difference between "no
+ * agent is talking" and "this page stopped listening" is the whole point of
+ * splitting the states. The tooltip carries it; the word carries the glance.
+ */
+const STATUS_HINT: Record<FeedStatus, string> = {
+  live: 'An exchange is open through the proxy right now',
+  idle: 'Connected — no traffic through the proxy',
+  offline: 'Change feed closed — this page has stopped updating',
+};
+
 function Header({
   config,
-  connected,
+  status,
   theme,
   onToggleTheme,
   sidebarOpen,
@@ -593,7 +611,7 @@ function Header({
   onOpenDiff,
 }: {
   config: ServerConfig | undefined;
-  connected: boolean;
+  status: FeedStatus;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
   sidebarOpen: boolean;
@@ -637,14 +655,26 @@ function Header({
         role="status"
         className={cx(
           'flex shrink-0 items-center gap-1.5 text-[13px]',
-          connected ? 'text-success-fg' : 'text-muted-soft',
+          status === 'live' ? 'text-success-fg' : 'text-muted-soft',
         )}
+        title={STATUS_HINT[status]}
       >
+        {/* The pulse is reserved for traffic. Breathing *is* the signal, so it
+            has to mean the thing being watched — an exchange open through the
+            proxy — and not merely that this page found the server. `idle` keeps
+            a solid dot: connected, armed, nothing arriving. `styles.css` stops
+            every animation under `prefers-reduced-motion`, where the colour and
+            the word carry the state on their own. */}
         <span
-          className={cx('h-1.5 w-1.5 rounded-full', connected ? 'bg-success' : 'bg-hairline')}
+          className={cx(
+            'h-1.5 w-1.5 rounded-full',
+            status === 'live' && 'animate-pulse bg-success',
+            status === 'idle' && 'bg-muted-soft',
+            status === 'offline' && 'bg-hairline',
+          )}
           aria-hidden
         />
-        {connected ? 'live' : 'offline'}
+        {status}
       </span>
 
       {/*
