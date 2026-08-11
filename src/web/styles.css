@@ -663,9 +663,9 @@ button:not(:disabled),
   border-top: 1px solid var(--color-hairline);
 }
 
-/* Inline code stays on the canvas; fenced blocks get the dark code-window
-   treatment the design system reserves for machine output — except inside a
-   chat bubble, which takes the raised `chat-code` panel instead. */
+/* Inline code stays on the canvas; fenced blocks take the DataSurface panel
+   the rest of the app's machine text sits on — except inside a chat bubble,
+   which nests one step further in. */
 .markdown-body code {
   padding: 0.1em 0.35em;
   border-radius: var(--radius-xs);
@@ -693,14 +693,26 @@ button:not(:disabled),
   line-height: 1.6;
 }
 
-/* …except in a chat turn, where it stays in the bubble's own family. See the
-   `chat-code` roles. */
+/*
+ * …except in a chat turn, where the block is already inside a bubble, so it
+ * takes the *nested* DataSurface step rather than the base panel — the same
+ * relationship `ToolPane` and an expanded SSE frame have to their own
+ * containers.
+ *
+ * These three declarations used to name the `chat-code-*` family. That family
+ * was retired when its last TSX caller (`ToolPane`) moved onto `DataSurface`,
+ * but this rule is CSS and was missed by the grep that cleared the component
+ * layer — leaving three `var()` references with no definition behind them,
+ * which silently resolved to a transparent background and a `currentColor`
+ * border in both themes. Hence `tests/design-tokens.test.ts`'s dangling
+ * reference check.
+ */
 .markdown-body.markdown-chat pre {
-  border-color: var(--color-chat-code-border);
-  background: var(--color-chat-code);
+  border-color: var(--color-data-border);
+  background: var(--color-data-surface-nested);
 }
 .markdown-body.markdown-chat pre code {
-  color: var(--color-chat-code-fg);
+  color: var(--color-data-foreground);
 }
 
 .markdown-body table {

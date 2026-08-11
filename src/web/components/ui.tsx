@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { DataSurface, DataSurfaceBody } from './DataSurface.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js';
@@ -259,11 +259,11 @@ export function Section({
     setUncontrolled(!open);
     onOpenChange?.(!open);
   };
-  // Derived from the title rather than `useId`: two `Section`s with the same
-  // title never render into the DOM at once (they belong to different
-  // Inspector tabs, mounted one at a time), and a stable id means the region
-  // this button controls is nameable without an extra prop at every call site.
-  const contentId = `section-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  // `useId`, not the title: `Payload` and `Response` both render a section
+  // titled "Body", and a title-derived id is only unique because `TabBody`
+  // happens to mount one tab at a time — an invariant nothing enforces and a
+  // future side-by-side layout would quietly break into duplicate ids.
+  const contentId = `section-${useId()}`;
   return (
     <div className="border-b border-hairline-soft last:border-0">
       <div className="flex items-center justify-between gap-2 px-4 py-3">
@@ -271,7 +271,10 @@ export function Section({
           type="button"
           onClick={toggle}
           aria-expanded={open}
-          aria-controls={contentId}
+          // Only while the panel is actually in the DOM — `aria-controls`
+          // pointing at an id that does not exist is a dangling reference, and
+          // `aria-expanded={false}` already carries the collapsed state.
+          aria-controls={open ? contentId : undefined}
           className="flex items-center gap-2 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase hover:text-ink"
         >
           <Chevron open={open} />

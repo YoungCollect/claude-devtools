@@ -97,16 +97,24 @@ function InspectorPanel({
   rev: number;
 }) {
   const [tab, setTab] = useState<TabId>(focusNode ? 'payload' : 'overview');
-  const [reveal, setReveal] = useState(false);
   const [record, setRecord] = useState<TransportDetail | undefined>();
   const tabRailRef = useRef<HTMLDivElement>(null);
 
-  // Credentials default masked every time a new request is opened — reusing
-  // whatever the previous request left `reveal` at would silently leave
-  // secrets visible on a request the user never asked to reveal.
-  useEffect(() => {
-    setReveal(false);
-  }, [transportId]);
+  /*
+   * Credentials default masked every time a new request is opened — carrying
+   * the previous request's `reveal` over would leave secrets visible on a
+   * request nobody asked to unmask.
+   *
+   * Stored as *which request* is revealed rather than as a boolean reset by an
+   * effect. An effect resets one render too late: the fetch below would already
+   * have run for the new id with the stale `reveal === true` and asked the API
+   * to unredact it. The response was discarded by the cleanup, so nothing was
+   * ever displayed — but the request still went out, and "we fetched the
+   * credentials and threw them away" is not a defensible reading of masked.
+   * Deriving it means the new id is masked in the very first render.
+   */
+  const [revealedId, setRevealedId] = useState<string>();
+  const reveal = revealedId === transportId;
 
   // The active tab scrolls into view when the rail is horizontally clipped
   // (narrow Inspector, or `Tabs`' own arrow-key navigation moving focus past
@@ -159,7 +167,7 @@ function InspectorPanel({
             variant="chrome"
             data-active={reveal ? 'true' : undefined}
             aria-pressed={reveal}
-            onClick={() => setReveal((v) => !v)}
+            onClick={() => setRevealedId(reveal ? undefined : transportId)}
             title="Reveal credentials in headers"
           >
             {reveal ? 'secrets shown' : 'secrets masked'}

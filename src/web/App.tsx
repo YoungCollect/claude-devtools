@@ -162,6 +162,17 @@ export function App() {
     setSelection(undefined);
   }, [conversationId]);
 
+  // Escape closes the narrow-viewport conversation panel, the same way it
+  // closes the Inspector drawer and the conversation actions menu.
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSidebarOpen(false);
+    };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [sidebarOpen]);
+
   const inspectNode = useCallback((node: TraceNode) => {
     const transportId = node.producedByRequestId ?? node.revealedByRequestId;
     if (!transportId) return;
@@ -192,6 +203,7 @@ export function App() {
           connected={connected}
           theme={theme}
           onToggleTheme={toggleTheme}
+          sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
           onClear={async () => {
             clearGitDiff();
@@ -208,20 +220,35 @@ export function App() {
               that can be as narrow as 320px — on its own, wider than the
               screen (P1-03's follow-on in the product design audit). It
               becomes an off-canvas panel there, toggled by the header's menu
-              button; at `md` and up it is always visible, exactly as before. */}
+              button; at `md` and up it is always visible, exactly as before.
+
+              Both the scrim and the panel are `absolute` inside this row
+              rather than `fixed` to the viewport, so neither covers the
+              header: the menu toggle that opened the panel, and Clear / Diff /
+              the theme switch beside it, all stay reachable while it is open. */}
           {sidebarOpen && (
             <button
               type="button"
               aria-label="Close conversation list"
               onClick={() => setSidebarOpen(false)}
-              className="fixed inset-0 z-30 bg-overlay md:hidden"
+              className="absolute inset-0 z-30 bg-overlay md:hidden"
             />
           )}
           <nav
+            id="conversation-sidebar"
             className={cx(
-              'scroll-surface flex w-72 shrink-0 flex-col overflow-y-auto border-r border-hairline bg-canvas transition-transform duration-200',
-              'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40',
-              sidebarOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full',
+              'scroll-surface flex w-72 shrink-0 flex-col overflow-y-auto border-r border-hairline bg-canvas',
+              'max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-40',
+              // `visibility` alongside the slide, because a panel parked
+              // off-screen with `-translate-x-full` is still focusable and
+              // still in the accessibility tree — a keyboard user at a narrow
+              // width would tab into an invisible conversation list.
+              // Transitioning it means `hidden` only lands once the panel has
+              // finished sliding out, so the animation survives.
+              'transition-[transform,visibility] duration-200',
+              sidebarOpen
+                ? 'max-md:visible max-md:translate-x-0'
+                : 'max-md:invisible max-md:-translate-x-full md:visible',
             )}
           >
             {/* h-12 on both this and the view tabs opposite it. Left to size
@@ -374,6 +401,7 @@ function Header({
   connected,
   theme,
   onToggleTheme,
+  sidebarOpen,
   onToggleSidebar,
   onClear,
   onOpenDiff,
@@ -382,6 +410,7 @@ function Header({
   connected: boolean;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onClear: () => Promise<void> | void;
   onOpenDiff: () => void;
@@ -397,6 +426,8 @@ function Header({
         type="button"
         onClick={onToggleSidebar}
         aria-label="Toggle conversation list"
+        aria-expanded={sidebarOpen}
+        aria-controls="conversation-sidebar"
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-soft hover:text-ink md:hidden"
       >
         <Menu size={17} aria-hidden />

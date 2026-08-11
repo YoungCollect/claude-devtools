@@ -626,3 +626,52 @@ Light 推荐值及其在 `#F3EFE7` 上的 WCAG 对比度：
 修改：`src/web/styles.css`、`src/web/App.tsx`、`src/web/components/{ui.tsx, ui/button.tsx, ContentToolbar.tsx, ContentViewer.tsx, ConversationList.tsx, GitDiffDialog.tsx, Inspector.tsx, JsonBodyViewer.tsx, NetworkView.tsx, TraceView.tsx}`。
 
 未改动：`src/core/**`、`src/server/**`、`design.md/**`（手册阶段 1 第 6 步建议同步 `design.md/design-claude.md`，本次未做——设计规范文档的更新需要设计系统所有者确认表述，留给维护者）。
+
+---
+
+## 14. 实施后代码审查与修复（2026-08-11）
+
+第 13 节的改动完成后又做了一轮独立代码审查。审查发现 8 项问题，其中 1 项是第 13 节改动**引入的真实回归**——13.7 节报告的"全部通过"是对 typecheck / test / build 而言的，那三项确实都是绿的，但它们都不检查 CSS 变量引用是否有定义，所以没能拦住它。全部 8 项已修复并复验。
+
+### 14.1 引入的回归（严重）
+
+**聊天气泡内的围栏代码块丢失背景与边框。** 第 13 节把 `chat-code-*` token 家族随 `ToolPane` 迁移一并删除时，只 grep 了 `.tsx`，漏掉了 `styles.css` 自己——`.markdown-body.markdown-chat pre` / `pre code` 三条声明仍然引用 `var(--color-chat-code)` / `-border` / `-fg`。构建产物确认：3 处引用、0 处定义。
+
+CSS 对这种情况不报错：未定义的 `var()` 属于 invalid at computed-value time，属性静默退回继承值或初始值，于是 `background` 变成 `transparent`、`border-color` 变成 `currentColor`，两个主题都受影响。
+
+诚实地说，这个缺陷在第 13.7 节我自己拍的截图里就是可见的（气泡内代码块那圈明显偏深的边框就是 `currentColor`），当时没有识别出来——截图看过了，但没有对着"它应该长什么样"逐项核对。
+
+修复：三条声明改指 `--color-data-surface-nested` / `--color-data-border` / `--color-data-foreground`（即原 alias 的目标，语义上也正确：气泡内的代码块本就是嵌套一层的 DataSurface）。并新增回归测试（见 14.3）。
+
+### 14.2 其余 7 项
+
+| 位置 | 问题 | 修复 |
+| --- | --- | --- |
+| `NetworkView.tsx` | 为做键盘可达给 `<tr>` 加了 `role="button"`，反而使 9 个 `<td>` 成为无效子元素、脱离可访问性树——读屏用户会失去 time/model/ttfb/total/size/tokens/turn 全部列，只剩行的 `aria-label`。**这是比原问题更严重的可访问性倒退。** | 撤销行上的 `role`/`tabIndex`/`aria-label`/`onKeyDown`，改用手册 §4 P1-04 自己给出的备选方案：path 单元格内放一个真正的 `<button>`（带完整 `aria-label`）。它不带自己的 `onClick`，鼠标点击与 Enter/Space 产生的 click 事件都冒泡到行处理器，因此整行鼠标点击同时保留。`row`/`cell` 语义与表格导航完好。 |
+| `App.tsx` | 窄屏侧边栏"关闭"仅靠 `-translate-x-full` 移出视口，元素仍可聚焦、仍在可访问性树里——键盘用户会 Tab 进一个看不见的会话列表。 | 加 `max-md:invisible` 并把过渡改为 `transition-[transform,visibility]`，使 `visibility` 在滑出动画结束时才生效（动画保留，同时真正退出 tab 顺序）。 |
+| `App.tsx` | 遮罩 `fixed inset-0 z-30` 与侧边栏 `inset-y-0` 都覆盖了 header，侧边栏打开时汉堡按钮、Clear、Diff、主题切换全部点不到；也没有 Escape 关闭。 | 遮罩与面板改为在内容行内 `absolute` 定位（父级本就是 `relative`），不再覆盖 header；补 Escape 关闭、`aria-expanded` / `aria-controls`。 |
+| `Inspector.tsx` | 13 节用 `useEffect` 重置 `reveal`，比 fetch effect 晚一个 render——切换请求时仍会以旧的 `reveal=true` 发出一次 `api.transport(newId, true)`，即为用户没要求解密的请求拉取未脱敏凭据（响应被 cleanup 丢弃，所以界面上完全看不出来）。 | 改为派生状态：`revealedId === transportId`，新请求在**第一个 render** 就是 masked，多余请求不再产生。 |
+| `NetworkView.tsx` | 请求计数的 `role="status" aria-live="polite"` 是常驻实时区域，对着实时代理流量会持续朗读每一个新捕获的请求。 | 仅在有筛选词时才挂 live 属性——计数是对"输入"的反馈，没有输入时退回普通标签。 |
+| `ui.tsx` | `Section` 的 `aria-controls` 恒指向 `section-<title>`，但该元素仅在展开时存在（悬空引用）；且 id 由标题派生，依赖"同名 Section 不会同时挂载"这一没有任何东西保证的隐含前提（`Payload` 与 `Response` 都有标题为 `Body` 的 Section）。 | id 改用 `useId()`；`aria-controls` 仅在展开时设置（`aria-expanded={false}` 已足以表达折叠态）。 |
+| `tests/design-tokens.test.ts` | `LITERAL_HEX_OR_RGB_IN_CLASS` 声明后从未使用（字面色扫描实际是按整行匹配，不是按 className 匹配）。 | 删除该死代码。按整行匹配是有意保留的行为——它比只看 className 更宽。 |
+
+### 14.3 新增的第 6 个治理测试
+
+`tests/design-tokens.test.ts` 增加"`styles.css` 中每个 `var(--color-*)` 引用都必须有对应定义"。这正是 14.1 那类缺陷的哨兵：已验证把任一引用改回 `--color-chat-code` 会让该用例立即失败。
+
+这也补上了原来六项治理检查共同的盲区——它们检查的是 token **定义**的对称性与组件层的字面色，没有一项检查**引用**是否落空。
+
+### 14.4 复验
+
+- `pnpm typecheck` / `pnpm build` 通过；`pnpm test` **67/67** 通过（新增第 6 个 token 用例）。
+- 构建产物扫描：`var(--color-*)` 悬空引用 **0** 处（修复前 3 处）。
+- Playwright 实测（计算样式断言，不只是看截图）：
+  - 气泡内代码块 light `bg #ece6dc` / `border #d8d0c3`、dark `bg #1a1f26` / `border #2f3843`——均为真实值，不再是 `transparent` + `currentColor`。
+  - Network 行：`role=null`、`tabindex=null`、9 个 `<td>` 完整；path 按钮可访问名为 `Inspect POST /v1/messages, status 200`，Enter 正常打开 Inspector。
+  - 打开新请求时 secrets 状态为 `secrets masked`。
+  - 390px：侧边栏关闭时 `visibility: hidden`（已退出 tab 顺序）、`aria-expanded=false`；打开后 `visible` / `aria-expanded=true`，且命中测试确认 header 的汉堡按钮仍可点击；Escape 可关闭。
+  - 控制台 0 个页面错误。
+
+### 14.5 审查中提出但本次未采纳的一项
+
+`tests/` 不在任何 tsconfig 的 `include` 里，因此测试文件从不参与 `pnpm typecheck`（这也是 14.2 那个未使用变量能存活的原因）。试着加了一个 `tsconfig.tests.json` 之后，暴露出 4 处既有测试文件的类型错误与 1 处 `src/server/api.ts` 的 DOM/node lib 冲突——都在本次改动范围之外。为此扩大 PR 去改动无关代码，或者交付一个红着的 typecheck，两者都不合适，所以撤回了该配置，在此记录为**建议维护者单独处理**的事项。

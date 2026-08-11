@@ -146,7 +146,6 @@ const LITERAL_COLOR_UTILITY = new RegExp(
   String.raw`\b(?:bg|text|border|ring|from|to|via|fill|stroke|decoration|outline|divide|caret|accent|shadow)-` +
     String.raw`(?:\[#|\[rgb|(?:${TAILWIND_PALETTE_HUES.join('|')})-\d{2,3}\b)`,
 );
-const LITERAL_HEX_OR_RGB_IN_CLASS = /className=(?:"[^"]*"|\{`[^`]*`\}|\{cx\([^)]*\)\})/;
 
 test('no literal hex/rgb colour and no default Tailwind palette hue in src/web/**/*.tsx', () => {
   const offenders: string[] = [];
@@ -163,6 +162,32 @@ test('no literal hex/rgb colour and no default Tailwind palette hue in src/web/*
     offenders,
     [],
     'AGENTS.md: "Use role-named CSS variables ... do not put literal color decisions in React components"',
+  );
+});
+
+test('every var(--color-*) reference in styles.css resolves to a definition', () => {
+  const css = readFileSync(STYLES_PATH, 'utf8');
+
+  const defined = new Set<string>();
+  for (const match of css.matchAll(/(^|[\s;{])(--color-[a-z0-9-]+)\s*:/g)) {
+    defined.add(match[2]!);
+  }
+
+  const dangling = new Set<string>();
+  for (const match of css.matchAll(/var\(\s*(--color-[a-z0-9-]+)/g)) {
+    if (!defined.has(match[1]!)) dangling.add(match[1]!);
+  }
+
+  // A `var()` naming a token nobody defines is invalid at computed-value time:
+  // the property silently falls back to its inherited or initial value rather
+  // than erroring, so a retired token leaves a rule that still *parses* while
+  // rendering as `transparent` / `currentColor`. Retiring the `chat-code-*`
+  // family did exactly that to `.markdown-body.markdown-chat pre` — the
+  // component layer had been grepped, this stylesheet had not.
+  assert.deepEqual(
+    [...dangling].sort(),
+    [],
+    'these --color-* tokens are referenced by styles.css but defined nowhere in it',
   );
 });
 

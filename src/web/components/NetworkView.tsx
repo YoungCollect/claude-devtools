@@ -53,7 +53,17 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
           placeholder="Filter path, model, status…"
           className="h-9 w-64 rounded-md border border-hairline bg-canvas px-3.5 text-[14px] text-ink outline-none placeholder:text-muted-soft focus:border-primary focus:ring-3 focus:ring-primary/15"
         />
-        <span role="status" aria-live="polite" className="ml-auto text-[13px] text-muted-foreground">
+        {/*
+          Announced only while a filter is active. As a permanent live region
+          this reads out on every captured request, and against a live proxy
+          that is a continuous stream of announcements nobody asked for; the
+          count is feedback for *typing*, so it speaks when there is a query
+          and stays a plain label otherwise.
+        */}
+        <span
+          {...(query ? { role: 'status', 'aria-live': 'polite' as const } : {})}
+          className="ml-auto text-[13px] text-muted-foreground"
+        >
           {rows.length} requests
         </span>
       </div>
@@ -81,22 +91,12 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
             {rows.map((row) => (
               <TableRow
                 key={row.id}
-                tabIndex={0}
-                role="button"
-                aria-label={`Inspect ${row.method ?? row.kind} ${row.path}${
-                  row.status !== undefined ? `, status ${row.status}` : ''
-                }`}
                 onClick={() => onSelect(row.id)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                  event.preventDefault();
-                  onSelect(row.id);
-                }}
                 // `data-state` is shadcn's own selected-row hook; the fill it
                 // resolves to is this system's selected surface, not the default.
                 data-state={row.id === selectedId ? 'selected' : undefined}
                 className={cx(
-                  'cursor-pointer border-hairline-soft outline-none hover:bg-surface-soft focus-visible:bg-surface-soft focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset data-[state=selected]:bg-surface-card',
+                  'cursor-pointer border-hairline-soft hover:bg-surface-soft has-[:focus-visible]:bg-surface-soft data-[state=selected]:bg-surface-card',
                   row.kind !== 'conversation' && 'text-muted-soft',
                 )}
               >
@@ -104,7 +104,28 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
                   {formatClock(row.startedAt)}
                 </TableCell>
                 <TableCell className="max-w-[240px] truncate px-3 py-2">
-                  <span className="font-mono text-body-strong">{row.path}</span>
+                  {/*
+                    The row's keyboard entry point is a real button in the path
+                    cell, not `tabIndex`/`role="button"` on the `<tr>` itself:
+                    a row carrying the button role makes its nine `<td>`s
+                    invalid children and drops them out of the accessibility
+                    tree, so a screen-reader user would lose every column
+                    except the row's own label. This keeps `row`/`cell`
+                    semantics and table navigation intact, and gives the action
+                    one properly named control. It has no `onClick` of its own —
+                    both mouse clicks and Enter/Space produce a click event
+                    that bubbles to the row handler above, which is also what
+                    preserves click-anywhere-on-the-row for the mouse.
+                  */}
+                  <button
+                    type="button"
+                    aria-label={`Inspect ${row.method} ${row.path}${
+                      row.status !== undefined ? `, status ${row.status}` : ''
+                    }`}
+                    className="max-w-full cursor-pointer truncate rounded-xs text-left font-mono text-body-strong outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  >
+                    {row.path}
+                  </button>
                   {row.kind !== 'conversation' && (
                     <span className="ml-2 text-[12px] text-muted-soft">{row.kind}</span>
                   )}
