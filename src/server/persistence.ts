@@ -126,6 +126,24 @@ export class Persistence {
       );
   }
 
+  /**
+   * Runs `body` as one transaction.
+   *
+   * A drain after a tool-heavy turn writes dozens of nodes, and each `saveNode`
+   * would otherwise be its own implicit transaction. Nesting is not supported
+   * and not needed — callers hold a single batch.
+   */
+  transaction(body: () => void): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      body();
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   saveNode(node: TraceNode): void {
     const serialized = JSON.stringify(node);
     const exists = this.db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(node.id);

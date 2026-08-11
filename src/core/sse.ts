@@ -10,6 +10,26 @@ import type { SseFrame } from './types.js';
  */
 export class SseParser {
   private buffer = '';
+  /**
+   * Streaming UTF-8 decode, because chunk boundaries fall wherever the network
+   * puts them — including inside a multi-byte character.
+   *
+   * Decoding each chunk independently turned any such character into
+   * replacement characters, and the damage did not stop at the display: the
+   * corrupted text fed the assistant block's fingerprint, so the next request's
+   * history no longer matched what we had recorded and the turn was re-appended
+   * as new. `TextDecoder` in stream mode holds a partial sequence back until
+   * the bytes that complete it arrive.
+   *
+   * It is the Web API rather than `node:string_decoder` so this module stays
+   * usable from the browser bundle, like the rest of `src/core`.
+   */
+  private readonly decoder = new TextDecoder('utf-8');
+
+  /** Returns the frames completed by this chunk of bytes, timestamped with `t`. */
+  pushBytes(chunk: Uint8Array, t: number): SseFrame[] {
+    return this.push(this.decoder.decode(chunk, { stream: true }), t);
+  }
 
   /** Returns the frames completed by this chunk, timestamped with `t`. */
   push(chunk: string, t: number): SseFrame[] {
@@ -30,6 +50,10 @@ export class SseParser {
 
   /** Flush a trailing frame that was not terminated by a blank line. */
   end(t: number): SseFrame[] {
+    // Release anything the decoder was still holding. A truncated sequence
+    // surfaces as a replacement character here, which is the honest report:
+    // those bytes never arrived.
+    this.buffer += this.decoder.decode();
     if (!this.buffer.trim()) {
       this.buffer = '';
       return [];

@@ -1,4 +1,4 @@
-import { findAdapter } from './adapters/index.js';
+import { findAdapter, isSubagentTool } from './adapters/index.js';
 import type {
   HistoryItem,
   ParsedRequest,
@@ -49,7 +49,10 @@ export class TraceBuilder {
   private readonly conversations = new Map<string, ConversationState>();
   private readonly streams = new Map<string, StreamState>();
   /** tool_use_id → conversation that issued it, for subagent attribution. */
-  private readonly pendingToolCalls = new Map<string, { conversationId: string; toolName: string }>();
+  private readonly pendingToolCalls = new Map<
+    string,
+    { conversationId: string; toolName: string; isSubagent: boolean }
+  >();
   private counter = 0;
   /** Ids touched since the last drain, so persistence writes only what changed. */
   private readonly dirtyNodeIds = new Set<string>();
@@ -193,10 +196,10 @@ export class TraceBuilder {
   }
 
   private findPendingSubagentParent(): { conversationId: string; toolUseId: string } | undefined {
-    // Map iteration is insertion-ordered; the newest pending Task wins.
+    // Map iteration is insertion-ordered; the newest outstanding call wins.
     let match: { conversationId: string; toolUseId: string } | undefined;
     for (const [toolUseId, info] of this.pendingToolCalls) {
-      if (info.toolName === 'Task') match = { conversationId: info.conversationId, toolUseId };
+      if (info.isSubagent) match = { conversationId: info.conversationId, toolUseId };
     }
     return match;
   }
@@ -443,9 +446,11 @@ export class TraceBuilder {
         node.toolInput = block.buffer ? safeJsonParse(block.buffer) : {};
       }
       if (node.toolUseId) {
+        const toolName = node.toolName ?? '';
         this.pendingToolCalls.set(node.toolUseId, {
           conversationId: state.id,
-          toolName: node.toolName ?? '',
+          toolName,
+          isSubagent: adapter.isSubagentTool(toolName),
         });
       }
     }
@@ -556,9 +561,11 @@ export class TraceBuilder {
     );
     for (const node of nodes) {
       if (node.kind === 'tool_call' && node.toolUseId && !resolved.has(node.toolUseId)) {
+        const toolName = node.toolName ?? '';
         this.pendingToolCalls.set(node.toolUseId, {
           conversationId: node.conversationId,
-          toolName: node.toolName ?? '',
+          toolName,
+          isSubagent: isSubagentTool(toolName),
         });
       }
     }
@@ -637,17 +644,28 @@ function mergeUsage(
 }
 
 /**
- * Claude Code wraps injected context in `<system-reminder>` blocks and often
- * prefixes the first turn with them. Strip those so the trace title is the
- * thing the human actually typed.
+ * The title is the first thing the human actually typed.
+ *
+ * Injected context is separated structurally, upstream: the adapter has already
+ * split `<tag>…</tag>` wrappers into `context` segments, so taking the `user`
+ * segments skips them whatever the runtime happens to call its tags. A message
+ * that is nothing but injected context yields no user segment at all and is
+ * passed over rather than falling back to its raw text — titling a trace with
+ * the contents of a reminder is worse than looking at the next message.
  */
 function deriveTitle(history: HistoryItem[]): string | undefined {
   for (const item of history) {
     if (item.kind !== 'user') continue;
-    const userText = item.segments?.find(({ kind }) => kind === 'user')?.text ?? item.text;
+    const userText = item.segments
+      ? item.segments
+          .filter(({ kind }) => kind === 'user')
+          .map(({ text }) => text)
+          .join(' ')
+      : item.text;
     if (!userText) continue;
+    // Any tags left inside a user segment are stripped generically — this is
+    // shape, not vocabulary.
     const cleaned = userText
-      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();

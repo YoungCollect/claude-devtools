@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 
@@ -27,6 +27,23 @@ export interface ApiOptions {
    * that hot-reloads instead of a stale bundle or a blank page.
    */
   devUiUrl?: string;
+}
+
+/**
+ * Header a state-changing request has to carry.
+ *
+ * The listener is loopback-only, but loopback is reachable from any page the
+ * user happens to have open: a bare `POST /api/clear` is a CORS "simple
+ * request", so a browser sends it cross-origin with no preflight and a random
+ * web page could wipe the capture. Requiring a header that is not on the simple
+ * list forces a preflight, which fails because this API publishes no CORS
+ * headers at all. Reads need no such guard — without those headers a
+ * cross-origin caller cannot see a response it did not originate.
+ */
+const REQUEST_HEADER = 'x-agent-devtools';
+
+function fromOwnUi(c: { req: { header: (name: string) => string | undefined } }): boolean {
+  return c.req.header(REQUEST_HEADER) !== undefined;
 }
 
 export function createApi({
@@ -57,6 +74,7 @@ export function createApi({
   });
 
   app.delete('/api/conversations/:id', (c) => {
+    if (!fromOwnUi(c)) return c.json({ error: 'missing devtools request header' }, 403);
     const deleted = deleteConversation(c.req.param('id'));
     return deleted ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
   });
@@ -71,6 +89,7 @@ export function createApi({
   });
 
   app.post('/api/clear', (c) => {
+    if (!fromOwnUi(c)) return c.json({ error: 'missing devtools request header' }, 403);
     clearState();
     return c.json({ ok: true });
   });
@@ -198,9 +217,12 @@ async function serveStatic(
   urlPath: string,
 ): Promise<{ body: Buffer; type: string } | undefined> {
   // normalize() collapses `..`; the resolve() guard then rejects anything that
-  // still escaped the web root.
-  const candidate = resolve(root, `.${normalize(urlPath)}`);
-  if (!candidate.startsWith(resolve(root))) return undefined;
+  // still escaped the web root. The trailing separator matters: without it a
+  // sibling directory sharing the root's name as a prefix — `dist/web-secret`
+  // next to `dist/web` — would satisfy the check.
+  const base = resolve(root);
+  const candidate = resolve(base, `.${normalize(urlPath)}`);
+  if (candidate !== base && !candidate.startsWith(base + sep)) return undefined;
   const info = await stat(candidate).catch(() => undefined);
   if (!info?.isFile()) return undefined;
   const body = await readFile(candidate);

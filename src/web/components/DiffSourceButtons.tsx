@@ -32,12 +32,15 @@ export function DiffSourceButtons({
   );
 }
 
+/**
+ * Identity is the source and its view mode, never the text.
+ *
+ * A streaming assistant bubble's text changes on every frame while the diff
+ * state holds the snapshot taken at click time. Comparing text made the button
+ * un-press itself mid-response even though the source was still selected.
+ */
 function isSelected(selected: GitDiffSource | undefined, source: GitDiffSource): boolean {
-  return (
-    selected?.sourceId === source.sourceId &&
-    selected.text === source.text &&
-    selected.format === source.format
-  );
+  return selected?.sourceId === source.sourceId && selected.format === source.format;
 }
 
 function DiffSourceButton({

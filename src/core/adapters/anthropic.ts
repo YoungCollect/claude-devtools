@@ -35,7 +35,7 @@ export const anthropicAdapter: ProviderAdapter = {
 
     return {
       provider: 'anthropic',
-      kind: classify(path, tools.length, messages.length),
+      kind: classify(path, tools.length, messages.length, body?.max_tokens),
       agent: detectAgent(record.requestHeaders),
       model: typeof body?.model === 'string' ? body.model : undefined,
       sessionId: readSessionId(record.requestHeaders),
@@ -199,6 +199,11 @@ export const anthropicAdapter: ProviderAdapter = {
     return events;
   },
 
+  /** Claude Code dispatches subagents through `Task`. */
+  isSubagentTool(toolName) {
+    return toolName === 'Task';
+  },
+
   fingerprintBlock(event) {
     if (event.kind === 'tool_call') {
       return fpToolCall(event.toolUseId ?? '', event.toolName ?? '', event.toolInput);
@@ -210,19 +215,34 @@ export const anthropicAdapter: ProviderAdapter = {
 
 // ---------------------------------------------------------------------------
 
+/** A side call is given barely any room to answer; a real turn is not. */
+const UTILITY_MAX_TOKENS = 1024;
+
 /**
  * Which requests belong in the Chat Trace.
  *
- * Claude Code interleaves real turns with side calls — `count_tokens` probes and
- * a small no-tools Haiku call that names the conversation. Those are genuine
- * traffic and stay in the Network view, but showing them as trace nodes buries
- * the actual agent loop. The reliable signal is the tool set: an agent turn
- * always ships its tools, a utility call never does.
+ * Claude Code interleaves real turns with side calls — `count_tokens` probes
+ * and a small no-tools Haiku call that names the conversation. Those are
+ * genuine traffic and stay in the Network view, but showing them as trace nodes
+ * buries the actual agent loop.
+ *
+ * The tool set is the strongest signal: an agent turn always ships its tools.
+ * It cannot be the only one, because agents that declare no tools at all exist
+ * — the SDK and Mastra, both of which `detectAgent` recognises. Treating every
+ * short tool-less request as utility hid their conversations outright: a
+ * single-turn exchange never reached the trace, and a longer one only appeared
+ * from its third message on.
+ *
+ * So the tool-less case is narrowed to what a side call actually looks like:
+ * one message and a token budget too small to hold a reply. A real one-shot
+ * request asks for room to answer, and Claude Code's title and quota calls
+ * still match on both counts.
  */
-function classify(path: string, toolCount: number, messageCount: number) {
+function classify(path: string, toolCount: number, messageCount: number, maxTokens: unknown) {
   if (path.includes('count_tokens')) return 'utility' as const;
   if (toolCount > 0) return 'conversation' as const;
-  if (messageCount <= 2) return 'utility' as const;
+  const budget = typeof maxTokens === 'number' ? maxTokens : Number.POSITIVE_INFINITY;
+  if (messageCount <= 1 && budget <= UTILITY_MAX_TOKENS) return 'utility' as const;
   return 'conversation' as const;
 }
 
@@ -314,7 +334,7 @@ function readMessage(raw: unknown): HistoryItem[] {
       case 'image':
       case 'document': {
         const label = `[${block.type}]`;
-        items.push({ fp: fingerprint(block.type, block), kind: 'user', text: label });
+        items.push({ fp: fingerprintAttachment(block), kind: 'user', text: label });
         break;
       }
       default:
@@ -342,6 +362,31 @@ function textHistoryItem(role: string | undefined, text: string): HistoryItem {
     text,
     segments: splitTaggedUserContent(text),
   };
+}
+
+/**
+ * Identifies an attachment without hashing its payload.
+ *
+ * The whole block used to go through `stableStringify` and then a per-character
+ * hash — and because every request replays the entire transcript, a 5 MB image
+ * was re-serialised and re-hashed on every single turn, on the synchronous path
+ * that forwards the agent's request.
+ *
+ * Media type, length, and both ends of the payload separate any two
+ * attachments a session actually holds. The fingerprint only has to tell blocks
+ * apart within one conversation, never resist collision.
+ */
+function fingerprintAttachment(block: Record<string, unknown>): string {
+  const source = asRecord(block.source);
+  const data = asString(source?.data) ?? '';
+  return fingerprint(
+    asString(block.type) ?? 'attachment',
+    asString(source?.media_type) ?? '',
+    asString(source?.url) ?? '',
+    data.length,
+    data.slice(0, 64),
+    data.slice(-64),
+  );
 }
 
 function blockKind(type: unknown): StreamBlockEvent['kind'] {

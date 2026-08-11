@@ -9,6 +9,18 @@ export function findAdapter(record: TransportRecord): ProviderAdapter | undefine
   return ADAPTERS.find((candidate) => candidate.matches(record));
 }
 
+/**
+ * Whether any known provider dispatches subagents through this tool.
+ *
+ * Used where there is no request to pick an adapter from — restoring pending
+ * calls from persisted nodes after a restart. Tool names are distinctive enough
+ * that asking every adapter is safe, and it keeps the names themselves out of
+ * the builder.
+ */
+export function isSubagentTool(toolName: string): boolean {
+  return ADAPTERS.some((adapter) => adapter.isSubagentTool(toolName));
+}
+
 export function inspectRequest(record: TransportRecord): RequestInspection | undefined {
   return findAdapter(record)?.inspectRequest(record);
 }
