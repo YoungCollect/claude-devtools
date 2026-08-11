@@ -16,6 +16,7 @@ import {
   Empty,
   KeyValue,
   Section,
+  tabPanelProps,
   Tabs,
 } from './ui.js';
 import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from './ui/drawer.js';
@@ -143,10 +144,10 @@ function InspectorPanel({
       </header>
 
       <div className="shrink-0 border-b border-hairline py-2">
-        <Tabs tabs={TABS} active={tab} onChange={setTab} />
+        <Tabs tabs={TABS} active={tab} onChange={setTab} idPrefix="inspector" label="Request detail" />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto" {...tabPanelProps('inspector', tab)}>
         {!record ? (
           <Empty>Request not found — it may have been evicted from the buffer.</Empty>
         ) : (
@@ -448,7 +449,7 @@ function Stream({ record }: { record: TransportDetail }) {
       <div className="mb-3 text-[13px] text-muted-foreground">
         {frames.length} raw frames
       </div>
-      <div className="overflow-hidden rounded-lg bg-code">
+      <div className="overflow-hidden rounded-lg border border-code-border bg-code">
         <div className="divide-y divide-code-divider">
           {frames.slice(0, 800).map((frame, i) => (
             <FrameRow key={i} frame={frame} offsetMs={frame.t - start} />
@@ -484,7 +485,7 @@ function FrameRow({ frame, offsetMs }: { frame: SseFrame; offsetMs: number }) {
         </span>
       </button>
       {open && (
-        <pre className="mt-1.5 overflow-x-auto rounded-md bg-code-soft p-3 font-mono text-[12px] leading-[1.6] whitespace-pre-wrap text-code-fg">
+        <pre className="mt-1.5 overflow-x-auto rounded-md border border-code-border bg-code-soft p-3 font-mono text-[12px] leading-[1.6] whitespace-pre-wrap text-code-fg">
           {frame.data ? pretty(frame.data) : frame.raw}
         </pre>
       )}

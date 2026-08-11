@@ -28,10 +28,7 @@ export interface TraceViewProps {
 export function TraceView({ nodes, selectedNodeId, onInspect }: TraceViewProps) {
   // `groupTrace` walks the whole list, so it must not re-run per render — the
   // store bumps its revision on every streamed frame.
-  const items = useMemo(
-    () => groupTrace(nodes.filter((node) => node.kind !== 'assistant' || (node.text ?? '').trim())),
-    [nodes],
-  );
+  const items = useMemo(() => groupTrace(nodes), [nodes]);
   if (items.length === 0) {
     return <Empty>No trace events yet. Point an agent at the proxy and send a message.</Empty>;
   }
@@ -245,7 +242,7 @@ function ToolPane({
       <div className="mb-1 text-[11px] font-medium tracking-[1.5px] text-muted-soft uppercase">
         {label}
       </div>
-      <div className="max-h-[260px] overflow-auto rounded-md bg-code">
+      <div className="max-h-[260px] overflow-auto rounded-md border border-code-border bg-code">
         <pre
           className={cx(
             'px-3 py-2.5 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap',
@@ -444,6 +441,8 @@ function AssistantNode({ node }: { node: TraceNode }) {
           formats={PROSE_FORMATS}
           maxHeightClass="max-h-none"
           proseClassName="markdown-chat"
+          // The assistant sits on the left, so its controls mirror the user's.
+          controlsAlign="start"
           diffSource={{ sourceId: node.id, sessionId: node.conversationId, label: 'assistant message' }}
         />
       </div>
