@@ -12,6 +12,9 @@ if (!existsSync(entry)) {
   process.exit(1);
 }
 
+// Every flag is the server's to interpret (see src/server/cli.ts); this wrapper
+// only exists to apply the runtime flag below, so it passes them through whole.
+
 // Re-exec so the runtime flag applies: node:sqlite is still marked experimental
 // and would otherwise print a notice above our own banner on every start.
 const { status } = spawnSync(

@@ -14,7 +14,9 @@ import { SseParser } from '../src/core/sse.js';
 import { Store } from '../src/core/store.js';
 import { TraceBuilder } from '../src/core/trace-builder.js';
 import type { TransportRecord } from '../src/core/types.js';
+import { orderedClients, runCommand } from '../src/core/clients.js';
 import { createApi } from '../src/server/api.js';
+import { parseArgs } from '../src/server/cli.js';
 import { loadConfig } from '../src/server/config.js';
 import { Persistence } from '../src/server/persistence.js';
 import { createProxy, serverPort } from '../src/server/proxy.js';
@@ -1152,3 +1154,75 @@ async function postTo(url: string): Promise<string> {
   const response = await fetch(url, { method: 'POST', body: '{}' });
   return response.text();
 }
+
+test('the command line configures the run and outranks the environment', () => {
+  const config = loadConfig(
+    [
+      '--client',
+      'codex',
+      '--proxy-url',
+      'http://127.0.0.1:4999',
+      '--ui-port=4998',
+      '--upstream',
+      'https://openrouter.ai/api/',
+      '--no-persist',
+      '--max-bytes',
+      '2048',
+    ],
+    {
+      AGENT_DEVTOOLS_PROXY_PORT: '4141',
+      AGENT_DEVTOOLS_OPENAI_UPSTREAM: 'https://ignored.example',
+    },
+  );
+
+  assert.equal(config.proxyPort, 4999);
+  assert.equal(config.uiPort, 4998);
+  // `--client` decides where paths that name no provider go, and which run
+  // command the banner and the UI put first.
+  assert.equal(config.defaultProvider, 'openai');
+  // `--upstream` follows `--client`; the trailing slash is normalised away so
+  // the proxy does not join paths onto it twice.
+  assert.equal(config.upstreams.openai, 'https://openrouter.ai/api');
+  // The provider that was not selected keeps its default.
+  assert.equal(config.upstreams.anthropic, 'https://api.anthropic.com');
+  assert.equal(config.persist, false);
+  assert.equal(config.maxBytes, 2048);
+
+  // Order on the line does not change what `--upstream` means.
+  assert.deepEqual(parseArgs(['--upstream', 'https://example.test', '--client', 'codex']).upstreams, {
+    openai: 'https://example.test',
+  });
+  assert.equal(loadConfig([], {}).defaultProvider, 'anthropic');
+});
+
+test('the command line rejects what it cannot honour', () => {
+  assert.throws(() => parseArgs(['--client', 'gemini']), /--client must be one of/);
+  // The loopback rule is enforced wherever a host can first be named, not only
+  // on the environment variable.
+  assert.throws(() => parseArgs(['--proxy-url', 'http://10.0.0.5:4141']), /must be on 127\.0\.0\.1/);
+  assert.throws(() => parseArgs(['--proxy-url', 'http://127.0.0.1']), /must include a port/);
+  assert.equal(parseArgs(['--proxy-url', 'http://localhost:4141']).proxyPort, 4141);
+  assert.throws(() => parseArgs(['--ui-port', 'abc']), /positive integer/);
+  assert.throws(() => parseArgs(['--upstream']), /needs a value/);
+  assert.throws(() => parseArgs(['--openai-upstream', 'ftp://nope']), /must be an http\(s\) URL/);
+  // A mistyped flag that was ignored would be a capture quietly doing something
+  // other than what was asked for.
+  assert.throws(() => parseArgs(['--no-persistt']), /unknown option --no-persistt/);
+  // `pnpm start -- --client codex` hands the separator through; npm strips it.
+  assert.equal(parseArgs(['--', '--client', 'codex']).client, 'openai');
+});
+
+test('the run command shown always matches the client the server was started for', () => {
+  const forCodex = orderedClients('openai');
+  assert.deepEqual(
+    forCodex.map((client) => runCommand(client, 'http://127.0.0.1:4141')),
+    [
+      'OPENAI_BASE_URL=http://127.0.0.1:4141/v1 codex',
+      'ANTHROPIC_BASE_URL=http://127.0.0.1:4141 claude',
+    ],
+  );
+  // Every client is listed either way: one port routes them all, so running one
+  // never rules out another.
+  assert.equal(orderedClients('anthropic')[0]?.binary, 'claude');
+  assert.equal(orderedClients(undefined).length, forCodex.length);
+});

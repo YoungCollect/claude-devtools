@@ -1,3 +1,4 @@
+import { orderedClients, runCommand } from '../core/clients.js';
 import type { KnownProviderId } from '../core/types.js';
 import type { ServerConfig } from './api.js';
 
@@ -19,18 +20,11 @@ export interface RunCommand {
  */
 export function runCommands(config: ServerConfig | undefined): RunCommand[] {
   if (!config) return [];
-  return [
-    {
-      provider: 'anthropic',
-      label: 'Claude Code',
-      command: `ANTHROPIC_BASE_URL=${config.proxyUrl} claude`,
-    },
-    {
-      provider: 'openai',
-      label: 'Codex',
-      command: `OPENAI_BASE_URL=${config.proxyUrl}/v1 codex`,
-    },
-  ];
+  return orderedClients(config.defaultProvider).map((client) => ({
+    provider: client.provider,
+    label: client.label,
+    command: runCommand(client, config.proxyUrl),
+  }));
 }
 
 /**
@@ -40,7 +34,6 @@ export function runCommands(config: ServerConfig | undefined): RunCommand[] {
  * offers the Codex line rather than always naming Claude Code.
  */
 export function primaryRunCommand(config: ServerConfig | undefined): string {
-  const commands = runCommands(config);
-  const primary = commands.find(({ provider }) => provider === config?.defaultProvider);
-  return (primary ?? commands[0])?.command ?? '';
+  // `runCommands` already puts the selected client first.
+  return runCommands(config)[0]?.command ?? '';
 }

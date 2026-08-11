@@ -1,9 +1,11 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import type { KnownProviderId } from '../core/types.js';
+import { parseArgs } from './cli.js';
+
 /** Providers this proxy can forward to. Adding one is a route plus an adapter. */
-export const PROVIDERS = ['anthropic', 'openai'] as const;
-export type ProviderTarget = (typeof PROVIDERS)[number];
+export const PROVIDERS = ['anthropic', 'openai'] as const satisfies readonly KnownProviderId[];
 
 export interface Config {
   /** Port every client points its base URL at, whichever provider it speaks. */
@@ -20,9 +22,9 @@ export interface Config {
    * Claude Code session and a Codex session can share this proxy without either
    * knowing the other is there.
    */
-  upstreams: Record<ProviderTarget, string>;
+  upstreams: Record<KnownProviderId, string>;
   /** Where traffic belonging to no known provider goes — auth, models, probes. */
-  defaultProvider: ProviderTarget;
+  defaultProvider: KnownProviderId;
   /** Loopback only. This tool holds credentials and source code in memory. */
   host: string;
   /** In-memory index size. Bodies live on disk, so this bounds metadata only. */
@@ -34,7 +36,7 @@ export interface Config {
   maxBytes: number;
 }
 
-const DEFAULT_UPSTREAMS: Record<ProviderTarget, string> = {
+const DEFAULT_UPSTREAMS: Record<KnownProviderId, string> = {
   anthropic: 'https://api.anthropic.com',
   openai: 'https://api.openai.com',
 };
@@ -55,10 +57,19 @@ function intFromEnv(
   return parsed;
 }
 
+/**
+ * The runtime settings, from the command line first and the environment second.
+ *
+ * `argv` is what follows the executable and script — `process.argv.slice(2)` —
+ * so the caller decides what counts as an argument and this stays trivially
+ * testable. Flags win over environment variables because they are the more
+ * specific statement: the env describes a machine, the flag describes this run.
+ */
 export function loadConfig(
-  argv: string[] = process.argv,
+  argv: readonly string[] = process.argv.slice(2),
   env: NodeJS.ProcessEnv = process.env,
 ): Config {
+  const cli = parseArgs(argv);
   const requestedHost = env.AGENT_DEVTOOLS_HOST ?? '127.0.0.1';
   if (requestedHost !== '127.0.0.1') {
     throw new Error(
@@ -66,23 +77,25 @@ export function loadConfig(
     );
   }
   return {
-    proxyPort: intFromEnv(env, 'AGENT_DEVTOOLS_PROXY_PORT', 4141, 65_535),
-    uiPort: intFromEnv(env, 'AGENT_DEVTOOLS_UI_PORT', 4142, 65_535),
+    proxyPort: cli.proxyPort ?? intFromEnv(env, 'AGENT_DEVTOOLS_PROXY_PORT', 4141, 65_535),
+    uiPort: cli.uiPort ?? intFromEnv(env, 'AGENT_DEVTOOLS_UI_PORT', 4142, 65_535),
     vitePort: intFromEnv(env, 'AGENT_DEVTOOLS_VITE_PORT', 5173, 65_535),
     upstreams: {
       // `AGENT_DEVTOOLS_UPSTREAM` predates multi-provider support and meant
       // "the upstream", which was Anthropic's. It keeps that meaning.
       anthropic:
+        cli.upstreams?.anthropic ??
         env.AGENT_DEVTOOLS_ANTHROPIC_UPSTREAM ??
         env.AGENT_DEVTOOLS_UPSTREAM ??
         DEFAULT_UPSTREAMS.anthropic,
-      openai: env.AGENT_DEVTOOLS_OPENAI_UPSTREAM ?? DEFAULT_UPSTREAMS.openai,
+      openai:
+        cli.upstreams?.openai ?? env.AGENT_DEVTOOLS_OPENAI_UPSTREAM ?? DEFAULT_UPSTREAMS.openai,
     },
-    defaultProvider: 'anthropic',
+    defaultProvider: cli.client ?? 'anthropic',
     host: requestedHost,
-    maxRequests: intFromEnv(env, 'AGENT_DEVTOOLS_MAX_REQUESTS', 5000),
-    persist: !argv.includes('--no-persist'),
-    dbFile: env.AGENT_DEVTOOLS_DB ?? join(homedir(), '.agent-devtools', 'traces.db'),
-    maxBytes: intFromEnv(env, 'AGENT_DEVTOOLS_MAX_BYTES', 1024 * 1024 * 1024),
+    maxRequests: cli.maxRequests ?? intFromEnv(env, 'AGENT_DEVTOOLS_MAX_REQUESTS', 5000),
+    persist: cli.persist ?? true,
+    dbFile: cli.dbFile ?? env.AGENT_DEVTOOLS_DB ?? join(homedir(), '.agent-devtools', 'traces.db'),
+    maxBytes: cli.maxBytes ?? intFromEnv(env, 'AGENT_DEVTOOLS_MAX_BYTES', 1024 * 1024 * 1024),
   };
 }

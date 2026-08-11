@@ -27,6 +27,15 @@ npm run build
 npm start
 ```
 
+`npm start` runs `agent-devtools`, which is the supported way to start a capture —
+every setting is a flag, and the banner prints the exact line to paste for the
+client you started it for:
+
+```bash
+agent-devtools --client codex --proxy-url http://127.0.0.1:4141
+agent-devtools --help
+```
+
 Then point an agent at the proxy. One port serves every supported provider — the
 route is chosen per request path — so these are alternatives you can also run at
 the same time:
@@ -58,6 +67,24 @@ Editing anything under `src/server` or `src/core` restarts the process and brief
 | 4141 | Capture proxy — the agent's `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` |
 | 4142 | API; serves the built UI in production, redirects to Vite in dev |
 | 5173 | Vite dev server — **the URL to open during `pnpm dev`** |
+
+### Options
+
+| Flag | Meaning |
+| ---- | ------- |
+| `--client <name>` | The client this session is for: `claude` or `codex` (aliases `claude-code`, `anthropic`, `openai`). Both providers are captured either way; this sets the default route for paths that name neither, and which run command is put first. Default `claude`. |
+| `--proxy-url <url>` | Where the capture proxy listens, e.g. `http://127.0.0.1:4141`. Must be loopback. |
+| `--proxy-port <port>` | The port alone |
+| `--ui-port <port>` | Port serving the UI and its API |
+| `--upstream <url>` | Upstream for `--client`'s provider |
+| `--anthropic-upstream <url>`, `--openai-upstream <url>` | Upstream for one provider, whatever `--client` says |
+| `--db <path>`, `--max-bytes <n>`, `--max-requests <n>`, `--no-persist` | Storage and retention |
+| `--dev` | Serve the UI from the Vite dev server |
+| `-h, --help`, `-v, --version` | Print and exit |
+
+Flags beat environment variables, which beat defaults. An unrecognised flag is an
+error rather than a shrug — a mistyped flag that was ignored would be a capture
+quietly doing something other than what was asked.
 
 Environment overrides: `AGENT_DEVTOOLS_PROXY_PORT`, `AGENT_DEVTOOLS_UI_PORT`,
 `AGENT_DEVTOOLS_ANTHROPIC_UPSTREAM` (or its former name `AGENT_DEVTOOLS_UPSTREAM`),
