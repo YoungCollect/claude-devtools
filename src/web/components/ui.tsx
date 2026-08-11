@@ -113,12 +113,44 @@ export function MetaBadge({
  * This is the role API: `user` / `assistant` / `system` / `tool` / `context`,
  * and the sidebar's `subagent` marker.
  */
-export function TagLabel({ children, role }: { children: ReactNode; role: RoleTone }) {
+export function TagLabel({
+  children,
+  role,
+  iconOnly = false,
+  flush = false,
+  size = 'default',
+  className,
+}: {
+  children: ReactNode;
+  role: RoleTone;
+  iconOnly?: boolean;
+  flush?: boolean;
+  /**
+   * `control` is for a pill that is a button's whole visible surface — the tool
+   * strip's count, a context block's title. A label you only read can sit at its
+   * 24px type height, but one you click is a hit target and needs more than the
+   * type gives it.
+   *
+   * The side padding grows with it. A pill is `rounded-full`, so its ends curve
+   * further in as it gets taller: keeping the 24px padding would leave the text
+   * sitting inside the curve rather than clear of it.
+   */
+  size?: 'default' | 'control';
+  className?: string;
+}) {
   return (
     <span
       className={cx(
-        'inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[11px] leading-5 font-medium tracking-[1.5px] uppercase',
+        'inline-flex shrink-0 items-center rounded-full text-[11px] leading-5 font-medium uppercase',
+        iconOnly
+          ? 'size-8 justify-center'
+          : cx(
+              'py-0.5 tracking-[1.5px]',
+              !flush && (size === 'control' ? 'px-3' : 'px-2.5'),
+              size === 'control' && 'h-7',
+            ),
         ROLE_TONES[role],
+        className,
       )}
     >
       {children}
@@ -308,16 +340,31 @@ export function Section({
   );
 }
 
-export function Chevron({ open }: { open: boolean }) {
+export function Chevron({
+  open,
+  direction = 'left',
+}: {
+  open: boolean;
+  direction?: 'left' | 'right';
+}) {
+  const pointsRight = direction === 'right';
   return (
     <svg
-      width="9"
-      height="9"
+      width="12"
+      height="12"
       viewBox="0 0 10 10"
-      className={cx('shrink-0 transition-transform', open && 'rotate-90')}
+      className={cx(
+        'shrink-0 transition-transform',
+        open && (pointsRight ? 'rotate-90' : '-rotate-90'),
+      )}
       aria-hidden
     >
-      <path d="M3 1.5 L7 5 L3 8.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d={pointsRight ? 'M3 1.5 L7 5 L3 8.5' : 'M7 1.5 L3 5 L7 8.5'}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
     </svg>
   );
 }
@@ -504,7 +551,8 @@ function CheckIcon() {
  *
  * It borrows the `chrome` button's fill and hairline (one CVA definition, not a
  * hand-rolled lookalike) and only adds the danger tone, which no worded button
- * needed: `Clear` armed has to *look* destructive once it stops saying so.
+ * needed: an icon-only control that has gone wrong — Clear after a failed wipe
+ * — has to *look* it, having no word left to say so.
  */
 export function HeaderIconButton({
   label,
@@ -516,7 +564,8 @@ export function HeaderIconButton({
   /** Names the control for both the tooltip and assistive technology. */
   label: string;
   onClick: () => void;
-  /** `danger` is the armed/destructive state, e.g. Clear waiting to confirm. */
+  /** `danger` marks a control in a destructive or failed state, e.g. Clear
+   * after a wipe that did not go through. */
   tone?: 'neutral' | 'danger';
   /** Set only by a disclosure — it declares the button a panel trigger. */
   expanded?: boolean;

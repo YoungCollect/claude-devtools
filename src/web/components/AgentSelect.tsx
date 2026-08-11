@@ -1,48 +1,10 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ChevronDown } from 'lucide-react';
-import claudeCodeMark from '@lobehub/icons-static-svg/icons/claudecode.svg?raw';
-import openaiMark from '@lobehub/icons-static-svg/icons/openai.svg?raw';
+import { AGENTS, BrandMark, useAgent } from '../agent.js';
 import { cx } from './class-names.js';
 import { buttonVariants } from './ui/button.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js';
 import { cn } from '@/lib/utils';
-
-/**
- * The agents this UI can be pointed at. First entry is the default.
- *
- * The marks come from `@lobehub/icons-static-svg` (MIT) rather than being
- * redrawn here: brand logos change, and a copy of one in this repo is a copy
- * that silently goes stale.
- */
-export const AGENTS = [
-  { id: 'claude-code', label: 'Claude Code', mark: claudeCodeMark },
-  { id: 'openai', label: 'OpenAI', mark: openaiMark },
-] as const;
-
-export type AgentId = (typeof AGENTS)[number]['id'];
-
-export const DEFAULT_AGENT: AgentId = AGENTS[0].id;
-
-/**
- * A brand logo, inlined so it can take the colour of the control around it.
- *
- * The package ships plain SVG files whose fill is `currentColor` and whose box
- * is `1em`, so a mark inherits the button's colour and is sized by `font-size`.
- * The markup is inlined at build time from a dependency — never from captured
- * traffic, a header, or any other runtime string — which is what makes the
- * `dangerouslySetInnerHTML` here safe. An `<img src=…>` would render the same
- * file but lose `currentColor`, and the logo could no longer follow the theme.
- */
-function BrandMark({ svg, size = 15 }: { svg: string; size?: number }) {
-  return (
-    <span
-      aria-hidden
-      className="inline-flex shrink-0 items-center justify-center"
-      style={{ fontSize: size }}
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  );
-}
 
 /**
  * The header's agent picker: logos only, no words.
@@ -55,17 +17,11 @@ function BrandMark({ svg, size = 15 }: { svg: string; size?: number }) {
  * pointer-down outside closes, Escape closes and returns focus to the trigger,
  * and the arrow keys walk the options.
  */
-export function AgentSelect({
-  value,
-  onChange,
-}: {
-  value: AgentId;
-  onChange: (id: AgentId) => void;
-}) {
+export function AgentSelect() {
+  const { agent: current, setAgent } = useAgent();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const current = AGENTS.find((agent) => agent.id === value) ?? AGENTS[0];
 
   const focusTrigger = () => rootRef.current?.querySelector('button')?.focus();
 
@@ -140,17 +96,17 @@ export function AgentSelect({
               key={agent.id}
               type="button"
               role="menuitemradio"
-              aria-checked={agent.id === value}
+              aria-checked={agent.id === current.id}
               aria-label={agent.label}
               title={agent.label}
               onClick={() => {
-                onChange(agent.id);
+                setAgent(agent.id);
                 setOpen(false);
                 focusTrigger();
               }}
               className={cx(
                 'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
-                agent.id === value
+                agent.id === current.id
                   ? 'bg-surface-soft text-ink'
                   : 'text-muted-foreground hover:bg-surface-soft hover:text-ink',
               )}

@@ -318,8 +318,9 @@ rule for operational developer tools. Agent DevTools renders captured JSON,
 XML, Markdown fences, raw request/response bodies and SSE frames through one
 theme-adaptive `DataSurface` contract:
 
-- Light theme uses a warm-grey data panel with dark syntax colours. It must not
-  introduce a near-black island merely to signal “code”.
+- Light theme uses `#efebe1` through the `data-surface` role for standalone
+  Markdown, XML, JSON and transport data. It must not introduce a near-black
+  island merely to signal “code”.
 - Dark theme uses a raised dark panel with an explicit border; it remains
   distinct from the page canvas without changing layout or density.
 - Format is communicated through structure, labels and syntax roles. Switching
@@ -328,6 +329,12 @@ theme-adaptive `DataSurface` contract:
 - Role, status and syntax colours are independent semantic domains. A successful
   HTTP response never borrows the assistant role colour, even if their current
   reference-palette values happen to match.
+- User and assistant Markdown messages share the canonical canvas role
+  (`#faf9f5` in light) plus a hairline border. Position, corner direction and
+  role labels distinguish speakers; separate message fills do not.
+- Chat message rows do not introduce a hover fill, and fenced Markdown inside
+  a message inherits that same single container. Selection may still use its
+  semantic surface to show which exchange is open in Inspector.
 
 The implementation source of truth is `src/web/styles.css`: reference values
 flow into semantic/component tokens, and React components consume only the

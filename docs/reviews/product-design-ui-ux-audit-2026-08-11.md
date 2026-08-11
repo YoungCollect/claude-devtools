@@ -288,7 +288,7 @@ Reference palette 只保存物理色值，例如 warm-neutral、slate、coral、
 
 | Token | Light | Dark |
 | --- | --- | --- |
-| `--data-surface` | `#F3EFE7` | `#13171C` |
+| `--data-surface` | `#EFEBE1` | `#13171C` |
 | `--data-surface-nested` | `#ECE6DC` | `#1A1F26` |
 | `--data-surface-control` | `#E7E0D5` | `#1A1F26` |
 | `--data-foreground` | `#252523` | `#E6EAEF` |
@@ -310,18 +310,18 @@ Reference palette 只保存物理色值，例如 warm-neutral、slate、coral、
 --syntax-event;
 ```
 
-Light 推荐值及其在 `#F3EFE7` 上的 WCAG 对比度：
+Light 推荐值及其在 `#EFEBE1` 上的 WCAG 对比度：
 
 | 角色 | 色值 | 对比度 |
 | --- | --- | ---: |
-| key | `#4F5E6C` | 5.81:1 |
-| string | `#2D6A4F` | 5.57:1 |
-| number | `#8B5A16` | 5.13:1 |
-| boolean | `#6B4BA1` | 5.82:1 |
-| null / error | `#A63D40` | 5.45:1 |
-| tag | `#24705F` | 5.15:1 |
-| attribute | `#87531B` | 5.58:1 |
-| punctuation | `#64615A` | 5.39:1 |
+| key | `#4F5E6C` | 5.60:1 |
+| string | `#2D6A4F` | 5.37:1 |
+| number | `#8B5A16` | 4.94:1 |
+| boolean | `#6B4BA1` | 5.61:1 |
+| null / error | `#A63D40` | 5.25:1 |
+| tag | `#24705F` | 4.96:1 |
+| attribute | `#87531B` | 5.37:1 |
+| punctuation | `#64615A` | 5.19:1 |
 
 ## 6. 内容到组件的完整映射
 
@@ -540,7 +540,7 @@ Light 推荐值及其在 `#F3EFE7` 上的 WCAG 对比度：
 | Tool input / result | `TraceView.tsx`（`ToolPane`，原 `chat-code` 家族） | `nested` |
 | Header 运行命令块 | `App.tsx` | `inline` |
 
-**没有做**：Markdown 渲染视图和 XML 大纲没有迁移到 DataSurface（手册 §6 映射表建议两者都迁移）。原因：这两个是"渲染视图"，设计上一直安静地待在 canvas 上（`ContentViewer` 的既有注释解释了这一点——切换 Rendered/Raw 不应该整个面板变色），2026-08-10 审查也确认它们的配色本身没问题。把它们强行搬进 DataSurface 会引入一个当前不存在的问题（canvas 上凭空多出一块有边框的面板），而不是修一个真实缺陷,所以刻意保留原状,仅在本节注明是手册目标与本次实施的差异点。
+**后续状态：已由 §16 覆盖。** Markdown、XML、JSON 与 Raw 现在统一使用 DataSurface；Chat message 内的 bare Markdown 则继承独立的 message surface。
 
 ### P1-02 — 全局隐藏 scrollbar
 
@@ -706,5 +706,21 @@ CSS 对这种情况不报错：未定义的 `var()` 属于 invalid at computed-v
 - `pnpm test`：72/72 通过。
 - `pnpm typecheck`：通过。
 - `pnpm build`：通过；仅保留既有的大 chunk 警告。
-- 隔离的 `--no-persist` 本地实例浏览器检查：Light/Dark 均无错误 overlay、console error 为 0；DataSurface 计算背景分别为 light `rgb(243, 239, 231)`、dark `rgb(19, 23, 28)`。
+- 隔离的 `--no-persist` 本地实例浏览器检查：Light/Dark 均无错误 overlay、console error 为 0；DataSurface 计算背景分别为 light `rgb(239, 235, 225)`、dark `rgb(19, 23, 28)`。
 - 390×844：`document.body.scrollWidth === 390`，Clear、Diff、theme control 的右边界均在 viewport 内。
+
+## 16. Chat Trace / Inspector 渲染表面统一（2026-08-11）
+
+### 16.1 Token 决策
+
+- 用户指定的 `#EFEBE1` 在调整前没有现成 token；它现在成为 light `--ref-light-data-100`，继续通过 `--color-data-surface` 对组件发布。
+- 用户指定的 `#FAF9F6` 与项目 canonical canvas `#FAF9F5` 仅差一个色阶值。为避免新增肉眼不可区分的平行 token，Chat message 统一复用 `--color-canvas`。
+- Dark theme 不写死 light 色值：DataSurface 继续使用 `#13171C`，message 继续使用 dark canvas，并用 border 保持边界。
+
+### 16.2 容器规则
+
+1. Inspector 与 Chat Trace 中的 standalone Markdown、XML、JSON、Raw、SSE、assembled response 均使用 DataSurface；light ground 为 `#EFEBE1`。
+2. User message 与 assistant message 均为 `bg-canvas + border-hairline`，不再用 `surface-card` / `surface-soft` 区分发言者；角色由位置、圆角方向与 role badge 表达。
+3. Message 的 `ContentViewer` 自身就是带 padding、背景、边框和圆角的唯一容器，不再由外层 bubble `<div>` 二次包裹。
+4. Chat message 内的 Markdown fenced code 直接继承 message surface，不再创建第二层 DataSurface；Inspector 和 standalone Markdown 中的 fenced code 仍使用 DataSurface。
+5. Chat Trace 的未选中行不再在 pointer hover 时铺设整行背景；hover 只揭示 Inspect 与内容操作，选中态仍保留明确反馈。

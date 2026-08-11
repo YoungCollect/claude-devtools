@@ -56,13 +56,6 @@ export interface ContentViewerProps {
    */
   controlsPlacement?: 'top' | 'bottom' | 'external';
   /**
-   * `hover` fades the controls in on pointer-over (and on keyboard focus, so
-   * they stay reachable without a pointer). They keep their space in the layout
-   * either way — revealing them by reflowing the turn would move the text you
-   * were reading out from under the pointer.
-   */
-  controlsReveal?: 'always' | 'hover';
-  /**
    * Whether the Rendered/Raw toggle is offered.
    *
    * The Chat Trace passes `false`: Copy already hands you the exact source, so
@@ -128,6 +121,42 @@ function setPreference(mode: ViewMode): void {
 }
 
 /**
+ * The view a panel is showing, and the control to change it.
+ *
+ * Exported because a caller can host the control row outside the panel — the
+ * chat trace does, so the row sits on the page under the block rather than
+ * inside its card. Both sides read the same shared preference, so a row and the
+ * panel it belongs to derive the same `active` from the same source; there is
+ * no second copy of the state to fall out of step.
+ */
+export function useContentViewMode(
+  formats: readonly ContentFormat[],
+  showViewModes: boolean,
+): { modes: ViewMode[]; active: ViewMode; setMode: (mode: ViewMode) => void } {
+  const modes = useMemo<ViewMode[]>(() => [...formats, 'raw'], [formats]);
+  const preferred = useSyncExternalStore(subscribeToPreference, getPreference, getPreference);
+  const fallback = modes[0] ?? 'raw';
+  const active = !showViewModes
+    ? fallback
+    : preferred && modes.includes(preferred)
+      ? preferred
+      : fallback;
+  return { modes, active, setMode: setPreference };
+}
+
+/**
+ * The format a diff should take this text as: whichever rendered view is on
+ * screen, or the panel's first rendered format when the reader is in `raw` —
+ * raw is not something a diff can be rendered as.
+ */
+export function diffFormatFor(
+  active: ViewMode,
+  formats: readonly ContentFormat[],
+): GitDiffFormat {
+  return active === 'markdown' || active === 'xml' ? active : (formats[0] ?? 'markdown');
+}
+
+/**
  * Shows agent-authored text as markdown or as a tag outline, with the exact
  * source one click away.
  *
@@ -147,48 +176,26 @@ export function ContentViewer({
   proseClassName,
   controlsAlign = 'end',
   controlsPlacement = 'top',
-  controlsReveal = 'always',
   showViewModes = true,
 }: ContentViewerProps) {
-  const modes = useMemo<ViewMode[]>(() => [...formats, 'raw'], [formats]);
-  const preferred = useSyncExternalStore(subscribeToPreference, getPreference, getPreference);
-  const fallback = modes[0] ?? 'raw';
-  const active = !showViewModes
-    ? fallback
-    : preferred && modes.includes(preferred)
-      ? preferred
-      : fallback;
+  const { modes, active, setMode } = useContentViewMode(formats, showViewModes);
 
-  // Prose remains on the document canvas. XML structure and raw source are both
-  // machine-oriented views and therefore share the same theme-adaptive data
-  // ground; format is communicated by structure and syntax, not a background
-  // flip. A bare chat viewer continues to inherit its turn's own surface.
-  const usesDataSurface = variant === 'card' && active !== 'markdown';
-  const diffFormat: GitDiffFormat =
-    active === 'markdown' || active === 'xml' ? active : (formats[0] ?? 'markdown');
+  // Every standalone renderer uses the same theme-adaptive ground. Markdown,
+  // XML and raw source communicate format through typography and syntax, not
+  // through a different panel colour. A bare chat viewer still inherits the
+  // message surface supplied by its caller.
+  const usesDataSurface = variant === 'card';
+  const diffFormat = diffFormatFor(active, formats);
 
   const toolbar = controlsPlacement === 'external' ? undefined : (
-    <div
-      className={
-        controlsReveal === 'hover'
-          ? // Opacity, not `hidden`: the buttons keep their space (no reflow on
-            // hover) and stay in the tab order, and `focus-within` brings them
-            // back for a keyboard user who can never trigger `group-hover`.
-            'opacity-0 transition-opacity group-hover/content:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100'
-          : undefined
-      }
-    >
-      <ContentToolbar
-        text={text}
-        diff={diffSource && { source: diffSource, format: diffFormat }}
-        viewModes={
-          showViewModes ? { options: modes, active, onSelect: setPreference } : undefined
-        }
-        variant={variant}
-        align={controlsAlign}
-        edge={controlsPlacement}
-      />
-    </div>
+    <ContentToolbar
+      text={text}
+      diff={diffSource && { source: diffSource, format: diffFormat }}
+      viewModes={showViewModes ? { options: modes, active, onSelect: setMode } : undefined}
+      variant={variant}
+      align={controlsAlign}
+      edge={controlsPlacement}
+    />
   );
 
   const body = (
@@ -205,7 +212,7 @@ export function ContentViewer({
 
   if (usesDataSurface) {
     return (
-      <DataSurface variant="block" className={cx('group/content', className)}>
+      <DataSurface variant="block" className={className}>
         {controlsPlacement === 'top' && toolbar}
         {body}
         {controlsPlacement === 'bottom' && toolbar}
@@ -214,15 +221,7 @@ export function ContentViewer({
   }
 
   return (
-    <div
-      className={cx(
-        // Named group so the reveal keys off *this* panel and not whichever
-        // ancestor happens to carry a bare `group` — the trace rows do.
-        'group/content',
-        variant === 'card' ? 'overflow-hidden rounded-lg border border-hairline bg-canvas' : 'flex flex-col',
-        className,
-      )}
-    >
+    <div className={cx('flex flex-col', className)}>
       {controlsPlacement === 'top' && toolbar}
       {body}
       {controlsPlacement === 'bottom' && toolbar}
@@ -254,8 +253,8 @@ function RawPanel({ text, bare }: { text: string; bare: boolean }) {
  * Without this the panel re-parsed its whole source on each tick: measured at
  * +1.1s of script time across a single 3s turn for a 20 kB system prompt.
  *
- * Markdown sits on the canvas surface: it is prose, while machine-oriented
- * content uses the theme-adaptive DataSurface contract.
+ * Standalone Markdown sits on the same DataSurface as XML and JSON. In a chat
+ * message the bare renderer inherits the message's canvas surface instead.
  *
  * `react-markdown` is used without `rehype-raw` on purpose. This text comes from
  * whatever the agent sent, so HTML in it must stay inert; the library's default
@@ -280,14 +279,19 @@ const MarkdownPanel = memo(function MarkdownPanel({
               {children}
             </a>
           ),
-          pre: ({ children }) => (
-            <DataSurface
-              variant={bare ? 'nested' : 'block'}
-              className="markdown-code-block my-[0.8em]"
-            >
-              <DataSurfaceBody className="px-4 py-3">{children}</DataSurfaceBody>
-            </DataSurface>
-          ),
+          pre: ({ children }) =>
+            bare ? (
+              // A chat message already owns its background, border, radius and
+              // padding. Keeping another DataSurface here creates the exact
+              // double-container hierarchy the message shell is meant to avoid.
+              <pre className="markdown-code-block scroll-surface my-[0.8em] overflow-auto">
+                {children}
+              </pre>
+            ) : (
+              <DataSurface variant="block" className="markdown-code-block my-[0.8em]">
+                <DataSurfaceBody className="px-4 py-3">{children}</DataSurfaceBody>
+              </DataSurface>
+            ),
         }}
       >
         {text}

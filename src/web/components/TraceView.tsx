@@ -1,10 +1,17 @@
 import { useMemo, useState } from 'react';
+import { UserRound } from 'lucide-react';
+import { BrandMark, useAgent } from '../agent.js';
 import { splitTaggedUserContent } from '../../core/tagged-content.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
-import { ContentToolbar } from './ContentToolbar.js';
-import { ContentViewer, type ContentFormat } from './ContentViewer.js';
+import { ContentToolbar, type ContentToolbarProps } from './ContentToolbar.js';
+import {
+  ContentViewer,
+  diffFormatFor,
+  useContentViewMode,
+  type ContentFormat,
+} from './ContentViewer.js';
 import { DataSurface, DataSurfaceBody } from './DataSurface.js';
-import type { GitDiffSourceIdentity } from '../git-diff.js';
+import type { GitDiffFormat, GitDiffSourceIdentity } from '../git-diff.js';
 import type { TraceNode } from '../../core/types.js';
 import { groupTrace, turnNodes, type ToolActivity, type TraceTurn } from '../trace-groups.js';
 import { formatMs, formatTokens, pretty, toolResultText, truncate } from '../format.js';
@@ -100,12 +107,7 @@ function TurnRow({
   const primary = members[0];
 
   return (
-    <div
-      className={cx(
-        'group relative flex w-full justify-start border-l-2 px-4 py-4 transition-colors',
-        selected ? 'border-primary bg-surface-soft' : 'border-transparent hover:bg-surface-soft/60',
-      )}
-    >
+    <div className="group relative flex w-full justify-start border-l-2 border-transparent px-4 py-4">
       <div className="min-w-0 flex-1">
         {turn.messages.map((node) => (
           <AssistantNode key={node.id} node={node} />
@@ -122,10 +124,12 @@ function TurnRow({
           onClick={() => onInspect(primary)}
           title="Inspect the HTTP exchange behind this turn"
           className={cx(
-            'absolute top-3 right-4 text-[12px] font-medium text-primary opacity-0 transition-opacity',
+            'absolute top-3 right-4 text-[12px] font-medium text-primary transition-opacity',
             // A touch device has no hover to reveal this on (P2-01) — it stays
             // shown there the way it already does for keyboard focus.
-            'group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
+            selected
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
           )}
         >
           inspect →
@@ -138,7 +142,7 @@ function TurnRow({
 /**
  * The turn's tool round, one line until asked.
  *
- * Collapsed it names what ran; opened it shows each call's full input and full
+ * Collapsed it counts what ran; opened it shows each call's full input and full
  * result. The full input is new here — the old single-node row only ever showed
  * `summarizeToolInput`'s one-line gist, so the actual arguments were reachable
  * only through the Inspector.
@@ -151,7 +155,6 @@ function ToolStrip({
   onInspect: (node: TraceNode) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const names = [...new Set(activities.map((a) => a.call?.toolName ?? a.result?.toolName ?? 'tool'))];
   const failed = activities.filter(({ result }) => result?.isError).length;
   const pending = activities.filter(({ result }) => result === undefined).length;
 
@@ -163,13 +166,10 @@ function ToolStrip({
         aria-expanded={open}
         className="flex w-full items-center gap-2.5 text-left"
       >
-        <Chevron open={open} />
-        <TagLabel role="tool">
+        <TagLabel role="tool" size="control" className="w-24 justify-between">
           {activities.length === 1 ? '1 tool' : `${activities.length} tools`}
+          <Chevron open={open} direction="right" />
         </TagLabel>
-        <span className="min-w-0 truncate font-mono text-[12.5px] text-muted-foreground">
-          {names.join(' · ')}
-        </span>
         {failed > 0 && <StatusBadge tone="error">{failed} failed</StatusBadge>}
         {pending > 0 && <StatusBadge tone="warning">{pending} pending</StatusBadge>}
       </button>
@@ -307,9 +307,8 @@ function TraceRow({
       // a full-width block inset further on one side than the other reads as
       // misaligned, and the trace is scanned down its edges.
       className={cx(
-        'group relative flex w-full px-4 py-4 transition-colors',
+        'group relative flex w-full border-transparent px-4 py-4',
         rightAligned ? 'justify-end border-r-2' : 'justify-start border-l-2',
-        selected ? 'border-primary bg-surface-soft' : 'border-transparent hover:bg-surface-soft/60',
       )}
     >
       <div className={cx('min-w-0', contentWidth)}>
@@ -329,8 +328,10 @@ function TraceRow({
           // Revealed on hover so a scanned list stays quiet. Kept in the DOM
           // rather than swapped with `hidden`, so it is still reachable by
           // keyboard — focus brings it back on its own.
-          'absolute top-3 text-[12px] font-medium text-primary opacity-0 transition-opacity',
-          'group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
+          'absolute top-3 text-[12px] font-medium text-primary transition-opacity',
+          selected
+            ? 'opacity-100'
+            : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
           rightAligned ? 'left-4' : 'right-4',
         )}
       >
@@ -428,22 +429,33 @@ function UserBubble({
 }) {
   return (
     <div className="group/turn">
-      <Gutter label="user" role="user" align="end" />
-      <div className="mt-1.5 rounded-2xl rounded-tr-sm bg-surface-card px-4 py-3">
-        {text ? (
-          <ContentViewer
-            variant="bare"
-            text={text}
-            formats={PROSE_FORMATS}
-            maxHeightClass="max-h-none"
-            proseClassName="markdown-chat markdown-lead"
-            showViewModes={SHOW_CHAT_VIEW_MODES}
-            controlsPlacement="external"
-          />
-        ) : (
+      <Gutter
+        label={
+          <>
+            <UserRound size={22} aria-hidden />
+            <span className="sr-only">User</span>
+          </>
+        }
+        role="user"
+        align="end"
+        iconOnly
+      />
+      {text ? (
+        <ContentViewer
+          className="min-w-50 mt-1.5 rounded-2xl rounded-tr-sm border border-hairline bg-canvas px-4 py-3"
+          variant="bare"
+          text={text}
+          formats={PROSE_FORMATS}
+          maxHeightClass="max-h-none"
+          proseClassName="markdown-chat markdown-lead"
+          showViewModes={SHOW_CHAT_VIEW_MODES}
+          controlsPlacement="external"
+        />
+      ) : (
+        <div className="min-w-50 mt-1.5 rounded-2xl rounded-tr-sm border border-hairline bg-canvas px-4 py-3">
           <span className="display text-[17px] text-muted-soft italic">(no visible text)</span>
-        )}
-      </div>
+        </div>
+      )}
       {text && (
         <TurnControls
           text={text}
@@ -456,36 +468,45 @@ function UserBubble({
 }
 
 /**
- * A turn's controls, under the bubble instead of inside it.
+ * A row's controls, under its block instead of inside it.
  *
  * This is the shape every chat interface has settled on, and the reason holds
- * here: the bubble is one solid block of what was said, and what you can *do*
- * with it hangs below, off the reading line and on the page rather than on the
- * turn's own fill. Inside the bubble the row had to borrow that fill and sat
- * within the same rounded edge as the message, so it read as part of what was
- * said.
+ * for every block in the trace: the bubble — or the expanded system prompt, or
+ * the context outline — is one solid block of what was said, and what you can
+ * *do* with it hangs below, off the reading line and on the page rather than on
+ * the block's own fill. Inside, the row had to borrow that fill and sat within
+ * the same rounded edge as the content, so it read as part of what was said.
  *
- * Revealed on hover over the whole turn (and on keyboard focus), so a trace
+ * Revealed on hover over the whole row (and on keyboard focus), so a trace
  * scrolled past is nothing but conversation.
  */
 function TurnControls({
   text,
   diffSource,
   align,
+  format = 'markdown',
+  viewModes,
 }: {
   text: string;
   diffSource: GitDiffSourceIdentity;
-  /** Matches the bubble's own side, so the row stays under its own turn. */
+  /** Matches the block's own side, so the row stays under its own turn. */
   align: 'start' | 'end';
+  /**
+   * What a diff takes this text as. Chat turns render as markdown and cannot be
+   * switched (see `SHOW_CHAT_VIEW_MODES`); a context block can be an outline,
+   * so it passes whichever view is on screen.
+   */
+  format?: GitDiffFormat;
+  /** Only the blocks with two rendered views offer a toggle, and only when on. */
+  viewModes?: ContentToolbarProps['viewModes'];
 }) {
   return (
     <div className="mt-1.5 opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
       <ContentToolbar
         variant="inline"
         text={text}
-        // Chat turns render as markdown and cannot be switched (see
-        // `SHOW_CHAT_VIEW_MODES`), so that is what a diff takes them as.
-        diff={{ source: diffSource, format: 'markdown' }}
+        diff={{ source: diffSource, format }}
+        viewModes={viewModes}
         align={align}
       />
     </div>
@@ -494,9 +515,24 @@ function TurnControls({
 
 function AssistantNode({ node }: { node: TraceNode }) {
   const text = node.text ?? '';
+  // The mark follows the header's picker. The trace is a record of one agent's
+  // run, so the two must never show different vendors at once — they read the
+  // same context rather than each holding a copy (see `AgentProvider`).
+  const { agent } = useAgent();
   return (
     <div className="group/turn">
-      <Gutter label="assistant" role="assistant">
+      <Gutter
+        label={
+          <>
+            <BrandMark svg={agent.mark} size={28} />
+            {/* The role, not the vendor: what a screen reader needs here is
+                whose turn this is. */}
+            <span className="sr-only">Assistant</span>
+          </>
+        }
+        role="assistant"
+        mark
+      >
         {node.model && <span className="font-mono text-[12px] text-muted-foreground">{node.model}</span>}
         {node.durationMs !== undefined && (
           <span className="font-mono text-[12px] text-muted-soft">{formatMs(node.durationMs)}</span>
@@ -507,17 +543,16 @@ function AssistantNode({ node }: { node: TraceNode }) {
           </span>
         )}
       </Gutter>
-      <div className="mt-1.5 rounded-2xl rounded-tl-sm border border-hairline bg-surface-soft px-4 py-3">
-        <ContentViewer
-          variant="bare"
-          text={text}
-          formats={PROSE_FORMATS}
-          maxHeightClass="max-h-none"
-          proseClassName="markdown-chat"
-          showViewModes={SHOW_CHAT_VIEW_MODES}
-          controlsPlacement="external"
-        />
-      </div>
+      <ContentViewer
+        className="mt-1.5 rounded-2xl rounded-tl-sm border border-hairline bg-canvas px-4 py-3"
+        variant="bare"
+        text={text}
+        formats={PROSE_FORMATS}
+        maxHeightClass="max-h-none"
+        proseClassName="markdown-chat"
+        showViewModes={SHOW_CHAT_VIEW_MODES}
+        controlsPlacement="external"
+      />
       {/* Nothing to copy or diff until the response has said something — during
           a stream that is the first frame or two. */}
       {text && (
@@ -578,13 +613,15 @@ function ContextNode({
       preferMarkdown ? (hasXmlStructure(text) ? ['markdown', 'xml'] : ['markdown']) : ['xml'],
     [text, preferMarkdown],
   );
+  // The block's controls live outside its card (see `TurnControls`), so the
+  // view state they act on is read here rather than inside the panel.
+  const { modes, active, setMode } = useContentViewMode(formats, SHOW_CHAT_VIEW_MODES);
   return (
-    <div className="flex w-full flex-col">
+    <div className="group/turn flex w-full flex-col">
       {/*
-        The title is the only control, in both states. Wrapping the collapsed
-        preview in the button too made the target change shape as you used it —
-        click anywhere to open, then only the header to close — and once open it
-        would have fought the mode toggles and text selection inside the body.
+        The title is the only collapsed affordance. Keeping the content hidden
+        until expansion prevents context and system blocks from reading like a
+        second user-message bubble in the trace.
       */}
       <button
         type="button"
@@ -592,27 +629,37 @@ function ContextNode({
         aria-expanded={open}
         className="flex items-center gap-1.5 self-end"
       >
-        <Chevron open={open} />
-        <TagLabel role={role}>{label}</TagLabel>
+        <TagLabel role={role} flush size="control" className="w-50 justify-between pl-3">
+          <Chevron open={open} />
+          <span className="w-44 text-center">{label}</span>
+        </TagLabel>
       </button>
-      {!open && (
-        <div className="mt-1.5 truncate rounded-xl border border-hairline bg-surface-soft px-3 py-2.5 text-right text-[12.5px] text-muted-soft">
-          {text.replace(/\s+/g, ' ').trim()}
-        </div>
-      )}
       {/* Expanded, a context block is structure: show the tag outline, with the
           exact source a click away. */}
       {open && (
-        <ContentViewer
-          className="mt-1.5"
-          text={text}
-          formats={formats}
-          maxHeightClass="max-h-[50vh]"
-          showViewModes={SHOW_CHAT_VIEW_MODES}
-          controlsPlacement="bottom"
-          controlsReveal="hover"
-          diffSource={{ sourceId, sessionId, label }}
-        />
+        <>
+          <ContentViewer
+            className="mt-1.5"
+            text={text}
+            formats={formats}
+            maxHeightClass="max-h-[50vh]"
+            showViewModes={SHOW_CHAT_VIEW_MODES}
+            controlsPlacement="external"
+            diffSource={{ sourceId, sessionId, label }}
+          />
+          {/* Under the card, not in it — the same rule the bubbles follow. The
+              row keeps the bottom edge it had, but on the page instead of
+              inside the panel's border. */}
+          <TurnControls
+            text={text}
+            diffSource={{ sourceId, sessionId, label }}
+            align="end"
+            format={diffFormatFor(active, formats)}
+            viewModes={
+              SHOW_CHAT_VIEW_MODES ? { options: modes, active, onSelect: setMode } : undefined
+            }
+          />
+        </>
       )}
     </div>
   );
@@ -646,16 +693,35 @@ function Gutter({
   label,
   role,
   align = 'start',
+  iconOnly = false,
+  mark = false,
   children,
 }: {
-  label: string;
+  label: React.ReactNode;
   role: RoleTone;
   align?: 'start' | 'end';
+  iconOnly?: boolean;
+  /**
+   * The label is a brand mark, not a role badge: no fill behind it, and the
+   * accent instead of a role colour.
+   *
+   * A vendor logo already carries its own identity, so the chip under it was
+   * saying "assistant" a second time in a different alphabet. Dropping the fill
+   * leaves the mark alone against the canvas, and `primary` is the app's one
+   * emphasis colour — the same one the inspect handle and selection use.
+   */
+  mark?: boolean;
   children?: React.ReactNode;
 }) {
   return (
     <div className={cx('flex items-center gap-2.5', align === 'end' && 'justify-end')}>
-      <TagLabel role={role}>{label}</TagLabel>
+      {mark ? (
+        <span className="inline-flex size-8 shrink-0 items-center justify-center text-primary">
+          {label}
+        </span>
+      ) : (
+        <TagLabel role={role} iconOnly={iconOnly}>{label}</TagLabel>
+      )}
       {children}
     </div>
   );

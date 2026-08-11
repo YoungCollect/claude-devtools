@@ -3,7 +3,18 @@ import { Check, Columns2, Menu, Settings, Terminal, Trash2 } from 'lucide-react'
 import { api, subscribeToRevisions, type ServerConfig } from './api.js';
 import { DataSurface } from './components/DataSurface.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
-import { AgentSelect, DEFAULT_AGENT, type AgentId } from './components/AgentSelect.js';
+import { AgentSelect } from './components/AgentSelect.js';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './components/ui/alert-dialog.js';
+import { Button } from './components/ui/button.js';
 import { ConversationList } from './components/ConversationList.js';
 import { GitDiffDialog } from './components/GitDiffDialog.js';
 import { Inspector } from './components/Inspector.js';
@@ -155,11 +166,6 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
-  // Which agent the UI is pointed at. Claude Code by default. It is a stated
-  // choice only for now — nothing downstream reads it, and deliberately so:
-  // the proxy forwards to one configured upstream, so a picker that silently
-  // changed the run command would hand out a command that cannot work.
-  const [agent, setAgent] = useState<AgentId>(DEFAULT_AGENT);
 
   // `pinned` means the user picked a conversation explicitly; until then the UI
   // follows whatever trace is currently active, which is what you want when you
@@ -261,8 +267,6 @@ export function App() {
           connected={connected}
           theme={theme}
           onToggleTheme={toggleTheme}
-          agent={agent}
-          onChangeAgent={setAgent}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
           onClear={async () => {
@@ -407,59 +411,77 @@ export function App() {
 }
 
 /**
- * Clear, behind the same two-step the far less destructive action already has.
+ * Clear, behind a confirm.
  *
- * Deleting one conversation takes two deliberate acts — open its menu, then
- * confirm — and reports progress and failure. Clear wipes every conversation,
- * every trace and the database, cannot be undone, and sat one stray click away
- * between `Diff` and the theme toggle. The protection was inverted relative to
- * the damage.
+ * Deleting one conversation takes two deliberate acts and reports progress and
+ * failure. Clear wipes every conversation, every trace and the database, cannot
+ * be undone, and sits one stray click from the theme toggle — the protection
+ * was inverted relative to the damage.
  *
- * An in-place arm rather than a modal: it matches the weight of the existing
- * delete flow, and it disarms itself so a click you thought better of does not
- * stay loaded.
+ * A modal rather than the in-place arm it replaces. The arm asked for a second
+ * click on the same 32px target the first one landed on, which is the click a
+ * slip repeats; an alert dialog moves the confirm somewhere the pointer has to
+ * travel, states what is about to be destroyed, and cannot be dismissed by an
+ * outside click or a stray Escape. Cancel holds the initial focus, so a Return
+ * pressed out of habit closes the dialog rather than wiping the capture.
  */
-const CLEAR_ARMED_MS = 4000;
-
 function ClearButton({ onClear }: { onClear: () => Promise<void> | void }) {
-  const [state, setState] = useState<'idle' | 'armed' | 'clearing' | 'failed'>('idle');
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<'idle' | 'clearing' | 'failed'>('idle');
 
-  useEffect(() => {
-    if (state !== 'armed') return;
-    const timer = setTimeout(() => setState('idle'), CLEAR_ARMED_MS);
-    return () => clearTimeout(timer);
-  }, [state]);
-
-  // Icon-only, so the label carries the whole warning: an armed trash can that
-  // said nothing would be a one-click wipe of every captured trace.
+  // Icon-only, so the label carries the whole warning.
   const label =
     state === 'clearing'
       ? 'Clearing…'
-      : state === 'armed'
-        ? 'Confirm clear — removes every trace from memory and disk'
-        : state === 'failed'
-          ? 'Retry clear'
-          : 'Clear all captured traces';
+      : state === 'failed'
+        ? 'Clear failed — try again'
+        : 'Clear all captured traces';
 
   return (
-    <HeaderIconButton
-      label={label}
-      tone={state === 'armed' || state === 'failed' ? 'danger' : 'neutral'}
-      onClick={() => {
-        if (state === 'clearing') return;
-        if (state !== 'armed') {
-          setState('armed');
-          return;
-        }
-        setState('clearing');
-        void Promise.resolve(onClear()).then(
-          () => setState('idle'),
-          () => setState('failed'),
-        );
-      }}
-    >
-      <Trash2 size={15} aria-hidden />
-    </HeaderIconButton>
+    <>
+      <HeaderIconButton
+        label={label}
+        tone={state === 'failed' ? 'danger' : 'neutral'}
+        onClick={() => {
+          if (state === 'clearing') return;
+          setOpen(true);
+        }}
+      >
+        <Trash2 size={15} aria-hidden />
+      </HeaderIconButton>
+
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear all captured traces?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Every conversation, trace and stored request body is removed from memory and
+              deleted from disk. Requests still in flight are dropped. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {/* `autoFocus` on the safe exit: a dialog that opens with the
+                destructive button focused is a dialog that a held Return key
+                confirms for you. */}
+            <AlertDialogCancel autoFocus render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              render={<Button variant="destructive" />}
+              onClick={() => {
+                setState('clearing');
+                void Promise.resolve(onClear()).then(
+                  () => setState('idle'),
+                  () => setState('failed'),
+                );
+              }}
+            >
+              Clear everything
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -564,8 +586,6 @@ function Header({
   connected,
   theme,
   onToggleTheme,
-  agent,
-  onChangeAgent,
   sidebarOpen,
   onToggleSidebar,
   onClear,
@@ -575,8 +595,6 @@ function Header({
   connected: boolean;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
-  agent: AgentId;
-  onChangeAgent: (id: AgentId) => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onClear: () => Promise<void> | void;
@@ -652,7 +670,7 @@ function Header({
             click puts on the clipboard rather than just promising "Copy". The
             tick swaps tooltip and `aria-label` together, so pointer and
             screen-reader users get the same confirmation. */}
-        <AgentSelect value={agent} onChange={onChangeAgent} />
+        <AgentSelect />
         {config && (
           <HeaderIconButton label={copyLabel} onClick={() => copyCommand(command)}>
             {commandCopied ? (

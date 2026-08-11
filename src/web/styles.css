@@ -19,7 +19,10 @@
  * palette change reviewable without smuggling a hue decision into a component.
  */
 :root {
-  --ref-light-data-100: #f3efe7;
+  /* Renderer ground requested by the Chat Trace / Inspector palette pass.
+     This is the single light-theme fill for Markdown, XML, JSON, raw bodies,
+     SSE and other structured content. */
+  --ref-light-data-100: #efebe1;
   --ref-light-data-200: #ece6dc;
   --ref-light-data-300: #e7e0d5;
   --ref-light-data-border: #d8d0c3;
@@ -124,7 +127,7 @@
    * SSE event names. Flipping `code` from dark-on-light to light theme's own
    * warm-light panel means every syntax colour has to read as dark-on-light
    * here (they used to be light colours meant for a navy card); each was
-   * picked to clear 4.5:1 against `--color-data-surface` (#f3efe7).
+   * picked to clear 4.5:1 against `--color-data-surface` (#efebe1).
    */
   --color-syntax-key: var(--ref-light-slate-700);
   --color-syntax-string: var(--ref-light-green-700);
@@ -704,9 +707,9 @@ button:not(:disabled),
   border-top: 1px solid var(--color-hairline);
 }
 
-/* Inline code stays on the canvas; fenced blocks take the DataSurface panel
-   the rest of the app's machine text sits on — except inside a chat bubble,
-   which nests one step further in. */
+/* Inline code stays on the canvas. Standalone fenced blocks take the shared
+   DataSurface panel; chat fences inherit the message's single canvas container
+   so a code-only reply does not render as a card inside another card. */
 .markdown-body code {
   padding: 0.1em 0.35em;
   border-radius: var(--radius-xs);
