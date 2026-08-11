@@ -72,7 +72,7 @@ export const openaiAdapter: ProviderAdapter = {
 
     return {
       provider: 'openai',
-      kind: classify(pathname(record.path), tools.length, history.length, maxTokens(body)),
+      kind: classify(tools.length, history.length, maxTokens(body)),
       agent: detectAgent(record.requestHeaders),
       model: asString(body?.model),
       sessionId: readSessionId(record.requestHeaders),
@@ -116,8 +116,10 @@ export const openaiAdapter: ProviderAdapter = {
       // `[DONE]` is not JSON, so it never parses into a record.
       if (!data) continue;
 
-      if (data.usage !== undefined) {
-        // The `stream_options.include_usage` chunk: usage and no choices.
+      // The `stream_options.include_usage` chunk: usage and no choices. Every
+      // other chunk carries the same field explicitly set to null, so presence
+      // alone does not mean a report has arrived.
+      if (data.usage !== undefined && data.usage !== null) {
         events.push({ type: 'message_delta', usage: readUsage(data.usage), t: frame.t });
       }
 
@@ -331,8 +333,7 @@ const UTILITY_MAX_TOKENS = 1024;
  * applies, for the same reason: an agent turn ships its tools, and a tool-less
  * request is only a side call when it is also short and given no room to reply.
  */
-function classify(path: string, toolCount: number, messageCount: number, maxTokens: unknown) {
-  if (path.includes('embeddings') || path.includes('moderations')) return 'utility' as const;
+function classify(toolCount: number, messageCount: number, maxTokens: unknown) {
   if (toolCount > 0) return 'conversation' as const;
   const budget = typeof maxTokens === 'number' ? maxTokens : Number.POSITIVE_INFINITY;
   if (messageCount <= 1 && budget <= UTILITY_MAX_TOKENS) return 'utility' as const;
