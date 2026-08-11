@@ -3,6 +3,7 @@ import { Check, Columns2, Menu, Settings, Terminal, Trash2 } from 'lucide-react'
 import { api, subscribeToRevisions, type ServerConfig } from './api.js';
 import { DataSurface } from './components/DataSurface.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
+import { AgentSelect, DEFAULT_AGENT, type AgentId } from './components/AgentSelect.js';
 import { ConversationList } from './components/ConversationList.js';
 import { GitDiffDialog } from './components/GitDiffDialog.js';
 import { Inspector } from './components/Inspector.js';
@@ -11,7 +12,6 @@ import { TraceView } from './components/TraceView.js';
 import {
   cx,
   HeaderIconButton,
-  MetaBadge,
   SpikeMark,
   tabPanelProps,
   Tabs,
@@ -155,6 +155,11 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
+  // Which agent the UI is pointed at. Claude Code by default. It is a stated
+  // choice only for now — nothing downstream reads it, and deliberately so:
+  // the proxy forwards to one configured upstream, so a picker that silently
+  // changed the run command would hand out a command that cannot work.
+  const [agent, setAgent] = useState<AgentId>(DEFAULT_AGENT);
 
   // `pinned` means the user picked a conversation explicitly; until then the UI
   // follows whatever trace is currently active, which is what you want when you
@@ -256,6 +261,8 @@ export function App() {
           connected={connected}
           theme={theme}
           onToggleTheme={toggleTheme}
+          agent={agent}
+          onChangeAgent={setAgent}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
           onClear={async () => {
@@ -354,7 +361,11 @@ export function App() {
               />
               {view === 'trace' && conversation && (
                 <div className="ml-auto flex items-center gap-2 px-4">
-                  <MetaBadge tone="emph">{conversation.agent}</MetaBadge>
+                  {/* The agent name used to sit here as a badge. It is the
+                      header's logo now — one place says which agent, and it
+                      says it without spending a badge on a word that repeats
+                      on every conversation. The model stays: it is the one
+                      value here that changes from turn to turn. */}
                   <span className="font-mono text-[12.5px] text-muted-foreground">{conversation.model}</span>
                 </div>
               )}
@@ -553,6 +564,8 @@ function Header({
   connected,
   theme,
   onToggleTheme,
+  agent,
+  onChangeAgent,
   sidebarOpen,
   onToggleSidebar,
   onClear,
@@ -562,6 +575,8 @@ function Header({
   connected: boolean;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  agent: AgentId;
+  onChangeAgent: (id: AgentId) => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onClear: () => Promise<void> | void;
@@ -616,9 +631,9 @@ function Header({
       {/*
         The right-hand cluster, in one fixed order: where the traffic goes
         (upstream), how to point traffic here (the shell mark), then the tools
-        that act on what was captured — diff, clear — and last the two controls
-        that change nothing about the capture at all, theme and settings.
-        Destination first, then actions, then chrome.
+        that act on what was captured — diff, clear — then the controls that
+        change nothing about the capture at all: theme, settings, and the agent
+        the UI is pointed at. Destination first, then actions, then chrome.
       */}
       <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
         {/* {config && (
@@ -637,6 +652,7 @@ function Header({
             click puts on the clipboard rather than just promising "Copy". The
             tick swaps tooltip and `aria-label` together, so pointer and
             screen-reader users get the same confirmation. */}
+        <AgentSelect value={agent} onChange={onChangeAgent} />
         {config && (
           <HeaderIconButton label={copyLabel} onClick={() => copyCommand(command)}>
             {commandCopied ? (
