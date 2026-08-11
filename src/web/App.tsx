@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Menu } from 'lucide-react';
+import { Check, Columns2, Menu, Settings, Terminal, Trash2 } from 'lucide-react';
 import { api, subscribeToRevisions, type ServerConfig } from './api.js';
+import { DataSurface } from './components/DataSurface.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
 import { ConversationList } from './components/ConversationList.js';
-import { DataSurface } from './components/DataSurface.js';
 import { GitDiffDialog } from './components/GitDiffDialog.js';
 import { Inspector } from './components/Inspector.js';
 import { NetworkView } from './components/NetworkView.js';
 import { TraceView } from './components/TraceView.js';
 import {
   cx,
-  Empty,
+  HeaderIconButton,
   MetaBadge,
   SpikeMark,
   tabPanelProps,
@@ -18,8 +18,12 @@ import {
   ThemeToggle,
   useCopy,
 } from './components/ui.js';
-import { Button } from './components/ui/button.js';
-import { TooltipProvider } from './components/ui/tooltip.js';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from './components/ui/tooltip.js';
 import { groupTrace } from './trace-groups.js';
 import { useTheme } from './theme.js';
 import { clearGitDiff, setGitDiffOpen } from './git-diff.js';
@@ -43,6 +47,55 @@ interface Selection {
  * of the end still counts as "reading the newest event".
  */
 const BOTTOM_SLACK_PX = 48;
+
+/** The one line a user has to run to point an agent at this proxy. */
+function runCommand(config: ServerConfig | undefined): string {
+  return config ? `ANTHROPIC_BASE_URL=${config.proxyUrl} claude` : '';
+}
+
+/**
+ * The empty trace pane, which doubles as the onboarding step.
+ *
+ * The header no longer prints the run command — it is a shell mark there — so
+ * this is the one place the command is spelled out, and it is exactly where
+ * someone who has captured nothing yet is already looking. The old copy sent
+ * them to "the proxy base URL shown above", which is no longer shown at all.
+ */
+function WaitingForTraffic({ command }: { command: string }) {
+  const [copied, copy] = useCopy();
+  const label = copied ? 'Copied' : 'Copy run command';
+  return (
+    <div className="flex flex-col items-start gap-3 px-1 py-4">
+      <p className="text-[14px] text-muted-soft italic">
+        Waiting for traffic. Start an agent pointed at the capture proxy:
+      </p>
+      {command && (
+        <DataSurface variant="inline" className="max-w-full">
+          <code className="truncate font-mono text-[12.5px] text-data-foreground">{command}</code>
+          {/* A code-surface control, not a header one: it sits on the dark
+              surface and takes its fill from the `data-*` tokens. */}
+          <Tooltip>
+            <TooltipTrigger
+              type="button"
+              onClick={() => copy(command)}
+              aria-label={label}
+              closeOnClick={false}
+              className={cx(
+                'flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-data-surface-control transition-colors',
+                copied
+                  ? 'text-success-fg'
+                  : 'text-data-foreground-muted hover:bg-primary hover:text-primary-foreground',
+              )}
+            >
+              {copied ? <Check size={14} aria-hidden /> : <Terminal size={14} aria-hidden />}
+            </TooltipTrigger>
+            <TooltipContent>{label}</TooltipContent>
+          </Tooltip>
+        </DataSurface>
+      )}
+    </div>
+  );
+}
 
 /**
  * Follows the newest trace event as a response streams in.
@@ -317,9 +370,7 @@ export function App() {
                 conversation ? (
                   <TraceView nodes={nodes} selectedNodeId={selection?.node?.id} onInspect={inspectNode} />
                 ) : (
-                  <Empty>
-                    Waiting for traffic. Start an agent with the proxy base URL shown above.
-                  </Empty>
+                  <WaitingForTraffic command={runCommand(config)} />
                 )
               ) : (
                 <NetworkView
@@ -368,16 +419,21 @@ function ClearButton({ onClear }: { onClear: () => Promise<void> | void }) {
     return () => clearTimeout(timer);
   }, [state]);
 
+  // Icon-only, so the label carries the whole warning: an armed trash can that
+  // said nothing would be a one-click wipe of every captured trace.
   const label =
-    state === 'clearing' ? 'Clearing…' : state === 'armed' ? 'Confirm clear' : state === 'failed' ? 'Retry clear' : 'Clear';
+    state === 'clearing'
+      ? 'Clearing…'
+      : state === 'armed'
+        ? 'Confirm clear — removes every trace from memory and disk'
+        : state === 'failed'
+          ? 'Retry clear'
+          : 'Clear all captured traces';
 
   return (
-    <Button
-      type="button"
-      variant="chrome"
-      data-active={state === 'armed' ? 'true' : undefined}
-      className="hover:border-error-fg hover:text-error-fg"
-      title={state === 'armed' ? 'Removes every trace from memory and disk' : 'Clear all captured traces'}
+    <HeaderIconButton
+      label={label}
+      tone={state === 'armed' || state === 'failed' ? 'danger' : 'neutral'}
       onClick={() => {
         if (state === 'clearing') return;
         if (state !== 'armed') {
@@ -391,8 +447,104 @@ function ClearButton({ onClear }: { onClear: () => Promise<void> | void }) {
         );
       }}
     >
-      {label}
-    </Button>
+      <Trash2 size={15} aria-hidden />
+    </HeaderIconButton>
+  );
+}
+
+/**
+ * The header's settings disclosure: what this proxy is wired to, in one place.
+ *
+ * Everything in it is read-only local runtime config the server already reports
+ * over `/api/config`. It earns its slot because the row itself cannot afford to
+ * always show these: upstream drops off below `lg`, and the run command is a
+ * shell mark now. This is the one place both are always spelled out in full.
+ */
+function SettingsPopover({ config }: { config: ServerConfig }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [copied, copy] = useCopy();
+  const command = runCommand(config);
+  const copyLabel = copied ? 'Copied' : 'Copy run command';
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      // Escape returns focus to the trigger — the same contract as the
+      // conversation actions menu — rather than dropping a keyboard user back
+      // at the top of the page.
+      rootRef.current?.querySelector('button')?.focus();
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <HeaderIconButton
+        label="Connection settings"
+        expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Settings size={15} aria-hidden />
+      </HeaderIconButton>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Connection settings"
+          className="absolute top-10 right-0 z-30 w-80 rounded-lg border border-hairline bg-canvas p-3 shadow-lg"
+        >
+          <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2 text-[12.5px]">
+            <SettingRow label="Proxy" value={config.proxyUrl} />
+            <SettingRow label="Upstream" value={config.upstream} />
+            <SettingRow label="UI port" value={String(config.uiPort)} />
+          </dl>
+
+          {/* The command gets the code-surface treatment here rather than being
+              a fourth row of cream text: it is the one value you act on, not a
+              value you read. */}
+          {/* <DataSurface variant="inline" className="mt-3 w-full">
+            <code className="truncate font-mono text-[12.5px] text-data-foreground">{command}</code>
+            <Tooltip>
+              <TooltipTrigger
+                type="button"
+                onClick={() => copy(command)}
+                aria-label={copyLabel}
+                closeOnClick={false}
+                className={cx(
+                  'ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-data-surface-control transition-colors',
+                  copied
+                    ? 'text-success-fg'
+                    : 'text-data-foreground-muted hover:bg-primary hover:text-primary-foreground',
+                )}
+              >
+                {copied ? <Check size={14} aria-hidden /> : <Terminal size={14} aria-hidden />}
+              </TooltipTrigger>
+              <TooltipContent>{copyLabel}</TooltipContent>
+            </Tooltip>
+          </DataSurface> */}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingRow({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-mono break-all text-ink">{value}</dd>
+    </>
   );
 }
 
@@ -415,10 +567,11 @@ function Header({
   onClear: () => Promise<void> | void;
   onOpenDiff: () => void;
 }) {
-  const command = config ? `ANTHROPIC_BASE_URL=${config.proxyUrl} claude` : '';
+  const command = runCommand(config);
   const [commandCopied, copyCommand] = useCopy();
+  const copyLabel = commandCopied ? 'Copied' : `Copy run command: ${command}`;
   return (
-    <header className="flex h-16 shrink-0 items-center gap-4 border-b border-hairline px-4">
+    <header className="flex h-16 shrink-0 items-center gap-3 border-b border-hairline px-3 sm:gap-4 sm:px-4">
       {/* The sidebar's own toggle — visible only below `md`, where the
           conversation list is an off-canvas panel rather than a permanent
           column. */}
@@ -438,7 +591,7 @@ function Header({
           run command below gives up its width instead. */}
       <div className="flex shrink-0 items-center gap-2 text-ink">
         <SpikeMark size={15} />
-        <span className="display text-[20px] tracking-[-0.3px] whitespace-nowrap">
+        <span className="display text-[20px] tracking-[-0.3px] whitespace-nowrap max-sm:hidden">
           Agent DevTools
         </span>
       </div>
@@ -461,45 +614,44 @@ function Header({
       </span>
 
       {/*
-        The run command is the one thing a first-time user needs, so it gets the
-        dark code-window treatment rather than being another line of cream text.
+        The right-hand cluster, in one fixed order: where the traffic goes
+        (upstream), how to point traffic here (the shell mark), then the tools
+        that act on what was captured — diff, clear — and last the two controls
+        that change nothing about the capture at all, theme and settings.
+        Destination first, then actions, then chrome.
       */}
-      {config && (
-        <DataSurface variant="inline" className="ml-2 min-w-0 shrink">
-          {/* The command truncates from ~1024px down, and Copy still takes the
-              whole string — so the title is the only way to read what you are
-              about to copy. */}
-          <code title={command} className="truncate font-mono text-[12.5px] text-data-foreground">
-            {command}
-          </code>
-          <button
-            type="button"
-            onClick={() => copyCommand(command)}
-            className="shrink-0 rounded-md bg-data-surface-control px-2.5 py-1 text-[12px] font-medium text-data-foreground hover:bg-primary hover:text-primary-foreground"
-          >
-            {commandCopied ? 'Copied' : 'Copy'}
-          </button>
-        </DataSurface>
-      )}
-
-      <div className="ml-auto flex shrink-0 items-center gap-3">
-        {config && (
+      <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+        {/* {config && (
           <span
             title={config.upstream}
-            // Hidden below `lg`: with the run command, Clear, Diff and the
-            // theme toggle all competing for the same row, upstream is the
-            // one that can be recovered from the tooltip instead of pushing
-            // on the controls beside it.
+            // Hidden below `lg`: with four controls competing for the same
+            // row, upstream is the one that can be recovered from the tooltip
+            // instead of pushing on the buttons beside it.
             className="hidden max-w-[220px] truncate font-mono text-[12.5px] text-muted-soft lg:block"
           >
             → {config.upstream}
           </span>
+        )} */}
+        {/* The run command is no longer printed in the header, so the tooltip
+            is the only place it can be read — it names the exact string the
+            click puts on the clipboard rather than just promising "Copy". The
+            tick swaps tooltip and `aria-label` together, so pointer and
+            screen-reader users get the same confirmation. */}
+        {config && (
+          <HeaderIconButton label={copyLabel} onClick={() => copyCommand(command)}>
+            {commandCopied ? (
+              <Check size={15} className="text-success-fg" aria-hidden />
+            ) : (
+              <Terminal size={15} aria-hidden />
+            )}
+          </HeaderIconButton>
         )}
+        <HeaderIconButton label="Open git diff" onClick={onOpenDiff}>
+          <Columns2 size={15} aria-hidden />
+        </HeaderIconButton>
         <ClearButton onClear={onClear} />
-        <Button type="button" variant="chrome" onClick={onOpenDiff}>
-          Diff
-        </Button>
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+        {config && <SettingsPopover config={config} />}
       </div>
     </header>
   );

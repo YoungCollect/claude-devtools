@@ -2,7 +2,9 @@ import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { DataSurface, DataSurfaceBody } from './DataSurface.js';
 import { cx } from './class-names.js';
+import { buttonVariants } from './ui/button.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js';
+import { cn } from '@/lib/utils';
 
 export { cx } from './class-names.js';
 
@@ -492,6 +494,62 @@ function CheckIcon() {
 }
 
 /**
+ * A control in the header's right-hand cluster.
+ *
+ * The cluster is icon-only end to end — shell, diff, clear, theme — because a
+ * row that mixes glyphs with words reads as two different kinds of control and
+ * makes the worded ones look like the primary action. The name is not lost: it
+ * feeds `aria-label` and the tooltip from a single prop, so the pointer and the
+ * screen reader always hear the same name.
+ *
+ * It borrows the `chrome` button's fill and hairline (one CVA definition, not a
+ * hand-rolled lookalike) and only adds the danger tone, which no worded button
+ * needed: `Clear` armed has to *look* destructive once it stops saying so.
+ */
+export function HeaderIconButton({
+  label,
+  onClick,
+  tone = 'neutral',
+  expanded,
+  children,
+}: {
+  /** Names the control for both the tooltip and assistive technology. */
+  label: string;
+  onClick: () => void;
+  /** `danger` is the armed/destructive state, e.g. Clear waiting to confirm. */
+  tone?: 'neutral' | 'danger';
+  /** Set only by a disclosure — it declares the button a panel trigger. */
+  expanded?: boolean;
+  children: ReactNode;
+}) {
+  const isDisclosure = expanded !== undefined;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        aria-haspopup={isDisclosure ? 'dialog' : undefined}
+        aria-expanded={expanded}
+        // Most of these controls change meaning when pressed (Clear arms, the
+        // shell mark ticks), and dismissing the tooltip on click would hide the
+        // very state change the click caused. A disclosure is the opposite: its
+        // tooltip would sit on top of the panel it just opened.
+        closeOnClick={isDisclosure}
+        className={cn(
+          buttonVariants({ variant: 'chrome', size: 'icon' }),
+          'text-muted-foreground hover:text-ink',
+          tone === 'danger' && 'border-error-fg bg-error-bg text-error-fg hover:text-error-fg',
+        )}
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
  * Palette switch. Light is the Claude design system; dark is the original
  * terminal-adjacent palette. The icon shows the theme you would switch *to*,
  * which is the convention every devtool uses.
@@ -499,15 +557,9 @@ function CheckIcon() {
 export function ThemeToggle({ theme, onToggle }: { theme: 'light' | 'dark'; onToggle: () => void }) {
   const next = theme === 'dark' ? 'light' : 'dark';
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      title={`Switch to ${next} theme`}
-      aria-label={`Switch to ${next} theme`}
-      className="flex h-8 w-8 items-center justify-center rounded-full border border-hairline bg-canvas text-muted-foreground transition-colors hover:border-muted-soft hover:text-ink"
-    >
+    <HeaderIconButton label={`Switch to ${next} theme`} onClick={onToggle}>
       {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-    </button>
+    </HeaderIconButton>
   );
 }
 
