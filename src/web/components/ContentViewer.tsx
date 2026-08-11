@@ -23,11 +23,26 @@ export interface ContentViewerProps {
   maxHeightClass?: string;
   className?: string;
   diffSource?: GitDiffSourceIdentity;
+  /**
+   * `card` gives the viewer its own surface. `bare` inherits whatever it is
+   * placed on — used by the chat bubbles, whose own fill is the thing that
+   * marks a turn as the user's or the assistant's and so must survive the
+   * viewer being dropped inside them.
+   */
+  variant?: 'card' | 'bare';
+  /** Extra classes for the rendered prose, e.g. a bubble's own type scale. */
+  proseClassName?: string;
 }
 
+/**
+ * Both rendered views carry the same first word, so the toggle reads as one
+ * control with a qualifier rather than two unrelated names you have to
+ * remember. `Structure` said nothing that `Rendered · XML` does not, and it
+ * only ever appeared next to `Rendered` on the blocks that have both.
+ */
 const LABELS: Record<ViewMode, string> = {
-  markdown: 'Rendered',
-  xml: 'Structure',
+  markdown: 'Rendered · MD',
+  xml: 'Rendered · XML',
   raw: 'Raw',
 };
 
@@ -95,6 +110,8 @@ export function ContentViewer({
   maxHeightClass = 'max-h-[60vh]',
   className,
   diffSource,
+  variant = 'card',
+  proseClassName,
 }: ContentViewerProps) {
   const modes = useMemo<ViewMode[]>(() => [...formats, 'raw'], [formats]);
   const preferred = useSyncExternalStore(subscribeToPreference, getPreference, getPreference);
@@ -105,15 +122,23 @@ export function ContentViewer({
   // dark just because you switched between two renderings read as a mode change
   // that had not actually happened. Raw keeps the card: those are the literal
   // bytes off the wire, which is exactly what the dark surface is reserved for.
-  const onCode = active === 'raw';
+  //
+  // A `bare` viewer never takes the card, in either mode: it has no surface of
+  // its own to flip, and turning a user's turn navy on the way to Raw would
+  // read as the turn changing rather than the view.
+  const onCode = variant === 'card' && active === 'raw';
   const diffFormat: GitDiffFormat =
     active === 'markdown' || active === 'xml' ? active : (formats[0] ?? 'markdown');
 
   return (
     <div
       className={cx(
-        'overflow-hidden rounded-lg border',
-        onCode ? 'border-code-border bg-code' : 'border-hairline bg-canvas',
+        variant === 'card'
+          ? cx(
+              'overflow-hidden rounded-lg border',
+              onCode ? 'border-code-border bg-code' : 'border-hairline bg-canvas',
+            )
+          : 'flex flex-col',
         className,
       )}
     >
@@ -128,8 +153,13 @@ export function ContentViewer({
       */}
       <div
         className={cx(
-          'flex items-center justify-end gap-1.5 border-b px-2 py-1.5',
-          onCode ? 'border-code-divider' : 'border-hairline',
+          'flex items-center justify-end gap-1.5',
+          // Bare has no card edge for a rule to sit on, so the controls are
+          // separated by space instead of a line they would otherwise draw
+          // across the middle of a chat bubble.
+          variant === 'card'
+            ? cx('border-b px-2 py-1.5', onCode ? 'border-code-divider' : 'border-hairline')
+            : 'pb-2',
         )}
       >
         {diffSource && (
@@ -165,11 +195,11 @@ export function ContentViewer({
 
       <div className={cx('overflow-auto', maxHeightClass)}>
         {active === 'raw' ? (
-          <RawPanel text={text} />
+          <RawPanel text={text} bare={variant === 'bare'} />
         ) : active === 'markdown' ? (
-          <MarkdownPanel text={text} />
+          <MarkdownPanel text={text} bare={variant === 'bare'} className={proseClassName} />
         ) : (
-          <XmlPanel text={text} />
+          <XmlPanel text={text} bare={variant === 'bare'} />
         )}
       </div>
     </div>
@@ -180,10 +210,18 @@ export function ContentViewer({
  * The source, unstyled and unwrapped. It shares `CodeBlock`'s type treatment but
  * not its card, because the card is now the shell around all three views.
  */
-function RawPanel({ text }: { text: string }) {
+function RawPanel({ text, bare }: { text: string; bare: boolean }) {
   if (!text) return <Empty>No content</Empty>;
   return (
-    <pre className="p-3 font-mono text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap text-code-fg">
+    <pre
+      className={cx(
+        'font-mono text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap',
+        // Off the navy card, `code-fg` is light ink meant for a dark fill and
+        // would be invisible, so a bare viewer takes the page's own ink and
+        // keeps only the monospace treatment that marks this as source.
+        bare ? 'text-body-strong' : 'p-3 text-code-fg',
+      )}
+    >
       {text}
     </pre>
   );
@@ -202,9 +240,17 @@ function RawPanel({ text }: { text: string }) {
  * whatever the agent sent, so HTML in it must stay inert; the library's default
  * is to escape it, and its URL transform already drops `javascript:` links.
  */
-const MarkdownPanel = memo(function MarkdownPanel({ text }: { text: string }) {
+const MarkdownPanel = memo(function MarkdownPanel({
+  text,
+  bare,
+  className,
+}: {
+  text: string;
+  bare: boolean;
+  className?: string;
+}) {
   return (
-    <div className="markdown-body px-4 py-3">
+    <div className={cx('markdown-body', !bare && 'px-4 py-3', className)}>
       <Markdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -221,10 +267,15 @@ const MarkdownPanel = memo(function MarkdownPanel({ text }: { text: string }) {
   );
 });
 
-const XmlPanel = memo(function XmlPanel({ text }: { text: string }) {
+const XmlPanel = memo(function XmlPanel({ text, bare }: { text: string; bare: boolean }) {
   const nodes = useMemo(() => parseXmlOutline(text), [text]);
   return (
-    <div className="px-3 py-2.5 font-mono text-[12.5px] leading-[1.6] text-markup-text">
+    <div
+      className={cx(
+        'font-mono text-[12.5px] leading-[1.6] text-markup-text',
+        !bare && 'px-3 py-2.5',
+      )}
+    >
       <XmlNodes nodes={nodes} depth={0} />
     </div>
   );

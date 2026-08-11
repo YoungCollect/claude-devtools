@@ -3,8 +3,16 @@ import { splitTaggedUserContent } from '../../core/tagged-content.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
 import { ContentViewer, type ContentFormat } from './ContentViewer.js';
 import type { TraceNode } from '../../core/types.js';
-import { formatMs, formatTokens, summarizeToolInput, toolResultText, truncate } from '../format.js';
+import { groupTrace, turnNodes, type ToolActivity, type TraceTurn } from '../trace-groups.js';
+import { formatMs, formatTokens, pretty, toolResultText, truncate } from '../format.js';
 import { Badge, Chevron, cx, Empty, TagLabel, type Tone } from './ui.js';
+
+/**
+ * Chat turns are prose. Module-level so every bubble shares one array — the
+ * viewer memoises its mode list on this identity, and a literal rebuilt per
+ * render would defeat that on every streamed frame.
+ */
+const PROSE_FORMATS: ContentFormat[] = ['markdown'];
 
 export interface TraceViewProps {
   nodes: TraceNode[];
@@ -18,20 +26,235 @@ export interface TraceViewProps {
  * did" to "what went over the wire" is the whole point of the tool.
  */
 export function TraceView({ nodes, selectedNodeId, onInspect }: TraceViewProps) {
-  const visible = nodes.filter((node) => node.kind !== 'assistant' || (node.text ?? '').trim());
-  if (visible.length === 0) {
+  // `groupTrace` walks the whole list, so it must not re-run per render — the
+  // store bumps its revision on every streamed frame.
+  const items = useMemo(
+    () => groupTrace(nodes.filter((node) => node.kind !== 'assistant' || (node.text ?? '').trim())),
+    [nodes],
+  );
+  if (items.length === 0) {
     return <Empty>No trace events yet. Point an agent at the proxy and send a message.</Empty>;
   }
   return (
     <div className="flex flex-col divide-y divide-hairline-soft">
-      {visible.map((node) => (
-        <TraceRow
-          key={node.id}
-          node={node}
-          selected={node.id === selectedNodeId}
-          onInspect={onInspect}
-        />
-      ))}
+      {items.map((item) =>
+        item.type === 'turn' ? (
+          <TurnRow
+            key={item.key}
+            turn={item}
+            selectedNodeId={selectedNodeId}
+            onInspect={onInspect}
+          />
+        ) : (
+          <TraceRow
+            key={item.key}
+            node={item.node}
+            selected={item.node.id === selectedNodeId}
+            onInspect={onInspect}
+          />
+        ),
+      )}
+    </div>
+  );
+}
+
+/**
+ * One assistant response: its text, then everything it did, folded away.
+ *
+ * The tool round is collapsed because it is the bulk of a run by volume and the
+ * minority of it by interest — you scan a trace to follow the conversation and
+ * open the tools when something looks wrong. Measured on a two-turn capture,
+ * tool rows were 30% of the trace's height for one command and eight lines of
+ * output.
+ */
+function TurnRow({
+  turn,
+  selectedNodeId,
+  onInspect,
+}: {
+  turn: TraceTurn;
+  selectedNodeId?: string;
+  onInspect: (node: TraceNode) => void;
+}) {
+  const members = turnNodes(turn);
+  const selected = selectedNodeId !== undefined && members.some(({ id }) => id === selectedNodeId);
+  // The row-level handle drills into the response that produced the turn.
+  // Each tool activity carries its own, because a result arrives on a *later*
+  // request and that request would otherwise have no handle in the trace.
+  const primary = members[0];
+
+  return (
+    <div
+      className={cx(
+        'group relative flex w-full justify-start border-l-2 px-4 py-4 transition-colors',
+        selected ? 'border-primary bg-surface-soft' : 'border-transparent hover:bg-surface-soft/60',
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        {turn.messages.map((node) => (
+          <AssistantNode key={node.id} node={node} />
+        ))}
+        {turn.tools.length > 0 && (
+          <div className={turn.messages.length > 0 ? 'mt-3' : undefined}>
+            <ToolStrip activities={turn.tools} onInspect={onInspect} />
+          </div>
+        )}
+      </div>
+      {primary && (
+        <button
+          type="button"
+          onClick={() => onInspect(primary)}
+          title="Inspect the HTTP exchange behind this turn"
+          className={cx(
+            'absolute top-3 right-4 text-[12px] font-medium text-primary opacity-0 transition-opacity',
+            'group-hover:opacity-100 focus-visible:opacity-100',
+          )}
+        >
+          inspect →
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The turn's tool round, one line until asked.
+ *
+ * Collapsed it names what ran; opened it shows each call's full input and full
+ * result. The full input is new here — the old single-node row only ever showed
+ * `summarizeToolInput`'s one-line gist, so the actual arguments were reachable
+ * only through the Inspector.
+ */
+function ToolStrip({
+  activities,
+  onInspect,
+}: {
+  activities: ToolActivity[];
+  onInspect: (node: TraceNode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const names = [...new Set(activities.map((a) => a.call?.toolName ?? a.result?.toolName ?? 'tool'))];
+  const failed = activities.filter(({ result }) => result?.isError).length;
+  const pending = activities.filter(({ result }) => result === undefined).length;
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2.5 text-left"
+      >
+        <Chevron open={open} />
+        <TagLabel tone="tool">
+          {activities.length === 1 ? '1 tool' : `${activities.length} tools`}
+        </TagLabel>
+        <span className="min-w-0 truncate font-mono text-[12.5px] text-muted-foreground">
+          {names.join(' · ')}
+        </span>
+        {failed > 0 && <Badge tone="error">{failed} failed</Badge>}
+        {pending > 0 && <Badge tone="warning">{pending} pending</Badge>}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          {activities.map((activity) => (
+            <ToolActivityCard key={activity.id} activity={activity} onInspect={onInspect} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolActivityCard({
+  activity,
+  onInspect,
+}: {
+  activity: ToolActivity;
+  onInspect: (node: TraceNode) => void;
+}) {
+  const { call, result } = activity;
+  const name = call?.toolName ?? result?.toolName ?? 'tool';
+  // The result arrived on a different request than the call; that later request
+  // is the more useful drill-down, so it wins when both exist.
+  const target = result ?? call;
+
+  return (
+    <div className="rounded-lg border border-hairline">
+      <div className="flex items-center gap-2.5 px-3 py-2">
+        <span className="text-[14px] font-medium text-ink">{name}</span>
+        {call?.durationMs !== undefined && (
+          <span className="font-mono text-[12px] text-muted-soft" title="model time to emit this call">
+            {formatMs(call.durationMs)}
+          </span>
+        )}
+        {result?.isError && <Badge tone="error">error</Badge>}
+        {result?.durationMs !== undefined && (
+          <Badge
+            tone="warning"
+            title={
+              result.durationIsBatch
+                ? 'Wall time for the whole parallel tool batch — the agent ran several calls in this window'
+                : 'Time between the end of the model response and the request carrying this result'
+            }
+          >
+            tool {formatMs(result.durationMs)}
+            {result.durationIsBatch ? ' · batch' : ''}
+          </Badge>
+        )}
+        {target && (
+          <button
+            type="button"
+            onClick={() => onInspect(target)}
+            title="Inspect the HTTP exchange behind this tool call"
+            className="ml-auto shrink-0 text-[12px] font-medium text-primary"
+          >
+            inspect →
+          </button>
+        )}
+      </div>
+
+      {call && (
+        <ToolPane label="input" text={pretty(call.toolInput)} empty="No arguments" />
+      )}
+      {result ? (
+        <ToolPane label="result" text={toolResultText(result.toolResult)} isError={result.isError} empty="(empty)" />
+      ) : (
+        <div className="px-3 pb-2.5 text-[12.5px] text-muted-soft italic">
+          Still running — no result has come back yet.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Tool input and tool output are both machine text: dark surface, capped height. */
+function ToolPane({
+  label,
+  text,
+  isError = false,
+  empty,
+}: {
+  label: string;
+  text: string;
+  isError?: boolean;
+  empty: string;
+}) {
+  return (
+    <div className="px-3 pb-2.5">
+      <div className="mb-1 text-[11px] font-medium tracking-[1.5px] text-muted-soft uppercase">
+        {label}
+      </div>
+      <div className="max-h-[260px] overflow-auto rounded-md bg-code">
+        <pre
+          className={cx(
+            'px-3 py-2.5 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap',
+            isError ? 'text-code-error' : 'text-code-fg-soft',
+          )}
+        >
+          {text.trim() || empty}
+        </pre>
+      </div>
     </div>
   );
 }
@@ -123,10 +346,6 @@ function NodeBody({ node }: { node: TraceNode }) {
       return <AssistantNode node={node} />;
     case 'thinking':
       return <ThinkingNode node={node} />;
-    case 'tool_call':
-      return <ToolCallNode node={node} />;
-    case 'tool_result':
-      return <ToolResultNode node={node} />;
     case 'compaction':
       return <BannerNode node={node} tone="warning" label="context" />;
     case 'error':
@@ -152,28 +371,59 @@ function UserNode({ node }: { node: TraceNode }) {
               sessionId={node.conversationId}
             />
           ) : (
-            <UserBubble key={`user-${index}`} text={segment.text} />
+            <UserBubble
+              key={`user-${index}`}
+              text={segment.text}
+              sourceId={`${node.id}:user:${index}`}
+              sessionId={node.conversationId}
+            />
           ),
         )}
       </div>
     );
   }
 
-  return <UserBubble text={segments[0]?.text ?? raw} />;
+  return (
+    <UserBubble
+      text={segments[0]?.text ?? raw}
+      sourceId={node.id}
+      sessionId={node.conversationId}
+    />
+  );
 }
 
-function UserBubble({ text }: { text: string }) {
+function UserBubble({
+  text,
+  sourceId,
+  sessionId,
+}: {
+  text: string;
+  sourceId: string;
+  sessionId: string;
+}) {
   return (
     <div>
       <Gutter label="user" tone="emph" align="end" />
-      <div className="display mt-1.5 rounded-2xl rounded-tr-sm bg-surface-card px-4 py-3 text-[17px] leading-[1.4] whitespace-pre-wrap text-ink">
-        {text || <span className="text-muted-soft italic">(no visible text)</span>}
+      <div className="mt-1.5 rounded-2xl rounded-tr-sm bg-surface-card px-4 py-3">
+        {text ? (
+          <ContentViewer
+            variant="bare"
+            text={text}
+            formats={PROSE_FORMATS}
+            maxHeightClass="max-h-none"
+            proseClassName="markdown-chat markdown-lead"
+            diffSource={{ sourceId, sessionId, label: 'user message' }}
+          />
+        ) : (
+          <span className="display text-[17px] text-muted-soft italic">(no visible text)</span>
+        )}
       </div>
     </div>
   );
 }
 
 function AssistantNode({ node }: { node: TraceNode }) {
+  const text = node.text ?? '';
   return (
     <div>
       <Gutter label="assistant" tone="success">
@@ -187,80 +437,16 @@ function AssistantNode({ node }: { node: TraceNode }) {
           </span>
         )}
       </Gutter>
-      <div className="mt-1.5 rounded-2xl rounded-tl-sm border border-hairline bg-surface-soft px-4 py-3 text-[14px] leading-[1.55] whitespace-pre-wrap text-body-strong">
-        {node.text}
+      <div className="mt-1.5 rounded-2xl rounded-tl-sm border border-hairline bg-surface-soft px-4 py-3">
+        <ContentViewer
+          variant="bare"
+          text={text}
+          formats={PROSE_FORMATS}
+          maxHeightClass="max-h-none"
+          proseClassName="markdown-chat"
+          diffSource={{ sourceId: node.id, sessionId: node.conversationId, label: 'assistant message' }}
+        />
       </div>
-    </div>
-  );
-}
-
-function ToolCallNode({ node }: { node: TraceNode }) {
-  return (
-    <div>
-      <Gutter label="tool call" tone="tool">
-        <span className="text-[14px] font-medium text-ink">{node.toolName}</span>
-        {node.durationMs !== undefined && (
-          <span
-            className="font-mono text-[12px] text-muted-soft"
-            title="model time to emit this call"
-          >
-            {formatMs(node.durationMs)}
-          </span>
-        )}
-      </Gutter>
-      {/* Shrink-to-fit: a full-width bar for `ls -la` reads as a code block it
-          isn't, and the trace loses its scannable left edge. */}
-      <div className="mt-1.5 inline-block max-w-full truncate rounded-md bg-surface-card px-2.5 py-1.5 align-top font-mono text-[12.5px] text-body">
-        {summarizeToolInput(node.toolInput)}
-      </div>
-    </div>
-  );
-}
-
-function ToolResultNode({ node }: { node: TraceNode }) {
-  const [open, setOpen] = useState(false);
-  const text = toolResultText(node.toolResult);
-  const lines = text.split('\n');
-  const collapsed = lines.slice(0, 3).join('\n');
-
-  return (
-    <div>
-      <Gutter label="tool result" tone={node.isError ? 'error' : 'neutral'}>
-        {node.toolName && <span className="text-[14px] text-body">{node.toolName}</span>}
-        {node.isError && <Badge tone="error">error</Badge>}
-        {node.durationMs !== undefined && (
-          <Badge
-            tone="warning"
-            title={
-              node.durationIsBatch
-                ? 'Wall time for the whole parallel tool batch — the agent ran several calls in this window'
-                : 'Time between the end of the model response and the request carrying this result'
-            }
-          >
-            tool {formatMs(node.durationMs)}
-            {node.durationIsBatch ? ' · batch' : ''}
-          </Badge>
-        )}
-      </Gutter>
-      <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1.5 block w-full text-left">
-        {/* Tool output is terminal output — it belongs on the dark surface. */}
-        <div className="overflow-hidden rounded-lg bg-code">
-          <pre
-            className={cx(
-              'overflow-x-auto px-3 py-2.5 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap',
-              node.isError ? 'text-code-error' : 'text-code-fg-soft',
-            )}
-          >
-            {open ? text : collapsed || '(empty)'}
-          </pre>
-        </div>
-        {lines.length > 3 && (
-          <span className="mt-1 inline-flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground hover:text-ink">
-            <Chevron open={open} />
-            {open ? 'collapse' : `${lines.length - 3} more lines`}
-          </span>
-        )}
-      </button>
     </div>
   );
 }

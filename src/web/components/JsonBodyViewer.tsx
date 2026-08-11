@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { JsonView } from 'react-json-view-lite';
 
 import { pretty } from '../format.js';
@@ -28,7 +29,40 @@ const jsonStyles = {
   },
 };
 
-export function JsonBodyViewer({ value, raw = '' }: { value: unknown; raw?: string }) {
+export function JsonBodyViewer({
+  value,
+  raw = '',
+  expandFields,
+}: {
+  value: unknown;
+  raw?: string;
+  /**
+   * Top-level fields to open on top of the default. Used by the drill-down from
+   * a trace node, which expands the one field that node came out of.
+   */
+  expandFields?: readonly string[];
+}) {
+  // Keyed on the field names themselves, not the array identity: a caller that
+  // rebuilds the array each render must not re-run the rule and stomp on
+  // whatever the user has expanded by hand since.
+  const fieldKey = JSON.stringify(expandFields ?? []);
+
+  /*
+   * Only the root container is open on arrival, so the tree renders as a list
+   * of the body's top-level fields.
+   *
+   * A request body is a few keys wrapping tens of thousands of tokens:
+   * expanding `messages` on sight buried `model`, `tools` and `max_tokens`
+   * under a page of content blocks. Level 0 is the root object itself; level 1
+   * is its fields, which is the only depth a focused drill-down opens — the
+   * point is to show where the node lives, not to unroll it.
+   */
+  const shouldExpandNode = useMemo(() => {
+    const focused = new Set<string>(JSON.parse(fieldKey) as string[]);
+    return (level: number, _value: unknown, field?: string) =>
+      level < 1 || (level === 1 && field !== undefined && focused.has(field));
+  }, [fieldKey]);
+
   const data = jsonContainer(value, raw);
   if (!data) return <CodeBlock text={value !== undefined ? pretty(value) : raw} />;
 
@@ -37,7 +71,7 @@ export function JsonBodyViewer({ value, raw = '' }: { value: unknown; raw?: stri
       <JsonView
         data={data}
         style={jsonStyles}
-        shouldExpandNode={(level) => level < 2}
+        shouldExpandNode={shouldExpandNode}
         clickToExpandNode
         aria-label="JSON body"
       />

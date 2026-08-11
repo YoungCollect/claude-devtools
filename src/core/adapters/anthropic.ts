@@ -60,6 +60,13 @@ export const anthropicAdapter: ProviderAdapter = {
       ],
       toolNames: tools.map((tool) => asString(asRecord(tool)?.name) ?? '?'),
       systemText: readSystem(body?.system),
+      // Named only when present, so the Inspector never offers to expand a
+      // field this particular request did not send.
+      bodyFields: {
+        ...(body.system !== undefined ? { system: 'system' } : {}),
+        ...(Array.isArray(body.messages) ? { history: 'messages' } : {}),
+        ...(Array.isArray(body.tools) ? { tools: 'tools' } : {}),
+      },
     };
   },
 

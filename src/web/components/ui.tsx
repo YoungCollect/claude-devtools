@@ -121,19 +121,33 @@ export function Section({
   action,
   children,
   defaultOpen = true,
+  open: openProp,
+  onOpenChange,
 }: {
   title: string;
   action?: ReactNode;
   children: ReactNode;
   defaultOpen?: boolean;
+  /**
+   * Controlled open state. Omit it and the section owns its own — pass it when
+   * something outside the header has to open the section, as the drill-down
+   * from a trace node does.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [uncontrolled, setUncontrolled] = useState(defaultOpen);
+  const open = openProp ?? uncontrolled;
+  const toggle = () => {
+    setUncontrolled(!open);
+    onOpenChange?.(!open);
+  };
   return (
     <div className="border-b border-hairline-soft last:border-0">
       <div className="flex items-center justify-between gap-2 px-4 py-3">
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={toggle}
           className="flex items-center gap-2 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase hover:text-ink"
         >
           <Chevron open={open} />

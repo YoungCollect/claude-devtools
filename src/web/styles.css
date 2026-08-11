@@ -48,7 +48,7 @@
   --color-code-error: #f0a0a0;
 
   /*
-   * Markup syntax roles for the Structure outline.
+   * Markup syntax roles for the Rendered · XML outline.
    *
    * These are deliberately separate from the `json-*` and `code-*` roles above:
    * those describe syntax printed on the dark code card, while the tag outline
@@ -377,6 +377,34 @@ button:not(:disabled),
   font-size: 14px;
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+
+/*
+ * Chat turns keep the line breaks they were typed with.
+ *
+ * Markdown folds a single newline inside a paragraph into a space, which is
+ * right for a document and wrong for a captured message: the multi-line things
+ * people send an agent are stack traces, log excerpts and config fragments, and
+ * a stack trace reflowed onto one line is unreadable. The newlines survive into
+ * the DOM either way — only the rendering collapses them — so preserving them
+ * costs one declaration and leaves lists, tables and fenced blocks alone.
+ *
+ * Scoped to the bubbles on purpose. System prompts and tag blocks are documents
+ * that are routinely hard-wrapped at 80 columns, where honouring every newline
+ * would break prose into a ragged column.
+ */
+.markdown-body.markdown-chat p {
+  white-space: pre-wrap;
+}
+
+/* The user's own turn keeps the display face and larger size it has in a chat
+   surface even once its body is rendered as markdown — that type is what tells
+   the two sides of the conversation apart at a glance. */
+.markdown-body.markdown-lead {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 17px;
+  line-height: 1.4;
 }
 
 .markdown-body > :first-child {

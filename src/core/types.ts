@@ -228,9 +228,27 @@ export interface AssembledResponse {
   stopReason?: string;
 }
 
+/**
+ * Where each part of the trace lives in this provider's request body.
+ *
+ * The Inspector drills from a trace node into the JSON body and has to expand
+ * the field that node came from. Only the adapter knows what that field is
+ * called on the wire, so it names them here rather than the UI guessing.
+ * A field is listed only when the body actually carries it.
+ */
+export interface RequestBodyFields {
+  /** Top-level field holding the request-level system prompt. */
+  system?: string;
+  /** Top-level field holding the conversation history. */
+  history?: string;
+  /** Top-level field holding the tool declarations. */
+  tools?: string;
+}
+
 /** Provider-neutral request details prepared by an adapter for the Inspector. */
 export interface RequestInspection {
   summary: Array<{ label: string; value: string }>;
   toolNames: string[];
   systemText?: string;
+  bodyFields?: RequestBodyFields;
 }
