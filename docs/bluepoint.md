@@ -11,7 +11,7 @@
 - [x] 目前 markdown 的按钮定义为了 Rendered，而 xml 的按钮定义了 Structure，我认为统一成 `Rendered` 即可，不然有记忆成本。
 - [ ] ~~chat trace 页面中的 network 选项板的表格 增加一个升降序排列图标~~
 
-- [ ] 左侧 conversation 列表中，在选中某一会话时，路由路径没有变化，导致每次刷新页面，无法定位到当前选中的会话，建议在选中某一会话时，路由路径也跟着变化。
+- [x] 左侧 conversation 列表中，在选中某一会话时，路由路径没有变化，导致每次刷新页面，无法定位到当前选中的会话，建议在选中某一会话时，路由路径也跟着变化。
 - [ ] network 选项板中，能够直观的看出来发生的请求。但在 chat trace 页面中，新手无法直观的看出来某一请求及其涉及的信息，建议在 chat trace 页面中，能够直观的看出来发生的请求（我的想法是针对性的 给每个会话的整个大容器 加一个虚线边框）。
 - [ ] 目前启动项目使用的是 `ANTHROPIC_BASE_URL=http://127.0.0.1:4141 claude`，但是我们这个项目目标是至少兼容 `claude-code` 和 `openai` 的，因此我们应该使用 agent-devtools 作为启动项目的默认方式 并且为 agent-devtools 提供一系列参数以支持自定义相关服务代理（譬如 --client claude, --client openai, --proxy-url http://127.0.0.1:4141 etc.）
 - [ ] 新增 `openai` 的 `adapter` 

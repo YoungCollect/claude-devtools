@@ -6,6 +6,7 @@ import { feedStatus } from '../src/web/activity.js';
 import { jsonContainer } from '../src/web/json.js';
 import { focusBodyField } from '../src/web/inspect-focus.js';
 import { groupTrace, turnNodes } from '../src/web/trace-groups.js';
+import { readRoute, routeHref } from '../src/web/route.js';
 import { anthropicAdapter } from '../src/core/adapters/anthropic.js';
 import type { TraceNode, TraceNodeKind } from '../src/core/types.js';
 
@@ -215,4 +216,38 @@ test('the header indicator separates the change feed from traffic through the pr
   // that snapshot is exactly what has stopped being updated.
   assert.equal(feedStatus(false, false), 'offline');
   assert.equal(feedStatus(false, true), 'offline');
+});
+
+test('the selected conversation and view round-trip through the URL', () => {
+  assert.deepEqual(readRoute({ pathname: '/', search: '' }), { view: 'trace' });
+  assert.deepEqual(readRoute({ pathname: '/c/conv_7', search: '' }), {
+    conversationId: 'conv_7',
+    view: 'trace',
+  });
+  assert.deepEqual(readRoute({ pathname: '/c/conv_7', search: '?view=network' }), {
+    conversationId: 'conv_7',
+    view: 'network',
+  });
+
+  // The default view stays out of the address; anything unknown falls back to it.
+  assert.equal(routeHref({ conversationId: 'conv_7', view: 'trace' }), '/c/conv_7');
+  assert.equal(routeHref({ conversationId: 'conv_7', view: 'network' }), '/c/conv_7?view=network');
+  assert.equal(routeHref({ view: 'trace' }), '/');
+  assert.equal(readRoute({ pathname: '/c/conv_7', search: '?view=nonsense' }).view, 'trace');
+
+  // Ids are escaped on the way out and read back whole, so a conversation id
+  // carrying a slash cannot forge a different path.
+  const awkward = 'conv/7 #1';
+  const href = routeHref({ conversationId: awkward, view: 'network' });
+  const [pathname, search] = href.split('?');
+  assert.deepEqual(readRoute({ pathname: pathname ?? '', search: search ? `?${search}` : '' }), {
+    conversationId: awkward,
+    view: 'network',
+  });
+
+  // A trailing slash, an empty id and a path this app does not own all mean
+  // "nothing selected" rather than a conversation named for the leftovers.
+  assert.equal(readRoute({ pathname: '/c/', search: '' }).conversationId, undefined);
+  assert.equal(readRoute({ pathname: '/c/conv_7/', search: '' }).conversationId, 'conv_7');
+  assert.equal(readRoute({ pathname: '/settings', search: '' }).conversationId, undefined);
 });

@@ -37,6 +37,7 @@ import {
   TooltipTrigger,
 } from './components/ui/tooltip.js';
 import { groupTrace } from './trace-groups.js';
+import { useUrlRoute } from './route.js';
 import { useTheme } from './theme.js';
 import { clearGitDiff, setGitDiffOpen } from './git-diff.js';
 import { transportForConversation } from './transport.js';
@@ -161,8 +162,15 @@ export function App() {
     transport: [],
     activeRequests: 0,
   });
-  const [view, setView] = useState<ViewId>('trace');
-  const [conversationId, setConversationId] = useState<string | undefined>();
+  // Which conversation is open and which view it shows both live in the URL, so
+  // a reload — or a link pasted to someone else on the same machine — lands back
+  // on the same trace instead of on whatever is newest (see `route.ts`).
+  const [route, navigate] = useUrlRoute();
+  const { conversationId, view } = route;
+  const setView = useCallback(
+    (next: ViewId) => navigate((current) => ({ ...current, view: next }), { replace: true }),
+    [navigate],
+  );
   const [nodes, setNodes] = useState<TraceNode[]>([]);
   const [selection, setSelection] = useState<Selection | undefined>();
   const [connected, setConnected] = useState(false);
@@ -172,15 +180,25 @@ export function App() {
   // `pinned` means the user picked a conversation explicitly; until then the UI
   // follows whatever trace is currently active, which is what you want when you
   // start the proxy and then go type in the terminal.
-  const pinned = useRef(false);
+  //
+  // An address that already names a conversation counts as picked: it is either
+  // a reload of a pinned selection or a link someone opened on purpose, and
+  // following the newest trace would throw away the one thing the URL asked for.
+  const pinned = useRef(route.conversationId !== undefined);
 
   useEffect(() => {
     void api.config().then(setConfig).catch(() => undefined);
   }, []);
 
+  // Distinguishes "the first snapshot has not arrived" from "the capture is
+  // genuinely empty". Without it, the initial empty state would look like a
+  // cleared capture and wipe the conversation the address bar just asked for.
+  const [loaded, setLoaded] = useState(false);
+
   const refresh = useCallback(async () => {
     const next = await api.state();
     setSnapshot(next);
+    setLoaded(true);
     return next;
   }, []);
 
@@ -200,14 +218,25 @@ export function App() {
 
   // Follow the newest conversation until the user pins one.
   useEffect(() => {
-    if (snapshot.conversations.length === 0) return;
+    if (!loaded) return;
+    if (snapshot.conversations.length === 0) {
+      // Everything was cleared or deleted. The address must follow, or a reload
+      // would ask for a conversation that no longer exists — and with nothing
+      // left to be pinned to, the next capture is followed again.
+      pinned.current = false;
+      if (conversationId) navigate({ view }, { replace: true });
+      return;
+    }
     const latest = snapshot.conversations[snapshot.conversations.length - 1];
     if (!latest) return;
     const stillExists = snapshot.conversations.some((c) => c.id === conversationId);
     if (!conversationId || (!pinned.current && latest.id !== conversationId) || !stillExists) {
-      setConversationId(latest.id);
+      // `replace`: nobody navigated here. Following the newest trace — or
+      // correcting an address whose conversation has since been deleted — must
+      // not leave Back pointing at a conversation that is gone.
+      navigate((current) => ({ ...current, conversationId: latest.id }), { replace: true });
     }
-  }, [snapshot.conversations, conversationId]);
+  }, [snapshot.conversations, conversationId, view, loaded, navigate]);
 
   useEffect(() => {
     if (!conversationId) {
@@ -340,7 +369,9 @@ export function App() {
               selectedId={conversationId}
               onSelect={(id) => {
                 pinned.current = true;
-                setConversationId(id);
+                // A push, not a replace: picking a conversation is the one
+                // move in this app a reader expects Back to undo.
+                navigate((current) => ({ ...current, conversationId: id }));
                 // A touch user is done with the panel once they've picked a
                 // conversation — leaving it open would cover the trace they
                 // just opened it to reach.
