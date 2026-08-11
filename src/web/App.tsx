@@ -422,7 +422,14 @@ export function App() {
             >
               {view === 'trace' ? (
                 conversation ? (
-                  <TraceView nodes={nodes} selectedNodeId={selection?.node?.id} onInspect={inspectNode} />
+                  <TraceView
+                  nodes={nodes}
+                  transport={conversationTransport}
+                  selectedNodeId={selection?.node?.id}
+                  selectedRequestId={selection?.transportId}
+                  onInspect={inspectNode}
+                  onInspectRequest={(transportId) => setSelection({ transportId })}
+                />
                 ) : (
                   <WaitingForTraffic command={runCommand(config)} />
                 )

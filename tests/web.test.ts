@@ -5,7 +5,7 @@ import { transportForConversation } from '../src/web/transport.js';
 import { feedStatus } from '../src/web/activity.js';
 import { jsonContainer } from '../src/web/json.js';
 import { focusBodyField } from '../src/web/inspect-focus.js';
-import { groupTrace, turnNodes } from '../src/web/trace-groups.js';
+import { groupByRequest, groupTrace, turnNodes } from '../src/web/trace-groups.js';
 import { readRoute, routeHref } from '../src/web/route.js';
 import { anthropicAdapter } from '../src/core/adapters/anthropic.js';
 import type { TraceNode, TraceNodeKind } from '../src/core/types.js';
@@ -250,4 +250,33 @@ test('the selected conversation and view round-trip through the URL', () => {
   assert.equal(readRoute({ pathname: '/c/', search: '' }).conversationId, undefined);
   assert.equal(readRoute({ pathname: '/c/conv_7/', search: '' }).conversationId, 'conv_7');
   assert.equal(readRoute({ pathname: '/settings', search: '' }).conversationId, undefined);
+});
+
+test('the trace is grouped into the HTTP exchanges it was rebuilt from', () => {
+  // One captured turn: `r1` carried the prompt up and streamed a tool call
+  // back; `r2` carried the result up and streamed the answer back.
+  const exchanges = groupByRequest(
+    groupTrace([
+      traceNode('system', { id: 's1', revealedByRequestId: 'r1', systemSource: 'prompt' }),
+      traceNode('user', { id: 'u1', revealedByRequestId: 'r1', text: 'hi' }),
+      traceNode('assistant', { id: 'a1', producedByRequestId: 'r1', text: 'checking' }),
+      traceNode('tool_call', { id: 'c1', producedByRequestId: 'r1', toolUseId: 't1', toolName: 'Bash' }),
+      traceNode('tool_result', { id: 'x1', revealedByRequestId: 'r2', toolUseId: 't1' }),
+      traceNode('assistant', { id: 'a2', producedByRequestId: 'r2', text: 'done' }),
+    ]),
+  );
+
+  assert.deepEqual(
+    exchanges.map((exchange) => exchange.requestId),
+    ['r1', 'r2'],
+  );
+  // The result stays inside the turn that called the tool, so `r1`'s block is
+  // the prompt, the answer and the whole tool round.
+  assert.deepEqual(exchanges[0]?.items.map((item) => item.key), ['s1', 'u1', 'turn:a1']);
+  assert.deepEqual(exchanges[1]?.items.map((item) => item.key), ['turn:a2']);
+
+  // A node that names no request keeps its place rather than being folded into
+  // the exchange beside it — a boundary there would be invented.
+  const orphaned = groupByRequest(groupTrace([traceNode('user', { id: 'u9', text: 'hi' })]));
+  assert.deepEqual(orphaned.map((exchange) => exchange.requestId), [undefined]);
 });

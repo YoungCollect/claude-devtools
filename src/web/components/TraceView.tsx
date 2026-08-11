@@ -12,8 +12,15 @@ import {
 } from './ContentViewer.js';
 import { DataSurface, DataSurfaceBody } from './DataSurface.js';
 import type { GitDiffFormat, GitDiffSourceIdentity } from '../git-diff.js';
-import type { TraceNode } from '../../core/types.js';
-import { groupTrace, turnNodes, type ToolActivity, type TraceTurn } from '../trace-groups.js';
+import type { TraceNode, TransportSummary } from '../../core/types.js';
+import {
+  groupByRequest,
+  groupTrace,
+  turnNodes,
+  type ToolActivity,
+  type TraceExchange,
+  type TraceTurn,
+} from '../trace-groups.js';
 import { formatMs, formatTokens, pretty, toolResultText, truncate } from '../format.js';
 import { Chevron, cx, Empty, MetaBadge, StatusBadge, TagLabel, type RoleTone } from './ui.js';
 
@@ -42,25 +49,92 @@ const SHOW_CHAT_VIEW_MODES = false;
 
 export interface TraceViewProps {
   nodes: TraceNode[];
+  /**
+   * The captured requests for this conversation, so each block can name the
+   * exchange it was rebuilt from. Absent while the snapshot is still loading —
+   * the blocks draw either way, just without their summary line.
+   */
+  transport?: readonly TransportSummary[];
   selectedNodeId?: string;
+  /** The exchange the Inspector is currently open on, whichever view opened it. */
+  selectedRequestId?: string;
   onInspect: (node: TraceNode) => void;
+  /** Opens the Inspector on a whole exchange rather than on one node. */
+  onInspectRequest?: (transportId: string) => void;
 }
 
 /**
  * The Chat Trace: the agent's run as a developer reads it, in the order it
  * happened. Every row is a drill-down handle — that link from "what the agent
  * did" to "what went over the wire" is the whole point of the tool.
+ *
+ * Rows are grouped into the HTTP exchanges they came out of (see
+ * `groupByRequest`), each drawn as its own dashed block. Nothing in the trace
+ * used to say where one request ended and the next began, so a reader coming
+ * from the Network view had no way to line the two up.
  */
-export function TraceView({ nodes, selectedNodeId, onInspect }: TraceViewProps) {
-  // `groupTrace` walks the whole list, so it must not re-run per render — the
+export function TraceView({
+  nodes,
+  transport,
+  selectedNodeId,
+  selectedRequestId,
+  onInspect,
+  onInspectRequest,
+}: TraceViewProps) {
+  // Both passes walk the whole list, so they must not re-run per render — the
   // store bumps its revision on every streamed frame.
-  const items = useMemo(() => groupTrace(nodes), [nodes]);
-  if (items.length === 0) {
+  const exchanges = useMemo(() => groupByRequest(groupTrace(nodes)), [nodes]);
+  const requestsById = useMemo(
+    () => new Map((transport ?? []).map((record) => [record.id, record])),
+    [transport],
+  );
+
+  if (exchanges.length === 0) {
     return <Empty>No trace events yet. Point an agent at the proxy and send a message.</Empty>;
   }
   return (
+    <div className="flex flex-col gap-3 p-3">
+      {exchanges.map((exchange) => (
+        <ExchangeBlock
+          key={exchange.key}
+          exchange={exchange}
+          request={exchange.requestId ? requestsById.get(exchange.requestId) : undefined}
+          selected={exchange.requestId !== undefined && exchange.requestId === selectedRequestId}
+          selectedNodeId={selectedNodeId}
+          onInspect={onInspect}
+          onInspectRequest={onInspectRequest}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One request and everything it produced, inside a dashed frame.
+ *
+ * Dashed rather than solid: this is a boundary drawn around content, not
+ * another card in a view that already nests cards two deep (turn → tool → pane).
+ * The header is the same summary the Network row carries — turn number, path,
+ * status, timing — so the two views can be read against each other.
+ */
+function ExchangeBlock({
+  exchange,
+  request,
+  selected,
+  selectedNodeId,
+  onInspect,
+  onInspectRequest,
+}: {
+  exchange: TraceExchange;
+  request?: TransportSummary;
+  selected: boolean;
+  selectedNodeId?: string;
+  onInspect: (node: TraceNode) => void;
+  onInspectRequest?: (transportId: string) => void;
+}) {
+  const rows = (
     <div className="flex flex-col divide-y divide-hairline-soft">
-      {items.map((item) =>
+      {exchange.items.map((item) =>
         item.type === 'turn' ? (
           <TurnRow
             key={item.key}
@@ -78,6 +152,62 @@ export function TraceView({ nodes, selectedNodeId, onInspect }: TraceViewProps) 
         ),
       )}
     </div>
+  );
+
+  // Nothing to frame: these rows name no request, so a boundary around them
+  // would be a claim the capture cannot support.
+  const requestId = exchange.requestId;
+  if (!requestId) return rows;
+
+  const turn = request?.turnIndex !== undefined ? `#${request.turnIndex + 1}` : undefined;
+  return (
+    <section
+      aria-label={`Request ${turn ?? ''} ${request?.path ?? ''}`.trim()}
+      className={cx(
+        'rounded-xl border border-dashed transition-colors',
+        selected ? 'border-primary' : 'border-hairline',
+      )}
+    >
+      <div className="flex items-center gap-2.5 border-b border-dashed border-hairline px-4 py-2">
+        <span className="shrink-0 text-[11px] font-medium tracking-[1.5px] text-muted-soft uppercase">
+          request {turn ?? ''}
+        </span>
+        {request && (
+          <>
+            <span className="truncate font-mono text-[12px] text-muted-foreground">
+              {request.method} {request.path}
+            </span>
+            {request.error ? (
+              <StatusBadge tone="error">err</StatusBadge>
+            ) : request.status === undefined ? (
+              <StatusBadge tone="warning" title="Still open through the proxy">
+                …
+              </StatusBadge>
+            ) : (
+              <StatusBadge tone={request.status >= 400 ? 'error' : 'success'}>
+                {request.status}
+              </StatusBadge>
+            )}
+            {request.durationMs !== undefined && (
+              <span className="shrink-0 font-mono text-[12px] text-muted-soft" title="total time">
+                {formatMs(request.durationMs)}
+              </span>
+            )}
+          </>
+        )}
+        {onInspectRequest && (
+          <button
+            type="button"
+            onClick={() => onInspectRequest(requestId)}
+            title="Inspect this HTTP exchange"
+            className="ml-auto shrink-0 text-[12px] font-medium text-primary"
+          >
+            inspect →
+          </button>
+        )}
+      </div>
+      {rows}
+    </section>
   );
 }
 

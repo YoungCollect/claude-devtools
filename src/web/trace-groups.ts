@@ -133,6 +133,66 @@ export function groupTrace(nodes: readonly TraceNode[]): TraceItem[] {
   return items;
 }
 
+/**
+ * One HTTP exchange's worth of the trace: everything a single captured request
+ * either carried up or streamed back.
+ */
+export interface TraceExchange {
+  key: string;
+  /** The captured request this block belongs to, when the nodes name one. */
+  requestId?: string;
+  items: TraceItem[];
+}
+
+/** Which request a rendered item came out of. */
+function requestIdFor(item: TraceItem): string | undefined {
+  if (item.type === 'node') {
+    return item.node.producedByRequestId ?? item.node.revealedByRequestId;
+  }
+  const [first] = turnNodes(item);
+  return item.requestId ?? first?.producedByRequestId ?? first?.revealedByRequestId;
+}
+
+/**
+ * Folds the trace into the exchanges it was reconstructed from.
+ *
+ * The Network view makes the request boundaries obvious and the Chat Trace hid
+ * them completely: reading it, there was no way to tell which lines the agent
+ * sent up in one body from which came back on the wire, or where one HTTP
+ * round-trip ended and the next began. Both views describe the same traffic, so
+ * the trace draws the same boundaries — one dashed block per request.
+ *
+ * Adjacent items sharing a request join one block, in trace order. A tool
+ * result is deliberately *not* pulled into its own request's block: it is
+ * already rendered inside the turn that called it (see `groupTrace`), and that
+ * turn belongs to the response that made the call. So a block reads as "this
+ * request, and what the model did with it".
+ *
+ * Items with no request — nothing produces them today, but a node restored from
+ * a partial capture could — keep their place in the order and get a block with
+ * no id, which the UI renders undecorated rather than inventing a boundary.
+ */
+export function groupByRequest(items: readonly TraceItem[]): TraceExchange[] {
+  const exchanges: TraceExchange[] = [];
+  for (const item of items) {
+    const requestId = requestIdFor(item);
+    const open = exchanges[exchanges.length - 1];
+    if (open && open.requestId === requestId) {
+      open.items.push(item);
+      continue;
+    }
+    exchanges.push({
+      // The first item's key is unique already, and stays stable as the block
+      // grows — keying on the request id alone would collide for the
+      // undefined case.
+      key: `exchange:${item.key}`,
+      ...(requestId !== undefined ? { requestId } : {}),
+      items: [item],
+    });
+  }
+  return exchanges;
+}
+
 /** Every node a turn renders, for selection and drill-down. */
 export function turnNodes(turn: TraceTurn): TraceNode[] {
   const nodes = [...turn.messages];
