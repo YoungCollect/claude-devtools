@@ -58,7 +58,13 @@ export interface InspectorProps {
   onClose: () => void;
 }
 
-export function Inspector({ transportId, focusNode, openPayload = false, rev, onClose }: InspectorProps) {
+export function Inspector({
+  transportId,
+  focusNode,
+  openPayload = false,
+  rev,
+  onClose,
+}: InspectorProps) {
   // The selection is cleared the moment the user closes the drawer, but the
   // panel is still on screen sliding out. Holding the last request here keeps it
   // rendered until the close animation actually finishes.
