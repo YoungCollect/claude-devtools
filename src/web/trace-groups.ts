@@ -1,4 +1,4 @@
-import type { TraceNode } from '../core/types.js';
+import type { TraceNode, TransportSummary } from '../core/types.js';
 
 /** One tool invocation and the result that came back for it. */
 export interface ToolActivity {
@@ -38,7 +38,9 @@ export type TraceItem = { type: 'node'; key: string; node: TraceNode } | TraceTu
  * whole tool round into a single line.
  *
  * Nodes that belong to no turn (user messages, system prompts, context blocks,
- * thinking, banners) pass through untouched and keep their own rows.
+ * thinking, banners) pass through untouched and keep their own rows. Side-call
+ * nodes remain distinguishable here so `groupTraceSections` can fold their
+ * complete exchanges into a discoverable background-activity section.
  *
  * An assistant block with no text is dropped here rather than by the caller:
  * this function is the single answer to "what does the trace show", and the tab
@@ -144,6 +146,64 @@ export interface TraceExchange {
   items: TraceItem[];
 }
 
+export interface ExchangePhases {
+  request: TraceItem[];
+  response: TraceItem[];
+}
+
+/**
+ * Separates what was sent from what the model returned within one exchange.
+ *
+ * Request-history nodes name the exchange through `revealedByRequestId`;
+ * streamed response nodes name it through `producedByRequestId`. Keeping that
+ * distinction in the presentation model prevents an assistant response from
+ * inheriting the request heading merely because both share one HTTP boundary.
+ */
+export function splitExchangePhases(exchange: TraceExchange): ExchangePhases {
+  const phases: ExchangePhases = { request: [], response: [] };
+  for (const item of exchange.items) {
+    const nodes = item.type === 'node' ? [item.node] : turnNodes(item);
+    const producedHere =
+      exchange.requestId !== undefined &&
+      (item.type === 'turn' && item.requestId === exchange.requestId ||
+        nodes.some((node) => node.producedByRequestId === exchange.requestId));
+    phases[producedHere ? 'response' : 'request'].push(item);
+  }
+  return phases;
+}
+
+export type ExchangePhase = keyof ExchangePhases;
+export type TraceDisplayPhase = ExchangePhase | 'complete';
+
+/** One chronological phase, or an adjacent request/response pair. */
+export interface TracePhaseExchange extends TraceExchange {
+  phase: TraceDisplayPhase;
+}
+
+/** The phase heading as it appears in Chat Trace. */
+export function labelExchangePhase(
+  turnIndex: number | undefined,
+  phase: TraceDisplayPhase,
+): string {
+  const number = turnIndex === undefined ? '' : `#${turnIndex + 1}`;
+  if (phase === 'complete') return number || 'EXCHANGE';
+  return `${number ? `${number} ` : ''}${phase.toUpperCase()}`;
+}
+
+export interface ExchangeHeaderFields {
+  methodAndPath: boolean;
+  statusAndDuration: boolean;
+}
+
+/** Which transport summary fields accompany a Chat Trace heading. */
+export function exchangeHeaderFields(phase: TraceDisplayPhase): ExchangeHeaderFields {
+  const showSummary = phase !== 'response';
+  return {
+    methodAndPath: showSummary,
+    statusAndDuration: showSummary,
+  };
+}
+
 /** Which request a rendered item came out of. */
 function requestIdFor(item: TraceItem): string | undefined {
   if (item.type === 'node') {
@@ -191,6 +251,122 @@ export function groupByRequest(items: readonly TraceItem[]): TraceExchange[] {
     });
   }
   return exchanges;
+}
+
+export type TraceSection =
+  | { type: 'exchange'; key: string; exchange: TracePhaseExchange }
+  | { type: 'background'; key: string; exchanges: TracePhaseExchange[] };
+
+/**
+ * Builds the top-level rows visible in Chat Trace.
+ *
+ * An adjacent request and response become one compact exchange. A response
+ * separated by concurrent traffic stays where its produced nodes occur;
+ * request id links the phases for inspection but never relocates either one.
+ * Consecutive side-call entries fold into a background section at that same
+ * point in the timeline.
+ */
+export function groupTraceSections(nodes: readonly TraceNode[]): TraceSection[] {
+  const phases = groupByRequest(groupTrace(nodes)).flatMap((exchange) => {
+    const itemsByPhase = splitExchangePhases(exchange);
+    return (Object.keys(itemsByPhase) as ExchangePhase[]).flatMap((phase) => {
+      const items = itemsByPhase[phase];
+      return items.length > 0
+        ? [{ ...exchange, key: `${exchange.key}:${phase}`, phase, items }]
+        : [];
+    });
+  });
+
+  const displayExchanges: TracePhaseExchange[] = [];
+  for (const exchange of phases) {
+    const request = displayExchanges[displayExchanges.length - 1];
+    if (
+      request?.phase === 'request' &&
+      exchange.phase === 'response' &&
+      request.requestId !== undefined &&
+      request.requestId === exchange.requestId
+    ) {
+      displayExchanges[displayExchanges.length - 1] = {
+        ...request,
+        key: `${request.key}:complete`,
+        phase: 'complete',
+        items: [...request.items, ...exchange.items],
+      };
+      continue;
+    }
+    displayExchanges.push(exchange);
+  }
+
+  const sections: TraceSection[] = [];
+  for (const exchange of displayExchanges) {
+    if (!isBackgroundExchange(exchange)) {
+      sections.push({ type: 'exchange', key: exchange.key, exchange });
+      continue;
+    }
+
+    const open = sections[sections.length - 1];
+    if (open?.type === 'background') {
+      open.exchanges.push(exchange);
+    } else {
+      sections.push({
+        type: 'background',
+        key: `background:${exchange.key}`,
+        exchanges: [exchange],
+      });
+    }
+  }
+  return sections;
+}
+
+export interface BackgroundActivitySummary {
+  requestCount: number;
+  errorCount: number;
+  pendingCount: number;
+}
+
+/** Derives the compact header shown for a background-activity section. */
+export function summarizeBackgroundActivity(
+  exchanges: readonly TraceExchange[],
+  transport: readonly TransportSummary[],
+): BackgroundActivitySummary {
+  const requestsById = new Map(transport.map((request) => [request.id, request]));
+  const requestIds = new Set(
+    exchanges.flatMap((exchange) => (exchange.requestId ? [exchange.requestId] : [])),
+  );
+  const requests = [...requestIds].flatMap((requestId) => {
+    const request = requestsById.get(requestId);
+    return request ? [request] : [];
+  });
+  return {
+    requestCount: requestIds.size + exchanges.filter((exchange) => !exchange.requestId).length,
+    errorCount: requests.filter((request) => request.error || (request.status ?? 0) >= 400).length,
+    pendingCount: requests.filter(
+      (request) => !request.error && request.status === undefined,
+    ).length,
+  };
+}
+
+/** Formats all background outcomes as one header badge. */
+export function formatBackgroundActivitySummary(
+  summary: BackgroundActivitySummary,
+): string {
+  const parts = [
+    `${summary.requestCount} ${summary.requestCount === 1 ? 'request' : 'requests'}`,
+  ];
+  if (summary.errorCount > 0) {
+    parts.push(`${summary.errorCount} ${summary.errorCount === 1 ? 'error' : 'errors'}`);
+  }
+  if (summary.pendingCount > 0) {
+    parts.push(`${summary.pendingCount} pending`);
+  }
+  return parts.join(', ');
+}
+
+function isBackgroundExchange(exchange: TraceExchange): boolean {
+  const nodes = exchange.items.flatMap((item) =>
+    item.type === 'node' ? [item.node] : turnNodes(item),
+  );
+  return nodes.length > 0 && nodes.every((node) => node.sideCall === true);
 }
 
 /** Every node a turn renders, for selection and drill-down. */

@@ -2,12 +2,12 @@
 
 ## Project purpose
 
-Agent DevTools is a local observability proxy for AI-agent traffic. It reconstructs chat traces from HTTP/SSE exchanges and lets the UI drill from a trace node into the captured transport details. Captured requests can contain live credentials, prompts, and source code, so privacy and local-only operation are part of the product contract.
+Claude DevTools is a local observability proxy for Claude Code traffic. It reconstructs chat traces from Anthropic Messages HTTP/SSE exchanges and lets the UI drill from a trace node into the captured transport details. Captured requests can contain live credentials, prompts, and source code, so privacy and local-only operation are part of the product contract. Codex, OpenAI protocols, and generic multi-provider routing are outside the product scope.
 
 ## Repository map
 
 - `src/core/` is the provider-agnostic domain and transport layer. Keep provider wire formats out of this directory except under `src/core/adapters/`.
-- `src/core/adapters/` owns provider detection and request/response/SSE translation into the unified model.
+- `src/core/adapters/anthropic.ts` owns Anthropic request/response/SSE translation into the unified model.
 - `src/server/proxy.ts` captures and forwards traffic. Do not add bookkeeping that delays the client stream.
 - `src/server/api.ts` exposes the local REST/SSE API and serves the production SPA.
 - `src/server/persistence.ts` stores trace bodies in SQLite and restores reconstruction state.
@@ -35,7 +35,7 @@ pnpm start
 ## Architecture rules
 
 - Keep `src/core/types.ts` as the unified provider-neutral model.
-- Add provider behavior through a `ProviderAdapter`; do not duplicate provider event switches in server or UI code.
+- Keep Anthropic wire behavior behind the `ProviderAdapter` seam; do not duplicate protocol event switches in server or UI code. Do not add provider registration or routing for non-Anthropic protocols without an explicit product-scope change.
 - Preserve the distinction between top-level `system`, tag-wrapped injected `context`, and ordinary `user` text. Context detection is structural (`<tag>...</tag>`), never based on prompt wording.
 - Preserve ESM conventions and include `.js` extensions in relative TypeScript imports that execute under NodeNext.
 - Keep strict TypeScript settings intact. Avoid `any`, unchecked casts, or silently swallowing malformed provider data without an explicit fallback.

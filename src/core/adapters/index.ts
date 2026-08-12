@@ -1,36 +1,20 @@
 import { anthropicAdapter } from './anthropic.js';
-import { openaiAdapter } from './openai.js';
 import type { ProviderAdapter, StreamBlockEvent } from './types.js';
 import type {
   AssembledResponse,
-  KnownProviderId,
   RequestInspection,
   TransportRecord,
 } from '../types.js';
 
 /**
- * Registered providers. Order is only a tie-break for `matches`, and today
- * there is nothing to break: the two claim disjoint paths (`/v1/messages` and
- * `/chat/completions`), which is what lets one proxy port serve both.
+ * Claude DevTools intentionally registers one wire adapter. Dispatch stays
+ * local here while the rest of the core consumes a small neutral interface.
  */
-const ADAPTERS: ProviderAdapter[] = [anthropicAdapter, openaiAdapter];
+const ADAPTERS: ProviderAdapter[] = [anthropicAdapter];
 
-/** Returns the first provider adapter that owns this transport request. */
+/** Returns the first provider adapter that can reconstruct this exchange. */
 export function findAdapter(record: TransportRecord): ProviderAdapter | undefined {
   return ADAPTERS.find((candidate) => candidate.claimsPath(record.path));
-}
-
-/**
- * Which provider a path belongs to, or undefined when none claims it.
- *
- * This is what lets one listening port serve several providers: the proxy asks
- * before the body arrives, forwards to that provider's upstream, and the same
- * answer later selects the adapter that reads the exchange. Paths no adapter
- * claims — token endpoints, `/v1/models`, health probes — are the caller's to
- * place, because the path genuinely does not say.
- */
-export function providerForPath(path: string): KnownProviderId | undefined {
-  return ADAPTERS.find((candidate) => candidate.claimsPath(path))?.provider;
 }
 
 /**

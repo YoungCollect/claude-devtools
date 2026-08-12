@@ -42,7 +42,7 @@ export interface ApiOptions {
  * headers at all. Reads need no such guard — without those headers a
  * cross-origin caller cannot see a response it did not originate.
  */
-const REQUEST_HEADER = 'x-agent-devtools';
+const REQUEST_HEADER = 'x-claude-devtools';
 
 /** Keeps a renamed chat readable in the sidebar and its stored row bounded. */
 const MAX_TITLE_LENGTH = 200;
@@ -66,8 +66,7 @@ export function createApi({
   app.get('/api/config', (c) =>
     c.json({
       proxyUrl: `http://${config.host}:${config.proxyPort}`,
-      upstreams: config.upstreams,
-      defaultProvider: config.defaultProvider,
+      upstream: config.upstream,
       uiPort: config.uiPort,
     }),
   );

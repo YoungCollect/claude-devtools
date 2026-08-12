@@ -170,7 +170,7 @@
      (declared on :root below) and is republished here as `--color-primary` by
      `@theme inline`; defining it in both places would be a reference cycle. */
   --color-success: #5db872;
-  /* 3.76 -> 4.66 against the canvas, where the "live" indicator sits. */
+  /* 3.76 -> 4.66 against the canvas, where the "active" indicator sits. */
   --color-success-fg: #387e54;
 
   /* Badge tone pairs — solid fills, so contrast is explicit in both themes.
@@ -490,6 +490,24 @@ button:not(:disabled),
 }
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
+}
+
+/* One compact hop per cycle keeps the brand alive while a request is open
+   without competing with the trace that is streaming beside it. */
+@keyframes header-claude-hop {
+  0%,
+  28%,
+  100% {
+    transform: translateY(0);
+  }
+  12% {
+    transform: translateY(-3px);
+  }
+}
+
+.header-claude-active {
+  animation: header-claude-hop 900ms ease-out infinite;
+  transform-origin: center bottom;
 }
 
 /* Respected globally: every transition and animation in this file and in the

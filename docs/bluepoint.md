@@ -13,6 +13,6 @@
 
 - [x] 左侧 conversation 列表中，在选中某一会话时，路由路径没有变化，导致每次刷新页面，无法定位到当前选中的会话，建议在选中某一会话时，路由路径也跟着变化。
 - [x] network 选项板中，能够直观的看出来发生的请求。但在 chat trace 页面中，新手无法直观的看出来某一请求及其涉及的信息，建议在 chat trace 页面中，能够直观的看出来发生的请求（我的想法是针对性的 给每个会话的整个大容器 加一个虚线边框）。
-- [x] 目前启动项目使用的是 `ANTHROPIC_BASE_URL=http://127.0.0.1:4141 claude`，但是我们这个项目目标是至少兼容 `claude-code` 和 `openai` 的，因此我们应该使用 agent-devtools 作为启动项目的默认方式 并且为 agent-devtools 提供一系列参数以支持自定义相关服务代理（譬如 --client claude, --client openai, --proxy-url http://127.0.0.1:4141 etc.）
-- [x] 新增 `openai` 的 `adapter` 
-- [x] 项目改造，能够同时支持 claude openai 两个 provider 进行同一个端口如 4141 进行代理连接。（claude 和 openai 做数据隔离）
+- [x] 项目重新定位为 Claude DevTools，只代理 Claude Code / Anthropic Messages 流量。
+- [x] 使用 `claude-devtools run` 启动代理并自动为 Claude Code 注入 `ANTHROPIC_BASE_URL`。
+- [x] 删除 Codex/OpenAI adapter、多 provider 路由、鉴权配置和 UI 选择。

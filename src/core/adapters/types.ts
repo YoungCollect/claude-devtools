@@ -1,5 +1,4 @@
 import type {
-  KnownProviderId,
   ProviderId,
   RequestKind,
   RequestInspection,
@@ -84,15 +83,11 @@ export interface StreamBlockEvent {
  */
 export interface ProviderAdapter {
   id: string;
-  /** The provider whose wire format this reads. Also the proxy's routing key. */
-  provider: KnownProviderId;
   /**
-   * Does this adapter own requests to this path? First match wins.
+   * Can this adapter reconstruct an exchange on this path into a trace?
    *
-   * Deliberately the path alone, not the whole record: the proxy has to pick an
-   * upstream from the request line, before a byte of the body has arrived, and
-   * a claim that could depend on the body would be unanswerable there — the one
-   * question would have two different answers depending on when it was asked.
+   * Non-trace Anthropic endpoints are still forwarded; returning false only
+   * keeps that exchange in Network without reconstructing it into Chat Trace.
    */
   claimsPath(path: string): boolean;
   parseRequest(record: TransportRecord): ParsedRequest;

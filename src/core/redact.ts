@@ -14,7 +14,6 @@ const SENSITIVE_HEADERS = new Set([
   'cookie',
   'set-cookie',
   'anthropic-auth-token',
-  'openai-api-key',
   'x-goog-api-key',
 ]);
 

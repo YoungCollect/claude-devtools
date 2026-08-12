@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 export type Theme = 'light' | 'dark';
 
 /** Must match the key the pre-paint script in index.html reads. */
-const STORAGE_KEY = 'agent-devtools:theme';
+const STORAGE_KEY = 'claude-devtools:theme';
 
 function apply(theme: Theme): void {
   document.documentElement.dataset.theme = theme;

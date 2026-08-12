@@ -5,9 +5,9 @@ import { useEffect, useState } from 'react';
  *
  * - `offline` — the change feed is closed. The page has stopped updating and
  *   nothing else it shows can be trusted to be current.
- * - `idle` — connected to the local devtools server, no traffic through the
+ * - `ready` — connected to the local devtools server, no traffic through the
  *   proxy. The tool is armed and waiting for the agent to say something.
- * - `live` — an exchange is open through the proxy right now.
+ * - `active` — an exchange is open through the proxy right now.
  *
  * Connection and traffic are separate facts and both matter, so the indicator
  * carries three states rather than folding them into one. Reporting only the
@@ -15,15 +15,15 @@ import { useEffect, useState } from 'react';
  * was answering "is the devtools server up", which stays true for as long as
  * the process runs.
  */
-export type FeedStatus = 'offline' | 'idle' | 'live';
+export type FeedStatus = 'offline' | 'ready' | 'active';
 
 export function feedStatus(connected: boolean, trafficActive: boolean): FeedStatus {
   if (!connected) return 'offline';
-  return trafficActive ? 'live' : 'idle';
+  return trafficActive ? 'active' : 'ready';
 }
 
 /**
- * How long `live` outlasts the last open exchange.
+ * How long `active` outlasts the last open exchange.
  *
  * A turn is not one request. Claude Code interleaves short calls — token
  * counts, retries — around the streamed completion, with gaps of a few hundred

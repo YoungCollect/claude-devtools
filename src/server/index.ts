@@ -3,15 +3,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 
-import { providerForPath } from '../core/adapters/index.js';
-import { orderedClients, runCommand } from '../core/clients.js';
+import { runCommand } from '../core/clients.js';
 import { Store } from '../core/store.js';
 import { TraceBuilder } from '../core/trace-builder.js';
 import { createApi } from './api.js';
 import { parseArgs, USAGE } from './cli.js';
-import { loadConfig, PROVIDERS } from './config.js';
+import { loadConfig } from './config.js';
 import { Persistence } from './persistence.js';
 import { createProxy } from './proxy.js';
+import { findRunningCapture, launchClient, type Launched } from './run-client.js';
 import { CaptureRuntime } from './runtime.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -27,7 +27,7 @@ function orExit<T>(read: () => T): T {
   try {
     return read();
   } catch (error) {
-    console.error(`agent-devtools: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`claude-devtools: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
 }
@@ -45,6 +45,33 @@ if (cli.version) {
 }
 
 const config = orExit(() => loadConfig(argv));
+
+/**
+ * A second `run` joins the first capture instead of starting a rival.
+ *
+ * Checked before anything is opened — the database especially, since two
+ * processes writing one SQLite file is the kind of damage a convenience feature
+ * has no business risking. Attaching means this process owns nothing but the
+ * child: no listeners, no storage, and no banner, because the capture it is
+ * joining already printed one.
+ */
+if (cli.runClient) {
+  const existing = await findRunningCapture(config.uiPort);
+  if (existing) {
+    console.log(
+      `\n  claude-devtools  ·  joining the capture already on ${existing.proxyUrl}\n` +
+        `  starting ${cli.runClient.label}\n`,
+    );
+    const attached = launchClient({
+      client: cli.runClient,
+      args: cli.runArgs ?? [],
+      proxyUrl: existing.proxyUrl,
+    });
+    const result = await attached.exited;
+    process.exit(result.failedToStart ? 1 : (result.code ?? 0));
+  }
+}
+
 const store = new Store(config.maxRequests);
 const builder = new TraceBuilder(store);
 
@@ -79,11 +106,7 @@ const runtime = new CaptureRuntime({
 });
 
 const proxy = createProxy({
-  // One listener, one upstream per provider. A path no adapter claims — token
-  // refresh, `/v1/models`, a health probe — has nothing in it to route on, so
-  // it goes to the default rather than being rejected: those calls are part of
-  // a real session and dropping them would break the client that made them.
-  resolveUpstream: (path) => config.upstreams[providerForPath(path) ?? config.defaultProvider],
+  upstream: config.upstream,
   host: config.host,
   port: config.proxyPort,
   hooks: runtime.hooks,
@@ -121,8 +144,32 @@ const viteUrl = `http://${config.host}:${config.vitePort}`;
  * stack trace underneath it.
  */
 let pendingListeners = 2;
+/** The client this process launched, if any — held so shutdown can take it with us. */
+let launched: Launched | undefined;
+
 const announceWhenReady = () => {
-  if (--pendingListeners === 0) console.log(banner());
+  if (--pendingListeners > 0) return;
+  console.log(banner());
+  if (!cli.runClient) return;
+
+  // Started only once both ports are bound: a client that came up first would
+  // send its opening request to a proxy that was not listening yet.
+  launched = launchClient({
+    client: cli.runClient,
+    args: cli.runArgs ?? [],
+    proxyUrl,
+  });
+  void launched.exited.then((result) => {
+    // The capture outlives the client on purpose — reading the trace is what
+    // you do *after* the session ends. Ctrl-C is the way out, and it takes the
+    // whole thing down through the handler below.
+    if (result.failedToStart) return;
+    console.log(
+      `\n  ${cli.runClient?.label} exited. The capture is still running:\n` +
+        `  ui        ${devMode ? viteUrl : apiUrl}\n` +
+        '  Ctrl-C to stop.\n',
+    );
+  });
 };
 
 proxy.once('listening', announceWhenReady);
@@ -155,18 +202,23 @@ ui.on('error', (error: NodeJS.ErrnoException) =>
 function exitOnListenError(what: string, port: number, error: NodeJS.ErrnoException): never {
   if (error.code === 'EADDRINUSE') {
     console.error(
-      `agent-devtools: the ${what} could not start — 127.0.0.1:${port} is already in use.\n` +
+      `claude-devtools: the ${what} could not start — 127.0.0.1:${port} is already in use.\n` +
         '  Another capture is probably running. Stop it, or choose other ports with' +
         ' --proxy-port / --ui-port.',
     );
   } else {
-    console.error(`agent-devtools: the ${what} could not start on port ${port}: ${error.message}`);
+    console.error(`claude-devtools: the ${what} could not start on port ${port}: ${error.message}`);
   }
   process.exit(1);
 }
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
+    // A client started by `run` shares this terminal's process group, so it has
+    // already been signalled; this is for the case where it has not, so that
+    // quitting the capture never leaves an agent behind holding a base URL that
+    // no longer answers.
+    launched?.child?.kill(signal);
     persistence?.close();
     process.exit(0);
   });
@@ -185,33 +237,19 @@ function banner(): string {
       `${restored.conversations > 0 ? `, restored ${restored.conversations} conversations / ${restored.requests} requests` : ''})`
     : `off (--no-persist) — bodies stay in memory under ${formatBytes(config.maxBytes)}, lost on restart`;
 
-  /**
-   * Both providers, on the one port. Which line you need depends on the client
-   * you are about to start, and nothing about running one rules out the other —
-   * so both are printed, and the traffic is separated by path, not by port. The
-   * `--client` choice only decides which goes first and where unrouted paths go.
-   */
-  const upstreamLines = PROVIDERS.map(
-    (provider) =>
-      `            ${provider.padEnd(10)} →  ${config.upstreams[provider]}` +
-      `${provider === config.defaultProvider ? '   (default route)' : ''}`,
-  ).join('\n');
-
-  const clientLines = orderedClients(config.defaultProvider)
-    .map((client) => `    ${runCommand(client, proxyUrl)}`)
-    .join('\n');
+  const nextStep = cli.runClient
+    ? `  Starting ${cli.runClient.label}.\n`
+    : `  Point Claude Code at the proxy:\n\n    ${runCommand(proxyUrl)}`;
 
   return `
-  agent-devtools${devMode ? '  ·  dev' : ''}
+  claude-devtools${devMode ? '  ·  dev' : ''}
 
   proxy     ${proxyUrl}
-${upstreamLines}
+  upstream  ${config.upstream}
   ui        ${uiLine}
   storage   ${storageLine}
 
-  Point an agent at the proxy:
-
-${clientLines}
+${nextStep}
 `;
 }
 

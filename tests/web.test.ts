@@ -5,7 +5,17 @@ import { transportForConversation } from '../src/web/transport.js';
 import { feedStatus } from '../src/web/activity.js';
 import { jsonContainer } from '../src/web/json.js';
 import { focusBodyField } from '../src/web/inspect-focus.js';
-import { groupByRequest, groupTrace, turnNodes } from '../src/web/trace-groups.js';
+import {
+  exchangeHeaderFields,
+  formatBackgroundActivitySummary,
+  groupByRequest,
+  groupTrace,
+  groupTraceSections,
+  labelExchangePhase,
+  splitExchangePhases,
+  summarizeBackgroundActivity,
+  turnNodes,
+} from '../src/web/trace-groups.js';
 import { readRoute, routeHref } from '../src/web/route.js';
 import { anthropicAdapter } from '../src/core/adapters/anthropic.js';
 import type { TraceNode, TraceNodeKind } from '../src/core/types.js';
@@ -207,10 +217,10 @@ test('an assistant block with no text yet is not a row', () => {
 });
 
 test('the header indicator separates the change feed from traffic through the proxy', () => {
-  // A running devtools server with no agent attached is `idle`, not `live`:
+  // A running devtools server with no traffic is `ready`, not `active`:
   // the connection being up says nothing about anyone using the proxy.
-  assert.equal(feedStatus(true, false), 'idle');
-  assert.equal(feedStatus(true, true), 'live');
+  assert.equal(feedStatus(true, false), 'ready');
+  assert.equal(feedStatus(true, true), 'active');
 
   // A closed feed outranks whatever the last snapshot said about traffic —
   // that snapshot is exactly what has stopped being updated.
@@ -279,4 +289,126 @@ test('the trace is grouped into the HTTP exchanges it was rebuilt from', () => {
   // the exchange beside it — a boundary there would be invented.
   const orphaned = groupByRequest(groupTrace([traceNode('user', { id: 'u9', text: 'hi' })]));
   assert.deepEqual(orphaned.map((exchange) => exchange.requestId), [undefined]);
+});
+
+test('the chat trace combines only adjacent request and response phases', () => {
+  const sections = groupTraceSections([
+    traceNode('user', { id: 'earlier-prompt', text: 'first', revealedByRequestId: 'r0' }),
+    traceNode('assistant', { id: 'earlier-answer', text: 'done', producedByRequestId: 'r0' }),
+    traceNode('user', { id: 'quota', text: 'quota', sideCall: true, revealedByRequestId: 'r1' }),
+    traceNode('user', { id: 'title', text: 'title', sideCall: true, revealedByRequestId: 'r2' }),
+    traceNode('system', { id: 'system', text: 'rules', revealedByRequestId: 'r3' }),
+    traceNode('user', { id: 'prompt', text: 'hello', revealedByRequestId: 'r3' }),
+    traceNode('assistant', { id: 'answer', text: 'hi', producedByRequestId: 'r3' }),
+    // Concurrent side-call responses finish after the ordinary turn. They must
+    // render here, not be pulled back underneath their earlier request nodes.
+    traceNode('assistant', {
+      id: 'quota-answer',
+      text: 'limit reached',
+      sideCall: true,
+      producedByRequestId: 'r1',
+    }),
+    traceNode('assistant', {
+      id: 'title-answer',
+      text: 'A title',
+      sideCall: true,
+      producedByRequestId: 'r2',
+    }),
+  ]);
+
+  assert.deepEqual(
+    sections.map((section) =>
+      section.type === 'background'
+        ? [
+            'background',
+            section.exchanges.map((exchange) => [exchange.requestId, exchange.phase]),
+          ]
+        : ['exchange', section.exchange.requestId, section.exchange.phase],
+    ),
+    [
+      ['exchange', 'r0', 'complete'],
+      ['background', [['r1', 'request'], ['r2', 'request']]],
+      ['exchange', 'r3', 'complete'],
+      ['background', [['r1', 'response'], ['r2', 'response']]],
+    ],
+  );
+  assert.deepEqual(
+    sections
+      .filter((section) => section.type === 'background')
+      .map((section) => section.exchanges.map((exchange) => exchange.items.length)),
+    [
+      [1, 1],
+      [1, 1],
+    ],
+  );
+});
+
+test('background activity presents request outcomes as one compact summary without duration', () => {
+  const nodes = [
+    traceNode('user', { id: 'quota', text: 'quota prompt', sideCall: true, revealedByRequestId: 'r1' }),
+    traceNode('user', { id: 'title', text: 'title prompt', sideCall: true, revealedByRequestId: 'r2' }),
+    traceNode('assistant', { id: 'quota-response', text: 'no', sideCall: true, producedByRequestId: 'r1' }),
+    traceNode('assistant', { id: 'title-response', text: 'done', sideCall: true, producedByRequestId: 'r2' }),
+    traceNode('user', { id: 'prompt', text: 'hello', revealedByRequestId: 'r3' }),
+  ];
+  const transport = [
+    {
+      id: 'r1', provider: 'anthropic' as const, kind: 'utility' as const, method: 'POST',
+      path: '/v1/messages', status: 429, isStream: false, startedAt: 1, durationMs: 477,
+      requestBytes: 1, responseBytes: 1, conversationId: 'c1', turnIndex: 0,
+    },
+    {
+      id: 'r2', provider: 'anthropic' as const, kind: 'utility' as const, method: 'POST',
+      path: '/v1/messages', status: 200, isStream: false, startedAt: 2, durationMs: 2_130,
+      requestBytes: 1, responseBytes: 1, conversationId: 'c1', turnIndex: 1,
+    },
+    {
+      id: 'r3', provider: 'anthropic' as const, kind: 'conversation' as const, method: 'POST',
+      path: '/v1/messages', status: 200, isStream: false, startedAt: 3, durationMs: 4_410,
+      requestBytes: 1, responseBytes: 1, conversationId: 'c1', turnIndex: 2,
+    },
+  ];
+
+  const background = groupTraceSections(nodes).find((section) => section.type === 'background');
+  assert.ok(background);
+  assert.deepEqual(summarizeBackgroundActivity(background.exchanges, transport), {
+    requestCount: 2,
+    errorCount: 1,
+    pendingCount: 0,
+  });
+  assert.equal(
+    formatBackgroundActivitySummary(
+      summarizeBackgroundActivity(background.exchanges, transport),
+    ),
+    '2 requests, 1 error',
+  );
+});
+
+test('an exchange labels its request and response as separate numbered phases', () => {
+  const [exchange] = groupByRequest(
+    groupTrace([
+      traceNode('user', { id: 'prompt', text: 'hello', revealedByRequestId: 'r3' }),
+      traceNode('assistant', { id: 'answer', text: 'hi', producedByRequestId: 'r3' }),
+    ]),
+  );
+  assert.ok(exchange);
+
+  const phases = splitExchangePhases(exchange);
+  assert.deepEqual(phases.request.map((item) => item.key), ['prompt']);
+  assert.deepEqual(phases.response.map((item) => item.key), ['turn:answer']);
+  assert.equal(labelExchangePhase(2, 'request'), '#3 REQUEST');
+  assert.equal(labelExchangePhase(2, 'response'), '#3 RESPONSE');
+  assert.equal(labelExchangePhase(3, 'complete'), '#4');
+  assert.deepEqual(exchangeHeaderFields('request'), {
+    methodAndPath: true,
+    statusAndDuration: true,
+  });
+  assert.deepEqual(exchangeHeaderFields('response'), {
+    methodAndPath: false,
+    statusAndDuration: false,
+  });
+  assert.deepEqual(exchangeHeaderFields('complete'), {
+    methodAndPath: true,
+    statusAndDuration: true,
+  });
 });

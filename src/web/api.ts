@@ -1,6 +1,5 @@
 import type {
   AssembledResponse,
-  KnownProviderId,
   RequestInspection,
   StateSnapshot,
   TraceNode,
@@ -22,12 +21,10 @@ export type TransportDetail = TransportRecord & {
 };
 
 export interface ServerConfig {
-  /** The one port every client points at, whichever provider it speaks. */
+  /** The loopback origin Claude Code points ANTHROPIC_BASE_URL at. */
   proxyUrl: string;
-  /** Where each provider's traffic is forwarded. */
-  upstreams: Record<KnownProviderId, string>;
-  /** Which client the server was started for, and where unclaimed paths go. */
-  defaultProvider: KnownProviderId;
+  /** Anthropic-compatible destination receiving all proxied traffic. */
+  upstream: string;
   uiPort: number;
 }
 
@@ -43,7 +40,7 @@ async function getJson<T>(path: string): Promise<T> {
  * non-simple, so a cross-origin caller has to pass a preflight that this API
  * never answers. The server rejects state-changing requests without it.
  */
-const MUTATION_HEADERS = { 'x-agent-devtools': '1' };
+const MUTATION_HEADERS = { 'x-claude-devtools': '1' };
 
 async function mutate(path: string, method: string, body?: unknown): Promise<void> {
   const res = await fetch(path, {
@@ -83,10 +80,10 @@ export const api = {
  * UI can never drift out of sync with the store.
  *
  * `onStatus` reports whether this stream is actually open, which is the only
- * honest source for the header's live/offline indicator. Deriving it from the
+ * honest source for the header's ready/offline distinction. Deriving it from the
  * refetches instead was self-fulfilling: a refetch only happens when a `rev`
  * arrives, so a server that had gone away simply stopped saying anything and
- * the indicator held at "live" forever — it was reporting "a fetch succeeded
+ * the indicator held at "ready" forever — it was reporting "a fetch succeeded
  * at some point", not "the feed is open".
  */
 export function subscribeToRevisions({
@@ -101,7 +98,7 @@ export function subscribeToRevisions({
     onStatus(true);
     onRevision(Number((event as MessageEvent<string>).data));
   });
-  // The server's 15s keep-alive. On an idle capture it is the only traffic on
+  // The server's 15s keep-alive. On a quiet capture it is the only traffic on
   // this stream, so it is what distinguishes "connected and quiet" from "gone".
   source.addEventListener('ping', () => onStatus(true));
   source.onopen = () => onStatus(true);

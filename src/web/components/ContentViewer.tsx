@@ -70,7 +70,7 @@ export interface ContentViewerProps {
   showViewModes?: boolean;
 }
 
-const STORAGE_KEY = 'agent-devtools:content-view';
+const STORAGE_KEY = 'claude-devtools:content-view';
 
 /**
  * One preferred view, shared by every viewer on the page.

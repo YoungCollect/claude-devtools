@@ -22,7 +22,6 @@ const fpToolResult = (toolUseId: string, content: unknown) =>
 
 export const anthropicAdapter: ProviderAdapter = {
   id: 'anthropic',
-  provider: 'anthropic',
 
   claimsPath(path) {
     return pathname(path).includes('/v1/messages');
@@ -37,7 +36,7 @@ export const anthropicAdapter: ProviderAdapter = {
 
     return {
       provider: 'anthropic',
-      kind: classify(path, tools.length, messages.length, body?.max_tokens),
+      kind: classify(path, tools.length, messages.length, readSessionId(record.requestHeaders)),
       agent: detectAgent(record.requestHeaders),
       model: typeof body?.model === 'string' ? body.model : undefined,
       sessionId: readSessionId(record.requestHeaders),
@@ -217,16 +216,14 @@ export const anthropicAdapter: ProviderAdapter = {
 
 // ---------------------------------------------------------------------------
 
-/** A side call is given barely any room to answer; a real turn is not. */
-const UTILITY_MAX_TOKENS = 1024;
-
 /**
- * Which requests belong in the Chat Trace.
+ * Which requests are a session's own turns, and which are side calls it makes
+ * along the way.
  *
- * Claude Code interleaves real turns with side calls — `count_tokens` probes
- * and a small no-tools Haiku call that names the conversation. Those are
- * genuine traffic and stay in the Network view, but showing them as trace nodes
- * buries the actual agent loop.
+ * Claude Code interleaves real turns with side calls — `count_tokens` probes, a
+ * quota check, and a no-tools call that names the conversation. Both belong to
+ * the session; only the turns belong in its transcript, because a side call's
+ * prompt and reply are about the session rather than part of it.
  *
  * The tool set is the strongest signal: an agent turn always ships its tools.
  * It cannot be the only one, because agents that declare no tools at all exist
@@ -235,16 +232,24 @@ const UTILITY_MAX_TOKENS = 1024;
  * single-turn exchange never reached the trace, and a longer one only appeared
  * from its third message on.
  *
- * So the tool-less case is narrowed to what a side call actually looks like:
- * one message and a token budget too small to hold a reply. A real one-shot
- * request asks for room to answer, and Claude Code's title and quota calls
- * still match on both counts.
+ * So the tool-less case is narrowed by the run id. A side call is a request
+ * that names a session, declares no tools, and carries a single message — the
+ * SDK and Mastra send no run id at all, so their one-shot turns cannot match.
+ *
+ * The narrowing used to be a `max_tokens` ceiling instead, on the theory that a
+ * side call is given barely any room to answer. It is not: Claude Code's title
+ * call asks for the same 64000-token budget as a real turn, so every one of
+ * them was read as a conversation and opened its own trace.
  */
-function classify(path: string, toolCount: number, messageCount: number, maxTokens: unknown) {
+function classify(
+  path: string,
+  toolCount: number,
+  messageCount: number,
+  sessionId: string | undefined,
+) {
   if (path.includes('count_tokens')) return 'utility' as const;
   if (toolCount > 0) return 'conversation' as const;
-  const budget = typeof maxTokens === 'number' ? maxTokens : Number.POSITIVE_INFINITY;
-  if (messageCount <= 1 && budget <= UTILITY_MAX_TOKENS) return 'utility' as const;
+  if (sessionId !== undefined && messageCount <= 1) return 'utility' as const;
   return 'conversation' as const;
 }
 

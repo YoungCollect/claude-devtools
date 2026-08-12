@@ -106,7 +106,7 @@ test('renaming reports whether a durable row was actually rewritten', () => {
 });
 
 function temporaryDatabase(): string {
-  return join(mkdtempSync(join(tmpdir(), 'agent-devtools-test-')), 'traces.db');
+  return join(mkdtempSync(join(tmpdir(), 'claude-devtools-test-')), 'traces.db');
 }
 
 function node(id: string, conversationId = 'conv_1'): TraceNode {

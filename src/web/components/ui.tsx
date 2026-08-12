@@ -635,23 +635,3 @@ function MoonIcon() {
     </svg>
   );
 }
-
-/**
- * The radial spike mark that prefixes the wordmark in this system. Drawn
- * inline so the app carries no external asset.
- */
-export function SpikeMark({ size = 16 }: { size?: number }) {
-  const spokes = Array.from({ length: 8 }, (_, i) => (i * 360) / 8);
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="shrink-0">
-      {spokes.map((angle) => (
-        <path
-          key={angle}
-          d="M12 12 L11.05 2.6 Q12 1.4 12.95 2.6 Z"
-          fill="currentColor"
-          transform={`rotate(${angle} 12 12)`}
-        />
-      ))}
-    </svg>
-  );
-}

@@ -3,7 +3,7 @@
  *
  * Nothing in here may reference an Anthropic-specific shape. Adapters
  * (src/core/adapters/*) translate a provider's wire format into these types, so
- * adding Codex/OpenAI or Mastra/Google later means writing an adapter, not
+ * adding another provider or wire protocol means writing an adapter, not
  * touching the store or the UI.
  *
  * The model is deliberately split in two layers:
@@ -21,7 +21,7 @@
 // Transport layer
 // ---------------------------------------------------------------------------
 
-export type ProviderId = 'anthropic' | 'openai' | 'unknown';
+export type ProviderId = 'anthropic' | 'unknown';
 
 /**
  * A provider this build can actually read — everything except the
@@ -29,6 +29,12 @@ export type ProviderId = 'anthropic' | 'openai' | 'unknown';
  * one set of conversations per value.
  */
 export type KnownProviderId = Exclude<ProviderId, 'unknown'>;
+
+/**
+ * The exhaustive runtime set. Claude DevTools intentionally supports exactly
+ * the Anthropic protocol; keeping it beside the type prevents drift.
+ */
+export const PROVIDER_IDS = ['anthropic'] as const satisfies readonly KnownProviderId[];
 
 /**
  * How a request relates to the agent's conversation.
@@ -140,6 +146,17 @@ export interface TraceNode {
 
   /** Wrapper tag for context injected inside a user-role content block. */
   contextTag?: string;
+
+  /**
+   * Part of a call the session made *about* itself — naming the conversation,
+   * checking quota — rather than a turn in it.
+   *
+   * On the trace because it is traffic the agent really made, and on the same
+   * trace as the turns because the client says it is the same run. Marked so
+   * the UI can show it as the aside it is, and so nothing downstream mistakes
+   * its prompt for something the user typed.
+   */
+  sideCall?: boolean;
 
   /** Distinguishes the request-level prompt from a system-role history message. */
   systemSource?: 'prompt' | 'message';

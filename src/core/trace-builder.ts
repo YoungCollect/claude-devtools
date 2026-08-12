@@ -16,6 +16,16 @@ import type {
   TransportRecord,
 } from './types.js';
 
+/**
+ * How many sessions may hold an unattached side call.
+ *
+ * A run id that never opens a conversation — a probe, an agent that exited
+ * before its first turn — would otherwise be remembered forever. The bound is
+ * generous because the entries are two references each, and losing one only
+ * costs a side call its place on a trace it may never have had.
+ */
+const MAX_PENDING_SIDE_CALL_SESSIONS = 64;
+
 /** Reconstruction state for one conversation. Persisted so a restart resumes
  * an in-flight agent session instead of starting a second trace for it. */
 export interface ConversationState {
@@ -23,11 +33,9 @@ export interface ConversationState {
   /**
    * The provider this trace belongs to.
    *
-   * A precondition for continuing it, never a tiebreaker: with two providers
-   * proxied through one port, an Anthropic run and an OpenAI run can open with
-   * byte-identical injected context (the same CLAUDE.md, the same environment
-   * block) and would otherwise be free to absorb each other's requests into one
-   * trace. Optional because a conversation restored from a database written
+   * A precondition for continuing it, never a tiebreaker. Kept on persisted
+   * state so older captures stay explicit about the protocol they contain.
+   * Optional because a conversation restored from a database written
    * before this field existed has no answer, and inventing one would split a
    * trace that is mid-run.
    */
@@ -75,6 +83,16 @@ export class TraceBuilder {
     string,
     { conversationId: string; toolName: string; isSubagent: boolean }
   >();
+  /**
+   * Side calls whose session has not opened a conversation yet, by run id.
+   *
+   * Claude Code fires its title call alongside the first turn, and it has been
+   * observed arriving first, so "no conversation yet" is the ordinary case.
+   */
+  private readonly pendingSideCalls = new Map<
+    string,
+    { parsed: ParsedRequest; record: TransportRecord }[]
+  >();
   private counter = 0;
   /** Ids touched since the last drain, so persistence writes only what changed. */
   private readonly dirtyNodeIds = new Set<string>();
@@ -98,6 +116,7 @@ export class TraceBuilder {
     record.model = parsed.model;
 
     if (parsed.kind !== 'conversation') {
+      this.attachSideCall(parsed, record);
       this.store.putTransport(record);
       this.store.touch();
       return;
@@ -111,6 +130,85 @@ export class TraceBuilder {
 
     this.store.putTransport(record);
     this.store.touch();
+  }
+
+  /**
+   * Puts a side call on its session's trace without letting it into the
+   * transcript.
+   *
+   * The two halves are deliberate. It joins the conversation because the client
+   * says so — Claude Code stamps a side call with the same run id as the turns
+   * around it — and a separate trace per title call was one row of noise per
+   * message, titled with the prompt that generated it.
+   *
+   * It stays out of `state.fps` because the transcript is the thing every later
+   * request is diffed against. A side call holds one message that no turn will
+   * ever repeat, so folding it in would leave a permanent phantom at the head of
+   * the history: the next real request would share no prefix with it, and the
+   * rewind branch would read that as a compaction.
+   *
+   * Arriving before its conversation is the normal case, not the exception —
+   * Claude Code fires the title call and the first turn together, and the title
+   * call has been observed landing first. So an unmatched one waits for the
+   * session to appear rather than being dropped.
+   */
+  private attachSideCall(parsed: ParsedRequest, record: TransportRecord): void {
+    const sessionId = parsed.sessionId;
+    if (!sessionId) return;
+
+    for (const state of this.conversations.values()) {
+      if (state.sessionId !== sessionId) continue;
+      if (state.provider && state.provider !== parsed.provider) continue;
+      this.revealSideCall(state, parsed, record);
+      return;
+    }
+
+    // Held until the session opens a conversation. Bounded because a run id
+    // that never sends a turn — a probe, an agent that died before its first
+    // request — would otherwise be remembered for the life of the process.
+    const waiting = this.pendingSideCalls.get(sessionId) ?? [];
+    waiting.push({ parsed, record });
+    this.pendingSideCalls.set(sessionId, waiting);
+    while (this.pendingSideCalls.size > MAX_PENDING_SIDE_CALL_SESSIONS) {
+      const oldest = this.pendingSideCalls.keys().next();
+      if (oldest.done) break;
+      this.pendingSideCalls.delete(oldest.value);
+    }
+  }
+
+  /** Appends a side call's own exchange, marked, and leaves `fps` untouched. */
+  private revealSideCall(
+    state: ConversationState,
+    parsed: ParsedRequest,
+    record: TransportRecord,
+  ): void {
+    record.conversationId = state.id;
+    record.turnIndex = state.turnCount++;
+
+    if (parsed.system?.trim()) {
+      this.append({
+        conversationId: state.id,
+        kind: 'system',
+        ts: record.timing.startedAt,
+        text: parsed.system,
+        systemSource: 'prompt',
+        sideCall: true,
+        revealedByRequestId: record.id,
+      });
+    }
+
+    for (const item of parsed.history) {
+      if (item.kind === 'tool_result' || !item.text) continue;
+      this.append({
+        conversationId: state.id,
+        kind: item.kind,
+        ts: record.timing.startedAt,
+        text: item.text,
+        sideCall: true,
+        revealedByRequestId: record.id,
+      });
+    }
+    this.dirtyConversationIds.add(state.id);
   }
 
   /**
@@ -204,6 +302,21 @@ export class TraceBuilder {
       parentToolUseId: parent?.toolUseId,
     };
     this.store.putConversation(conversation);
+
+    // Side calls this session made before it had a conversation to belong to.
+    // Drain them before appending any node from the request that opened the
+    // conversation. Their turn indexes already precede that request; keeping
+    // node insertion in the same order prevents the opening request from being
+    // split around them in Chat Trace.
+    if (sessionId) {
+      const waiting = this.pendingSideCalls.get(sessionId);
+      this.pendingSideCalls.delete(sessionId);
+      for (const pending of waiting ?? []) {
+        this.revealSideCall(state, pending.parsed, pending.record);
+        this.store.putTransport(pending.record);
+      }
+    }
+
     if (system?.trim()) {
       this.append({
         conversationId: id,
@@ -214,6 +327,7 @@ export class TraceBuilder {
         revealedByRequestId: record.id,
       });
     }
+
     this.dirtyConversationIds.add(id);
     return state;
   }
@@ -421,6 +535,9 @@ export class TraceBuilder {
             toolName: event.toolName,
             toolUseId: event.toolUseId,
             toolInput: event.toolInput,
+            // A side call's answer is as much an aside as its prompt: it is the
+            // title, not something the model said to the user.
+            ...(record.kind === 'utility' ? { sideCall: true } : {}),
             producedByRequestId: record.id,
             model: record.model,
           });
@@ -473,11 +590,9 @@ export class TraceBuilder {
   /**
    * Finalises whatever the response left open when the exchange ended.
    *
-   * Not every protocol closes its blocks. Anthropic sends `content_block_stop`
-   * for each one; OpenAI's chat completions send nothing of the kind, and a
-   * block whose last chunk arrived in an earlier network batch cannot be closed
-   * from the frames of the batch that carries `finish_reason`. Leaving those
-   * open would keep their fingerprints out of the transcript, and the next
+   * Claude normally sends `content_block_stop` for each block, but an aborted
+   * or malformed stream may not. Leaving one open would keep its fingerprint
+   * out of the transcript, and the next
    * request — replaying that same assistant turn in its history — would fail to
    * match and open a second trace for the same conversation.
    *
@@ -608,6 +723,7 @@ export class TraceBuilder {
     this.conversations.clear();
     this.streams.clear();
     this.pendingToolCalls.clear();
+    this.pendingSideCalls.clear();
     this.dirtyNodeIds.clear();
     this.dirtyConversationIds.clear();
     this.counter = 0;

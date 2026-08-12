@@ -6,15 +6,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { assembleStreamResponse, providerForPath } from '../src/core/adapters/index.js';
+import { assembleStreamResponse, findAdapter } from '../src/core/adapters/index.js';
 import { anthropicAdapter } from '../src/core/adapters/anthropic.js';
-import { openaiAdapter } from '../src/core/adapters/openai.js';
+import { fingerprint } from '../src/core/fingerprint.js';
 import { isSensitiveHeader, redactHeaders } from '../src/core/redact.js';
 import { SseParser } from '../src/core/sse.js';
 import { Store } from '../src/core/store.js';
 import { TraceBuilder } from '../src/core/trace-builder.js';
 import type { TransportRecord } from '../src/core/types.js';
-import { orderedClients, runCommand } from '../src/core/clients.js';
+import { CLAUDE_CODE, runCommand } from '../src/core/clients.js';
 import { createApi } from '../src/server/api.js';
 import { parseArgs } from '../src/server/cli.js';
 import { loadConfig } from '../src/server/config.js';
@@ -63,7 +63,7 @@ test('deleting a conversation prevents its in-flight request from repopulating t
 });
 
 test('renaming a conversation survives a restart and later requests on the same trace', () => {
-  const file = join(mkdtempSync(join(tmpdir(), 'agent-devtools-rename-')), 'traces.db');
+  const file = join(mkdtempSync(join(tmpdir(), 'claude-devtools-rename-')), 'traces.db');
   const store = new Store();
   const persistence = new Persistence({ file, maxBytes: 1_000_000 });
   const builder = new TraceBuilder(store);
@@ -122,7 +122,7 @@ test('the rename endpoint requires a usable title and an existing conversation',
   const patch = (body: string) =>
     app.request('/api/conversations/conv_1', {
       method: 'PATCH',
-      headers: { 'x-agent-devtools': '1', 'content-type': 'application/json' },
+      headers: { 'x-claude-devtools': '1', 'content-type': 'application/json' },
       body,
     });
 
@@ -139,7 +139,7 @@ test('the rename endpoint requires a usable title and an existing conversation',
 
   const missing = await app.request('/api/conversations/conv_gone', {
     method: 'PATCH',
-    headers: { 'x-agent-devtools': '1', 'content-type': 'application/json' },
+    headers: { 'x-claude-devtools': '1', 'content-type': 'application/json' },
     body: '{"title":"ghost"}',
   });
   assert.equal(missing.status, 404);
@@ -148,7 +148,7 @@ test('the rename endpoint requires a usable title and an existing conversation',
 test('retention does not evict another conversation that is still in flight', () => {
   const store = new Store();
   const persistence = new Persistence({
-    file: join(mkdtempSync(join(tmpdir(), 'agent-devtools-runtime-')), 'traces.db'),
+    file: join(mkdtempSync(join(tmpdir(), 'claude-devtools-runtime-')), 'traces.db'),
     maxBytes: 120,
   });
   const runtime = new CaptureRuntime({
@@ -175,12 +175,16 @@ test('retention does not evict another conversation that is still in flight', ()
 
 test('configuration rejects non-loopback listeners and malformed limits', () => {
   assert.throws(
-    () => loadConfig([], { AGENT_DEVTOOLS_HOST: '0.0.0.0' }),
+    () => loadConfig([], { CLAUDE_DEVTOOLS_HOST: '0.0.0.0' }),
     /must be 127\.0\.0\.1/,
   );
   assert.throws(
-    () => loadConfig([], { AGENT_DEVTOOLS_PROXY_PORT: '4141oops' }),
+    () => loadConfig([], { CLAUDE_DEVTOOLS_PROXY_PORT: '4141oops' }),
     /positive integer/,
+  );
+  assert.throws(
+    () => loadConfig([], { CLAUDE_DEVTOOLS_UPSTREAM: 'file:///tmp/upstream' }),
+    /must be an http\(s\) URL/,
   );
   assert.equal(loadConfig([], {}).host, '127.0.0.1');
 });
@@ -509,26 +513,118 @@ test('credential headers are masked by name and by shape', () => {
 });
 
 test('a tool-less request is only utility when it looks like a side call', () => {
-  const kind = (body: unknown, path = '/v1/messages') =>
+  const kind = (
+    body: unknown,
+    requestHeaders: Record<string, string> = {},
+    path = '/v1/messages',
+  ) =>
     anthropicAdapter.parseRequest({
       id: 'r', provider: 'anthropic', kind: 'other', method: 'POST', path,
-      url: `https://api.anthropic.com${path}`, requestHeaders: {}, requestBody: body,
-      isStream: false, sseFrames: [], timing: { startedAt: 0 },
+      url: `https://api.anthropic.com${path}`, requestHeaders, requestBody: body,
+      isStream: false, sseFrames: [], timing: { startedAt: 0 }, requestBytes: 0, responseBytes: 0,
     }).kind;
 
-  // Claude Code's side calls: one message, no tools, barely any budget.
-  assert.equal(kind({ max_tokens: 512, messages: [{ role: 'user', content: 'name this' }] }), 'utility');
-  assert.equal(kind({ messages: [] }, '/v1/messages/count_tokens'), 'utility');
+  const run = { 'x-claude-code-session-id': 'sess-1' };
 
-  // A one-shot SDK call asks for room to answer, and must reach the trace.
+  // Claude Code's side calls: a run id, no tools, one message.
+  assert.equal(kind({ max_tokens: 512, messages: [{ role: 'user', content: 'name this' }] }, run), 'utility');
+  assert.equal(kind({ messages: [] }, {}, '/v1/messages/count_tokens'), 'utility');
+  // The budget is not the signal, and reading it as one was the bug: Claude
+  // Code's title call asks for as much room as a real turn.
+  assert.equal(kind({ max_tokens: 64_000, messages: [{ role: 'user', content: 'name this' }] }, run), 'utility');
+
+  // A one-shot from a runtime that sends no run id — the SDK, Mastra — must
+  // reach the trace however small its budget.
+  assert.equal(kind({ max_tokens: 512, messages: [{ role: 'user', content: 'hi' }] }), 'conversation');
   assert.equal(kind({ max_tokens: 4096, messages: [{ role: 'user', content: 'hi' }] }), 'conversation');
   // So must a second turn, which the old message-count rule also swallowed.
   assert.equal(
-    kind({ max_tokens: 512, messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }] }),
+    kind({ max_tokens: 512, messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }] }, run),
     'conversation',
   );
   // Tools are still decisive on their own.
-  assert.equal(kind({ max_tokens: 8, tools: [{ name: 'Bash' }], messages: [{ role: 'user', content: 'x' }] }), 'conversation');
+  assert.equal(kind({ max_tokens: 8, tools: [{ name: 'Bash' }], messages: [{ role: 'user', content: 'x' }] }, run), 'conversation');
+});
+
+test('a side call joins its session rather than opening a trace of its own', () => {
+  const store = new Store(100);
+  const builder = new TraceBuilder(store);
+  const run = { 'x-claude-code-session-id': 'sess-1' };
+
+  const request = (
+    id: string,
+    body: unknown,
+    requestHeaders: Record<string, string>,
+    startedAt: number,
+  ): TransportRecord => ({
+    id, provider: 'anthropic', kind: 'other', method: 'POST', path: '/v1/messages',
+    url: 'https://api.anthropic.com/v1/messages', requestHeaders, requestBody: body,
+    isStream: false, sseFrames: [], timing: { startedAt }, requestBytes: 0, responseBytes: 0,
+  });
+
+  // Claude Code fires the title call first — observed 8ms ahead of the turn it
+  // names — so it arrives before there is any conversation to join.
+  const title = request('side', {
+    max_tokens: 64_000,
+    system: 'You name conversations.',
+    messages: [{ role: 'user', content: 'Write the title in the predominant language' }],
+  }, run, 100);
+  builder.onRequestBody(title);
+  assert.equal(title.kind, 'utility');
+  assert.equal(title.conversationId, undefined, 'nothing to attach to yet');
+  assert.equal(store.snapshot().conversations.length, 0, 'a side call never opens a trace');
+
+  const turn = request('turn', {
+    max_tokens: 64_000,
+    system: 'You are Claude Code.',
+    tools: [{ name: 'Bash' }],
+    messages: [{ role: 'user', content: 'hello claude' }],
+  }, run, 108);
+  builder.onRequestBody(turn);
+
+  const conversations = store.snapshot().conversations;
+  assert.equal(conversations.length, 1, 'one session, one trace');
+  const conversationId = conversations[0]?.id ?? '';
+  // Titled from the turn, not from the side call's prompt.
+  assert.equal(conversations[0]?.title, 'hello claude');
+  // The waiting side call was drained into the session it named.
+  assert.equal(title.conversationId, conversationId);
+  assert.ok((title.turnIndex ?? -1) < (turn.turnIndex ?? -1), 'it happened first, so it is numbered first');
+
+  const nodes = store.getNodes(conversationId);
+  assert.deepEqual(
+    nodes.map((node) => node.revealedByRequestId ?? node.producedByRequestId),
+    ['side', 'side', 'turn', 'turn'],
+    'trace nodes follow request order and keep one request contiguous',
+  );
+  const side = nodes.filter((node) => node.sideCall);
+  assert.equal(side.length, 2);
+  assert.deepEqual(
+    side.map((node) => [node.kind, node.systemSource, node.text]),
+    [
+      ['system', 'prompt', 'You name conversations.'],
+      ['user', undefined, 'Write the title in the predominant language'],
+    ],
+  );
+  // And it stayed out of the transcript: the turn's own message is the only
+  // user node the diff knows about, so the next request still extends cleanly.
+  const ordinaryUser = nodes.filter((node) => node.kind === 'user' && !node.sideCall);
+  assert.deepEqual(ordinaryUser.map((node) => node.text), ['hello claude']);
+
+  // A second turn extends the same trace rather than being read as a rewind.
+  const next = request('turn2', {
+    max_tokens: 64_000,
+    system: 'You are Claude Code.',
+    tools: [{ name: 'Bash' }],
+    messages: [
+      { role: 'user', content: 'hello claude' },
+      { role: 'assistant', content: 'hi' },
+      { role: 'user', content: 'and again' },
+    ],
+  }, run, 200);
+  builder.onRequestBody(next);
+  assert.equal(store.snapshot().conversations.length, 1);
+  assert.equal(next.conversationId, conversationId);
 });
 
 test('an attachment is fingerprinted without hashing its payload', () => {
@@ -658,7 +754,7 @@ test('state-changing endpoints reject a request that did not come from the UI', 
   // preflight is what this API never answers.
   const fromUi = await app.request('/api/clear', {
     method: 'POST',
-    headers: { 'x-agent-devtools': '1' },
+    headers: { 'x-claude-devtools': '1' },
   });
   assert.equal(fromUi.status, 200);
   assert.equal(cleared, 1);
@@ -874,268 +970,6 @@ test('a record restored from disk with no end time is not reported as traffic', 
   assert.equal(store.snapshot().activeRequests, 0);
 });
 
-/**
- * The OpenAI wire format differs from Anthropic's in the two places the
- * reconstruction actually depends on: the system prompt is the leading
- * messages rather than a field, and nothing on the stream says a block ended.
- * This walks one tool round through both halves and then replays it as the
- * next request's history, which is the only thing that proves the two paths
- * fingerprint identically.
- */
-test('an OpenAI tool round is reconstructed and continued by the next request', () => {
-  const store = new Store();
-  const builder = new TraceBuilder(store);
-
-  const first = openaiRequest('openai_r1', [
-    { role: 'system', content: 'You are Codex.' },
-    { role: 'user', content: 'list the files' },
-  ]);
-  builder.onRequestBody(first);
-  const conversationId = first.conversationId ?? '';
-
-  assert.ok(conversationId);
-  assert.equal(first.provider, 'openai');
-  assert.equal(first.kind, 'conversation');
-  assert.equal(store.getConversation(conversationId)?.agent, 'codex');
-
-  first.isStream = true;
-  builder.onStreamFrames(first, [
-    chunk({ model: 'gpt-5', choices: [{ index: 0, delta: { role: 'assistant', content: '' } }] }),
-    chunk({ choices: [{ index: 0, delta: { content: 'On it.' } }] }),
-    chunk({
-      choices: [
-        {
-          index: 0,
-          delta: {
-            tool_calls: [
-              { index: 0, id: 'call_1', type: 'function', function: { name: 'shell', arguments: '' } },
-            ],
-          },
-        },
-      ],
-    }),
-    chunk({
-      choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '{"cmd":' } }] } }],
-    }),
-  ]);
-  builder.onStreamFrames(first, [
-    chunk({
-      choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '"ls"}' } }] } }],
-    }),
-  ]);
-  // `finish_reason` in a batch of its own: the adapter can no longer name the
-  // tool block from these frames alone, so closing it falls to the builder.
-  builder.onStreamFrames(first, [
-    chunk({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
-    chunk({ choices: [], usage: { prompt_tokens: 12, completion_tokens: 7 } }),
-  ]);
-  first.timing.endedAt = 5;
-  builder.onComplete(first);
-
-  assert.deepEqual(
-    store.getNodes(conversationId).map((node) => node.kind),
-    ['system', 'user', 'assistant', 'tool_call'],
-  );
-  const call = store.getNodes(conversationId)[3];
-  assert.equal(call?.toolName, 'shell');
-  // Reassembled from four fragments across three network batches.
-  assert.deepEqual(call?.toolInput, { cmd: 'ls' });
-  assert.deepEqual(first.usage, { inputTokens: 12, outputTokens: 7 });
-
-  // The same turn, replayed as history — `arguments` is a JSON string here and
-  // was a parsed object on the stream, so this only matches because the adapter
-  // parses it on the way in.
-  const second = openaiRequest(
-    'openai_r2',
-    [
-      { role: 'system', content: 'You are Codex.' },
-      { role: 'user', content: 'list the files' },
-      {
-        role: 'assistant',
-        content: 'On it.',
-        tool_calls: [
-          { id: 'call_1', type: 'function', function: { name: 'shell', arguments: '{"cmd":"ls"}' } },
-        ],
-      },
-      { role: 'tool', tool_call_id: 'call_1', content: 'AGENTS.md\nsrc' },
-    ],
-    6,
-  );
-  builder.onRequestBody(second);
-
-  assert.equal(second.conversationId, conversationId);
-  assert.equal(store.listConversations().length, 1);
-  assert.deepEqual(
-    store.getNodes(conversationId).map((node) => node.kind),
-    ['system', 'user', 'assistant', 'tool_call', 'tool_result'],
-  );
-  const result = store.getNodes(conversationId)[4];
-  assert.equal(result?.toolUseId, 'call_1');
-  assert.equal(result?.toolName, 'shell');
-});
-
-test('the OpenAI system prompt is the leading messages, and a later one stays history', () => {
-  const record = openaiRequest('openai_system', [
-    { role: 'system', content: 'Rules.' },
-    { role: 'developer', content: 'More rules.' },
-    { role: 'user', content: 'hi' },
-    { role: 'system', content: 'Reminder mid-run.' },
-    { role: 'user', content: 'still there?' },
-  ]);
-  const parsed = openaiAdapter.parseRequest(record);
-
-  assert.equal(parsed.system, 'Rules.\n\nMore rules.');
-  assert.deepEqual(
-    parsed.history.map((item) => item.kind),
-    ['user', 'system', 'user'],
-  );
-
-  // The prompt has no field of its own, so the Inspector's drill-down points
-  // at the array it actually lives in.
-  assert.equal(openaiAdapter.inspectRequest(record)?.bodyFields?.system, 'messages');
-  assert.equal(openaiAdapter.inspectRequest(record)?.systemText, 'Rules.\n\nMore rules.');
-  assert.deepEqual(openaiAdapter.inspectRequest(record)?.toolNames, ['shell']);
-});
-
-test('an OpenAI stream assembles into the same neutral response model', () => {
-  const record = openaiRequest('openai_assemble', [{ role: 'user', content: 'hi' }]);
-  record.isStream = true;
-  record.sseFrames = [
-    chunk({ model: 'gpt-5', choices: [{ index: 0, delta: { role: 'assistant', content: 'he' } }] }),
-    chunk({ choices: [{ index: 0, delta: { content: 'llo' } }] }),
-    chunk({
-      choices: [
-        {
-          index: 0,
-          delta: {
-            tool_calls: [
-              { index: 0, id: 'call_9', type: 'function', function: { name: 'shell', arguments: '{}' } },
-            ],
-          },
-        },
-      ],
-    }),
-    chunk({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
-  ];
-
-  assert.deepEqual(assembleStreamResponse(record), {
-    blocks: [
-      { index: 0, kind: 'assistant', text: 'hello' },
-      { index: 2, kind: 'tool_call', name: 'shell', text: '{}' },
-    ],
-    stopReason: 'tool_calls',
-  });
-});
-
-function openaiRequest(id: string, messages: unknown[], startedAt = 1): TransportRecord {
-  return {
-    id,
-    provider: 'unknown',
-    kind: 'other',
-    method: 'POST',
-    path: '/v1/chat/completions',
-    url: 'https://api.openai.com/v1/chat/completions',
-    requestHeaders: { 'user-agent': 'codex_cli_rs/0.4.0', session_id: 'session-under-test' },
-    requestBody: {
-      model: 'gpt-5',
-      tools: [{ type: 'function', function: { name: 'shell', parameters: {} } }],
-      messages,
-    },
-    isStream: false,
-    sseFrames: [],
-    timing: { startedAt },
-    requestBytes: 1,
-    responseBytes: 0,
-  };
-}
-
-/** Chat completions carry no `event:` field — only `data:` chunks. */
-function chunk(data: unknown) {
-  return { data, raw: '', t: 1 };
-}
-
-test('paths are routed to the provider that claims them', () => {
-  assert.equal(providerForPath('/v1/messages'), 'anthropic');
-  assert.equal(providerForPath('/v1/messages?beta=true'), 'anthropic');
-  assert.equal(providerForPath('/v1/chat/completions'), 'openai');
-  // A gateway that mounts the API under a prefix is still recognisable.
-  assert.equal(providerForPath('/openai/deployments/gpt-5/chat/completions'), 'openai');
-  // Nothing in these paths says which provider they belong to; the caller
-  // decides where they go rather than the adapter guessing.
-  assert.equal(providerForPath('/v1/models'), undefined);
-  assert.equal(providerForPath('/oauth/token'), undefined);
-});
-
-test('one proxy port forwards each provider to its own upstream', async () => {
-  const anthropic = await stubUpstream('anthropic-upstream');
-  const openai = await stubUpstream('openai-upstream');
-  const captured: string[] = [];
-
-  const proxy = createProxy({
-    resolveUpstream: (path) => (providerForPath(path) === 'openai' ? openai.url : anthropic.url),
-    host: '127.0.0.1',
-    port: 0,
-    hooks: {
-      onRequestStart: (record) => captured.push(record.path),
-      onRequestBody: () => undefined,
-      onResponseStart: () => undefined,
-      onStreamFrames: () => undefined,
-      onComplete: () => undefined,
-    },
-  });
-  await once(proxy, 'listening');
-  const base = `http://127.0.0.1:${serverPort(proxy)}`;
-
-  try {
-    assert.equal(await postTo(`${base}/v1/messages`), 'anthropic-upstream');
-    assert.equal(await postTo(`${base}/v1/chat/completions`), 'openai-upstream');
-    // Two providers, back to back, on the one listener — and a path neither
-    // adapter claims still reaches the fallback rather than failing.
-    assert.equal(await postTo(`${base}/v1/models`), 'anthropic-upstream');
-    assert.deepEqual(captured, ['/v1/messages', '/v1/chat/completions', '/v1/models']);
-  } finally {
-    proxy.close();
-    anthropic.close();
-    openai.close();
-  }
-});
-
-/**
- * Two runs that differ *only* by provider.
- *
- * Same system prompt, same opening message, so every fingerprint the matcher
- * compares is identical — the merge this prevents is not hypothetical, it is
- * what happens the moment a Claude Code session and a Codex session share a
- * directory and a proxy port.
- */
-test('an OpenAI run and an Anthropic run are never merged into one trace', () => {
-  const store = new Store();
-  const builder = new TraceBuilder(store);
-
-  const claude = request('shared_anthropic');
-  claude.requestBody = {
-    model: 'test-model',
-    system: 'Shared instructions.',
-    tools: [{ name: 'Bash' }],
-    messages: [{ role: 'user', content: 'hello' }],
-  };
-  builder.onRequestBody(claude);
-
-  const codex = openaiRequest('shared_openai', [
-    { role: 'system', content: 'Shared instructions.' },
-    { role: 'user', content: 'hello' },
-  ]);
-  builder.onRequestBody(codex);
-
-  assert.equal(claude.provider, 'anthropic');
-  assert.equal(codex.provider, 'openai');
-  assert.notEqual(claude.conversationId, codex.conversationId);
-  assert.deepEqual(
-    store.listConversations().map((conversation) => conversation.provider),
-    ['anthropic', 'openai'],
-  );
-});
-
 /** An upstream that answers every request with its own name. */
 async function stubUpstream(name: string) {
   const server = createServer((_req, res) => {
@@ -1155,98 +989,77 @@ async function postTo(url: string): Promise<string> {
   return response.text();
 }
 
-test('the command line configures the run and outranks the environment', () => {
+test('the Claude-only command line configures one upstream and launches Claude Code', () => {
   const config = loadConfig(
     [
-      '--client',
-      'codex',
+      'run',
       '--proxy-url',
       'http://127.0.0.1:4999',
       '--ui-port=4998',
       '--upstream',
-      'https://openrouter.ai/api/',
+      'https://gateway.example/anthropic/',
       '--no-persist',
       '--max-bytes',
       '2048',
+      '--',
+      '--model',
+      'sonnet',
     ],
-    {
-      AGENT_DEVTOOLS_PROXY_PORT: '4141',
-      AGENT_DEVTOOLS_OPENAI_UPSTREAM: 'https://ignored.example',
-    },
+    { CLAUDE_DEVTOOLS_PROXY_PORT: '4141' },
   );
 
   assert.equal(config.proxyPort, 4999);
   assert.equal(config.uiPort, 4998);
-  // `--client` decides where paths that name no provider go, and which run
-  // command the banner and the UI put first.
-  assert.equal(config.defaultProvider, 'openai');
-  // `--upstream` follows `--client`; the trailing slash is normalised away so
-  // the proxy does not join paths onto it twice.
-  assert.equal(config.upstreams.openai, 'https://openrouter.ai/api');
-  // The provider that was not selected keeps its default.
-  assert.equal(config.upstreams.anthropic, 'https://api.anthropic.com');
+  assert.equal(config.upstream, 'https://gateway.example/anthropic');
   assert.equal(config.persist, false);
   assert.equal(config.maxBytes, 2048);
 
-  // Order on the line does not change what `--upstream` means.
-  assert.deepEqual(parseArgs(['--upstream', 'https://example.test', '--client', 'codex']).upstreams, {
-    openai: 'https://example.test',
+  const parsed = parseArgs(['run', '--proxy-port', '4200', '--', '--model', 'sonnet']);
+  assert.equal(parsed.runClient, CLAUDE_CODE);
+  assert.deepEqual(parsed.runArgs, ['--model', 'sonnet']);
+  assert.deepEqual(CLAUDE_CODE.pointAt('http://127.0.0.1:4141'), {
+    env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:4141' },
+    args: [],
   });
-  assert.equal(loadConfig([], {}).defaultProvider, 'anthropic');
-});
-
-test('the command line rejects what it cannot honour', () => {
-  assert.throws(() => parseArgs(['--client', 'gemini']), /--client must be one of/);
-  // The loopback rule is enforced wherever a host can first be named, not only
-  // on the environment variable.
-  assert.throws(() => parseArgs(['--proxy-url', 'http://10.0.0.5:4141']), /must be on 127\.0\.0\.1/);
-  assert.throws(() => parseArgs(['--proxy-url', 'http://127.0.0.1']), /must include a port/);
-  assert.equal(parseArgs(['--proxy-url', 'http://localhost:4141']).proxyPort, 4141);
-  assert.throws(() => parseArgs(['--ui-port', 'abc']), /positive integer/);
-  assert.throws(() => parseArgs(['--upstream']), /needs a value/);
-  assert.throws(() => parseArgs(['--openai-upstream', 'ftp://nope']), /must be an http\(s\) URL/);
-  // A mistyped flag that was ignored would be a capture quietly doing something
-  // other than what was asked for.
-  assert.throws(() => parseArgs(['--no-persistt']), /unknown option --no-persistt/);
-  // `pnpm start -- --client codex` hands the separator through; npm strips it.
-  assert.equal(parseArgs(['--', '--client', 'codex']).client, 'openai');
-});
-
-test('the run command shown always matches the client the server was started for', () => {
-  const forCodex = orderedClients('openai');
-  assert.deepEqual(
-    forCodex.map((client) => runCommand(client, 'http://127.0.0.1:4141')),
-    [
-      'OPENAI_BASE_URL=http://127.0.0.1:4141/v1 codex',
-      'ANTHROPIC_BASE_URL=http://127.0.0.1:4141 claude',
-    ],
+  assert.equal(
+    runCommand('http://127.0.0.1:4141'),
+    'ANTHROPIC_BASE_URL=http://127.0.0.1:4141 claude',
   );
-  // Every client is listed either way: one port routes them all, so running one
-  // never rules out another.
-  assert.equal(orderedClients('anthropic')[0]?.binary, 'claude');
-  assert.equal(orderedClients(undefined).length, forCodex.length);
 });
 
-test('an OpenAI attachment is identified without hashing its payload', () => {
-  const fingerprintOf = (content: unknown) =>
-    openaiAdapter.parseRequest(
-      openaiRequest('openai_attachment', [{ role: 'user', content }]),
-    ).history[0]?.fp;
+test('the Claude-only command line rejects legacy provider selection', () => {
+  assert.throws(() => parseArgs(['run', 'codex']), /unknown option codex/);
+  assert.throws(() => parseArgs(['--client', 'codex']), /unknown option --client/);
+  assert.throws(() => parseArgs(['--openai-upstream', 'https://api.openai.com']), /unknown option/);
+  assert.throws(() => parseArgs(['--proxy-url', 'http://10.0.0.5:4141']), /must be on 127\.0\.0\.1/);
+  assert.throws(() => parseArgs(['--upstream', 'ftp://example.com']), /must be an http\(s\) URL/);
+});
 
-  const image = (data: string) => [
-    { type: 'text', text: 'look at this' },
-    { type: 'image_url', image_url: { url: `data:image/png;base64,${data}` } },
-  ];
+test('the single proxy upstream receives every Claude Code request path', async () => {
+  const upstream = await stubUpstream('anthropic-upstream');
+  const proxy = createProxy({
+    upstream: upstream.url,
+    host: '127.0.0.1',
+    port: 0,
+    hooks: {
+      onRequestStart: () => undefined,
+      onRequestBody: () => undefined,
+      onResponseStart: () => undefined,
+      onStreamFrames: () => undefined,
+      onComplete: () => undefined,
+    },
+  });
+  await once(proxy, 'listening');
+  const base = `http://127.0.0.1:${serverPort(proxy)}`;
 
-  // Two messages whose only difference is the image itself. Both render to the
-  // same text, so without the attachment signature the prefix match would call
-  // them the same block.
-  assert.notEqual(fingerprintOf(image('a'.repeat(4096))), fingerprintOf(image('b'.repeat(4096))));
-  assert.equal(fingerprintOf(image('a'.repeat(4096))), fingerprintOf(image('a'.repeat(4096))));
-
-  // A plain message keeps the fingerprint it had before attachments were
-  // considered at all, so conversations restored from disk still match.
-  assert.equal(fingerprintOf('hello'), fingerprintOf([{ type: 'text', text: 'hello' }]));
+  try {
+    assert.equal(await postTo(`${base}/v1/messages`), 'anthropic-upstream');
+    assert.equal(await postTo(`${base}/v1/messages/count_tokens`), 'anthropic-upstream');
+    assert.equal(await postTo(`${base}/v1/models`), 'anthropic-upstream');
+  } finally {
+    proxy.close();
+    upstream.close();
+  }
 });
 
 test('a captured request names the URL it was actually sent to', async () => {
@@ -1255,7 +1068,7 @@ test('a captured request names the URL it was actually sent to', async () => {
   const upstream = await stubUpstream('mounted-upstream');
   const records: TransportRecord[] = [];
   const proxy = createProxy({
-    resolveUpstream: () => `${upstream.url}/api`,
+    upstream: `${upstream.url}/api`,
     host: '127.0.0.1',
     port: 0,
     hooks: {

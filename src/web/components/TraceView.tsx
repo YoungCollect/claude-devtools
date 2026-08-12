@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState } from 'react';
-import { UserRound } from 'lucide-react';
+import { ExternalLink, UserRound } from 'lucide-react';
 import { agentForProvider, BrandMark, useAgent } from '../agent.js';
 import { splitTaggedUserContent } from '../../core/tagged-content.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
@@ -14,11 +14,16 @@ import { DataSurface, DataSurfaceBody } from './DataSurface.js';
 import type { GitDiffFormat, GitDiffSourceIdentity } from '../git-diff.js';
 import type { ProviderId, TraceNode, TransportSummary } from '../../core/types.js';
 import {
-  groupByRequest,
-  groupTrace,
+  exchangeHeaderFields,
+  formatBackgroundActivitySummary,
+  groupTraceSections,
+  labelExchangePhase,
+  summarizeBackgroundActivity,
   turnNodes,
   type ToolActivity,
-  type TraceExchange,
+  type TraceDisplayPhase,
+  type TraceItem,
+  type TracePhaseExchange,
   type TraceTurn,
 } from '../trace-groups.js';
 import { formatMs, formatTokens, pretty, toolResultText, truncate } from '../format.js';
@@ -70,10 +75,9 @@ export interface TraceViewProps {
  * happened. Every row is a drill-down handle — that link from "what the agent
  * did" to "what went over the wire" is the whole point of the tool.
  *
- * Rows are grouped into the HTTP exchanges they came out of (see
- * `groupByRequest`), each drawn as its own dashed block. Nothing in the trace
- * used to say where one request ended and the next began, so a reader coming
- * from the Network view had no way to line the two up.
+ * Adjacent request/response phases share one dashed block. When concurrent
+ * traffic separates them, each phase keeps its node position and gets its own
+ * block rather than pulling the response backward under its request.
  */
 export function TraceView({
   nodes,
@@ -84,31 +88,50 @@ export function TraceView({
   onInspect,
   onInspectRequest,
 }: TraceViewProps) {
-  // Both passes walk the whole list, so they must not re-run per render — the
+  // Grouping walks the whole list, so it must not re-run per streamed frame.
   // store bumps its revision on every streamed frame.
-  const exchanges = useMemo(() => groupByRequest(groupTrace(nodes)), [nodes]);
+  const sections = useMemo(() => groupTraceSections(nodes), [nodes]);
   const requestsById = useMemo(
     () => new Map((transport ?? []).map((record) => [record.id, record])),
     [transport],
   );
 
-  if (exchanges.length === 0) {
+  if (sections.length === 0) {
     return <Empty>No trace events yet. Point an agent at the proxy and send a message.</Empty>;
   }
   return (
     <ConversationProvider.Provider value={provider}>
       <div className="flex flex-col gap-3 p-3">
-        {exchanges.map((exchange) => (
-          <ExchangeBlock
-            key={exchange.key}
-            exchange={exchange}
-            request={exchange.requestId ? requestsById.get(exchange.requestId) : undefined}
-            selected={exchange.requestId !== undefined && exchange.requestId === selectedRequestId}
-            selectedNodeId={selectedNodeId}
-            onInspect={onInspect}
-            onInspectRequest={onInspectRequest}
-          />
-        ))}
+        {sections.map((section) =>
+          section.type === 'background' ? (
+            <BackgroundActivity
+              key={section.key}
+              exchanges={section.exchanges}
+              requestsById={requestsById}
+              selectedNodeId={selectedNodeId}
+              selectedRequestId={selectedRequestId}
+              onInspect={onInspect}
+              onInspectRequest={onInspectRequest}
+            />
+          ) : (
+            <ExchangeBlock
+              key={section.key}
+              exchange={section.exchange}
+              request={
+                section.exchange.requestId
+                  ? requestsById.get(section.exchange.requestId)
+                  : undefined
+              }
+              selected={
+                section.exchange.requestId !== undefined &&
+                section.exchange.requestId === selectedRequestId
+              }
+              selectedNodeId={selectedNodeId}
+              onInspect={onInspect}
+              onInspectRequest={onInspectRequest}
+            />
+          ),
+        )}
       </div>
     </ConversationProvider.Provider>
   );
@@ -123,13 +146,71 @@ export function TraceView({
  */
 const ConversationProvider = createContext<ProviderId | undefined>(undefined);
 
+function BackgroundActivity({
+  exchanges,
+  requestsById,
+  selectedNodeId,
+  selectedRequestId,
+  onInspect,
+  onInspectRequest,
+}: {
+  exchanges: TracePhaseExchange[];
+  requestsById: ReadonlyMap<string, TransportSummary>;
+  selectedNodeId?: string;
+  selectedRequestId?: string;
+  onInspect: (node: TraceNode) => void;
+  onInspectRequest?: (transportId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const requests = [...requestsById.values()];
+  const summary = summarizeBackgroundActivity(exchanges, requests);
+
+  return (
+    <section className="rounded-xl border border-hairline bg-surface-soft">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex min-h-12 w-full items-center gap-2.5 px-4 py-2.5 text-left"
+      >
+        <span className="text-[11px] font-medium tracking-[1.5px] text-muted-foreground uppercase">
+          Background activity
+        </span>
+        <MetaBadge tone="neutral">
+          {formatBackgroundActivitySummary(summary)}
+        </MetaBadge>
+        <span className="ml-auto text-muted-foreground">
+          <Chevron open={open} direction="right" />
+        </span>
+      </button>
+
+      {open && (
+        <div className="space-y-2 border-t border-hairline px-3 py-3">
+          {exchanges.map((exchange) => (
+            <ExchangeBlock
+              key={exchange.key}
+              exchange={exchange}
+              request={exchange.requestId ? requestsById.get(exchange.requestId) : undefined}
+              selected={exchange.requestId !== undefined && exchange.requestId === selectedRequestId}
+              selectedNodeId={selectedNodeId}
+              onInspect={onInspect}
+              onInspectRequest={onInspectRequest}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /**
- * One request and everything it produced, inside a dashed frame.
+ * One chronological phase or adjacent request/response pair, in a dashed frame.
  *
  * Dashed rather than solid: this is a boundary drawn around content, not
  * another card in a view that already nests cards two deep (turn → tool → pane).
- * The header is the same summary the Network row carries — turn number, path,
- * status, timing — so the two views can be read against each other.
+ * Request headers carry method, path, status, and timing together; a standalone
+ * response header only names its phase. The shared number lets both phases line
+ * up with the Network row.
  */
 function ExchangeBlock({
   exchange,
@@ -139,16 +220,16 @@ function ExchangeBlock({
   onInspect,
   onInspectRequest,
 }: {
-  exchange: TraceExchange;
+  exchange: TracePhaseExchange;
   request?: TransportSummary;
   selected: boolean;
   selectedNodeId?: string;
   onInspect: (node: TraceNode) => void;
   onInspectRequest?: (transportId: string) => void;
 }) {
-  const rows = (
+  const renderRows = (items: readonly TraceItem[]) => (
     <div className="flex flex-col divide-y divide-hairline-soft">
-      {exchange.items.map((item) =>
+      {items.map((item) =>
         item.type === 'turn' ? (
           <TurnRow
             key={item.key}
@@ -171,57 +252,83 @@ function ExchangeBlock({
   // Nothing to frame: these rows name no request, so a boundary around them
   // would be a claim the capture cannot support.
   const requestId = exchange.requestId;
-  if (!requestId) return rows;
+  if (!requestId) return renderRows(exchange.items);
 
-  const turn = request?.turnIndex !== undefined ? `#${request.turnIndex + 1}` : undefined;
+  const label = labelExchangePhase(request?.turnIndex, exchange.phase);
   return (
     <section
-      aria-label={`Request ${turn ?? ''} ${request?.path ?? ''}`.trim()}
+      aria-label={`${label} ${exchange.phase !== 'response' ? request?.path ?? '' : ''}`.trim()}
       className={cx(
         'rounded-xl border border-dashed transition-colors',
         selected ? 'border-primary' : 'border-hairline',
       )}
     >
-      <div className="flex items-center gap-2.5 border-b border-dashed border-hairline px-4 py-2">
-        <span className="shrink-0 text-[11px] font-medium tracking-[1.5px] text-muted-soft uppercase">
-          request {turn ?? ''}
-        </span>
-        {request && (
-          <>
-            <span className="truncate font-mono text-[12px] text-muted-foreground">
-              {request.method} {request.path}
-            </span>
-            {request.error ? (
-              <StatusBadge tone="error">err</StatusBadge>
-            ) : request.status === undefined ? (
-              <StatusBadge tone="warning" title="Still open through the proxy">
-                …
-              </StatusBadge>
-            ) : (
-              <StatusBadge tone={request.status >= 400 ? 'error' : 'success'}>
-                {request.status}
-              </StatusBadge>
-            )}
-            {request.durationMs !== undefined && (
-              <span className="shrink-0 font-mono text-[12px] text-muted-soft" title="total time">
-                {formatMs(request.durationMs)}
-              </span>
-            )}
-          </>
-        )}
-        {onInspectRequest && (
-          <button
-            type="button"
-            onClick={() => onInspectRequest(requestId)}
-            title="Inspect this HTTP exchange"
-            className="ml-auto shrink-0 text-[12px] font-medium text-primary"
-          >
-            inspect →
-          </button>
-        )}
-      </div>
-      {rows}
+      <ExchangePhaseHeader
+        phase={exchange.phase}
+        request={request}
+        requestId={requestId}
+        onInspectRequest={onInspectRequest}
+      />
+      {renderRows(exchange.items)}
     </section>
+  );
+}
+
+function ExchangePhaseHeader({
+  phase,
+  request,
+  requestId,
+  onInspectRequest,
+}: {
+  phase: TraceDisplayPhase;
+  request?: TransportSummary;
+  requestId: string;
+  onInspectRequest?: (transportId: string) => void;
+}) {
+  const fields = exchangeHeaderFields(phase);
+  return (
+    <div
+      className="flex items-center gap-2.5 border-b border-dashed border-hairline px-4 py-2"
+    >
+      <span className="shrink-0 text-[11px] font-medium tracking-[1.5px] text-muted-soft uppercase">
+        {labelExchangePhase(request?.turnIndex, phase)}
+      </span>
+      {fields.methodAndPath && request && (
+        <span className="truncate font-mono text-[12px] text-muted-foreground">
+          {request.method} {request.path}
+        </span>
+      )}
+      {fields.statusAndDuration && request && (
+        <>
+          {request.error ? (
+            <StatusBadge tone="error">err</StatusBadge>
+          ) : request.status === undefined ? (
+            <StatusBadge tone="warning" title="Still open through the proxy">
+              …
+            </StatusBadge>
+          ) : (
+            <StatusBadge tone={request.status >= 400 ? 'error' : 'success'}>
+              {request.status}
+            </StatusBadge>
+          )}
+          {request.durationMs !== undefined && (
+            <span className="shrink-0 font-mono text-[12px] text-muted-soft" title="total time">
+              {formatMs(request.durationMs)}
+            </span>
+          )}
+        </>
+      )}
+      {onInspectRequest && (
+        <button
+          type="button"
+          onClick={() => onInspectRequest(requestId)}
+          title="Inspect this HTTP exchange"
+          className="ml-auto shrink-0 text-[12px] font-medium text-primary"
+        >
+          inspect →
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -456,7 +563,7 @@ function TraceRow({
       )}
     >
       <div className={cx('min-w-0', contentWidth)}>
-        <NodeBody node={node} />
+        <NodeBody node={node} selected={selected} onInspect={onInspect} />
       </div>
       {/*
         Inspecting is its own button, not a click anywhere on the row. Rows carry
@@ -464,28 +571,38 @@ function TraceRow({
         text out of a payload — and a row-wide handler made every one of those a
         near miss that threw the side panel open.
       */}
-      <button
-        type="button"
-        onClick={() => onInspect(node)}
-        title="Inspect the HTTP exchange behind this event"
-        className={cx(
-          // Revealed on hover so a scanned list stays quiet. Kept in the DOM
-          // rather than swapped with `hidden`, so it is still reachable by
-          // keyboard — focus brings it back on its own.
-          'absolute top-3 text-[12px] font-medium text-primary transition-opacity',
-          selected
-            ? 'opacity-100'
-            : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
-          rightAligned ? 'left-4' : 'right-4',
-        )}
-      >
-        inspect →
-      </button>
+      {node.kind !== 'system' && node.kind !== 'context' && (
+        <button
+          type="button"
+          onClick={() => onInspect(node)}
+          title="Inspect the HTTP exchange behind this event"
+          className={cx(
+            // Revealed on hover so a scanned list stays quiet. Kept in the DOM
+            // rather than swapped with `hidden`, so it is still reachable by
+            // keyboard — focus brings it back on its own.
+            'absolute top-3 text-[12px] font-medium text-primary transition-opacity',
+            selected
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
+            rightAligned ? 'left-4' : 'right-4',
+          )}
+        >
+          inspect →
+        </button>
+      )}
     </div>
   );
 }
 
-function NodeBody({ node }: { node: TraceNode }) {
+function NodeBody({
+  node,
+  selected,
+  onInspect,
+}: {
+  node: TraceNode;
+  selected: boolean;
+  onInspect: (node: TraceNode) => void;
+}) {
   switch (node.kind) {
     case 'system':
       // A system prompt is a markdown document that happens to embed a few tag
@@ -498,6 +615,8 @@ function NodeBody({ node }: { node: TraceNode }) {
           sessionId={node.conversationId}
           role="system"
           preferMarkdown
+          selected={selected}
+          onInspect={() => onInspect(node)}
         />
       );
     case 'context':
@@ -508,6 +627,8 @@ function NodeBody({ node }: { node: TraceNode }) {
           sourceId={node.id}
           sessionId={node.conversationId}
           role="context"
+          selected={selected}
+          onInspect={() => onInspect(node)}
         />
       );
     case 'user':
@@ -693,13 +814,8 @@ const TURN_BUBBLE = 'mt-1.5 rounded-2xl rounded-tl-sm border border-hairline bg-
 
 /** The assistant's own mark and screen-reader name, on both good turns and bad. */
 function AssistantMark() {
-  // What was captured outranks what was picked. The header's selection is a
-  // preference about this session; the conversation's provider is an
-  // observation about this trace, and with both providers proxied through one
-  // port they can disagree — a gpt-5 turn must not be drawn under Claude's
-  // mark. The picker still supplies the mark when the capture names no
-  // provider, which is what keeps the two in step in the ordinary case (see
-  // `AgentProvider`).
+  // Prefer the captured agent when available; unknown transport rows fall back
+  // to the sole supported runtime, Claude Code.
   const { agent } = useAgent();
   const captured = agentForProvider(useContext(ConversationProvider));
   return (
@@ -814,6 +930,8 @@ function ContextNode({
   sessionId,
   role = 'context',
   preferMarkdown = false,
+  selected = false,
+  onInspect,
 }: {
   text: string;
   label: string;
@@ -822,6 +940,10 @@ function ContextNode({
   role?: RoleTone;
   /** System prompts are prose first; tag blocks are structure first. */
   preferMarkdown?: boolean;
+  /** The source button stays visibly active while its Inspector target is open. */
+  selected?: boolean;
+  /** Opens the exact transport field this block was reconstructed from. */
+  onInspect?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   // `hasXmlStructure` parses the whole block, so it must not run per render.
@@ -836,21 +958,46 @@ function ContextNode({
   return (
     <div className="group/turn flex w-full flex-col">
       {/*
-        The title is the only collapsed affordance. Keeping the content hidden
-        until expansion prevents context and system blocks from reading like a
-        second user-message bubble in the trace.
+        The pill has two explicit targets: its title discloses the rendered
+        content, while the trailing source button opens this exact block in the
+        Inspector. Keeping the content hidden until expansion prevents context
+        and system blocks from reading like a second user-message bubble in the
+        trace.
       */}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex items-center gap-1.5 self-end"
+      <TagLabel
+        role={role}
+        flush
+        size="control"
+        className="self-end w-50 overflow-hidden"
       >
-        <TagLabel role={role} flush size="control" className="w-50 justify-between pl-3">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
+          className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-l-full pl-3 outline-none hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-current/40 dark:hover:bg-white/8"
+        >
           <Chevron open={open} />
-          <span className="w-44 text-center">{label}</span>
-        </TagLabel>
-      </button>
+          <span className="min-w-0 flex-1 truncate text-center">{label}</span>
+        </button>
+        {onInspect && (
+          <button
+            type="button"
+            onClick={onInspect}
+            aria-pressed={selected}
+            aria-label={`Open ${label} source in Inspector`}
+            title={`Open ${label} source in Inspector`}
+            className={cx(
+              'flex size-7 shrink-0 items-center justify-center rounded-r-full border-l border-current/15 outline-none focus-visible:ring-2 focus-visible:ring-current/40',
+              selected
+                ? 'bg-primary text-primary-foreground'
+                : 'hover:bg-black/5 dark:hover:bg-white/8',
+            )}
+          >
+            <ExternalLink size={12} strokeWidth={2} aria-hidden />
+          </button>
+        )}
+      </TagLabel>
       {/* Expanded, a context block is structure: show the tag outline, with the
           exact source a click away. */}
       {open && (

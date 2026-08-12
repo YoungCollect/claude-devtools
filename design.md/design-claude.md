@@ -311,10 +311,10 @@ The system has three surface modes that alternate page-by-page:
 
 The dark surfaces are where Claude shows its product chrome — code blocks, terminal output, model comparison tables, agentic-flow diagrams. The cream-to-dark contrast is the page's pacing rhythm.
 
-### Agent DevTools product-surface boundary
+### Claude DevTools product-surface boundary
 
 The dark navy surface above is a marketing composition device, not a universal
-rule for operational developer tools. Agent DevTools renders captured JSON,
+rule for operational developer tools. Claude DevTools renders captured JSON,
 XML, Markdown fences, raw request/response bodies and SSE frames through one
 theme-adaptive `DataSurface` contract:
 

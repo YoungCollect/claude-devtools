@@ -4,7 +4,7 @@ import { api, subscribeToRevisions, type ServerConfig } from './api.js';
 import { feedStatus, useTrafficActive, type FeedStatus } from './activity.js';
 import { DataSurface } from './components/DataSurface.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
-import { AgentSelect } from './components/AgentSelect.js';
+import { BrandMark, CLAUDE_MARK } from './agent.js';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,7 +24,6 @@ import { TraceView } from './components/TraceView.js';
 import {
   cx,
   HeaderIconButton,
-  SpikeMark,
   tabPanelProps,
   Tabs,
   ThemeToggle,
@@ -36,7 +35,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from './components/ui/tooltip.js';
-import { groupTrace } from './trace-groups.js';
+import { groupTraceSections } from './trace-groups.js';
 import { primaryRunCommand, runCommands, type RunCommand } from './run-command.js';
 import { useUrlRoute } from './route.js';
 import { useTheme } from './theme.js';
@@ -70,9 +69,8 @@ const BOTTOM_SLACK_PX = 48;
  * someone who has captured nothing yet is already looking. The old copy sent
  * them to "the proxy base URL shown above", which is no longer shown at all.
  *
- * Every supported client is listed, because the proxy serves them all at once:
- * one port, routed per request path. Showing only one would suggest a choice
- * that does not exist.
+ * Claude Code is the sole supported client, so onboarding has one canonical
+ * command instead of a provider chooser.
  */
 function WaitingForTraffic({ commands }: { commands: RunCommand[] }) {
   return (
@@ -80,8 +78,8 @@ function WaitingForTraffic({ commands }: { commands: RunCommand[] }) {
       <p className="text-[14px] text-muted-soft italic">
         Waiting for traffic. Start an agent pointed at the capture proxy:
       </p>
-      {commands.map(({ provider, label, command }) => (
-        <CommandLine key={provider} label={label} command={command} />
+      {commands.map(({ label, command }) => (
+        <CommandLine key={label} label={label} command={command} />
       ))}
     </div>
   );
@@ -296,7 +294,7 @@ export function App() {
 
   // What the trace actually renders, so the tab badge and the Network badge
   // mean the same thing.
-  const traceItemCount = useMemo(() => groupTrace(nodes).length, [nodes]);
+  const traceItemCount = useMemo(() => groupTraceSections(nodes).length, [nodes]);
 
   const trace = useFollowNewest({
     content: nodes,
@@ -597,11 +595,7 @@ function SettingsPopover({ config }: { config: ServerConfig }) {
         >
           <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2 text-[12.5px]">
             <SettingRow label="Proxy" value={config.proxyUrl} />
-            {/* One row per provider: the proxy forwards to all of them from the
-                single port above, so naming only one would misdescribe it. */}
-            {Object.entries(config.upstreams).map(([provider, upstream]) => (
-              <SettingRow key={provider} label={provider} value={upstream} />
-            ))}
+            <SettingRow label="Anthropic" value={config.upstream} />
             <SettingRow label="UI port" value={String(config.uiPort)} />
           </dl>
 
@@ -649,8 +643,8 @@ function SettingRow({ label, value }: { label: string; value: string }) {
  * splitting the states. The tooltip carries it; the word carries the glance.
  */
 const STATUS_HINT: Record<FeedStatus, string> = {
-  live: 'An exchange is open through the proxy right now',
-  idle: 'Connected — no traffic through the proxy',
+  active: 'An exchange is open through the proxy right now',
+  ready: 'DevTools is ready and waiting for proxy traffic',
   offline: 'Change feed closed — this page has stopped updating',
 };
 
@@ -692,13 +686,15 @@ function Header({
         <Menu size={17} aria-hidden />
       </button>
 
-      {/* Spike mark + wordmark, per the system's brand lockup. The lockup never
-          wraps or compresses: opening the Inspector narrows this header, and the
-          run command below gives up its width instead. */}
+      {/* Claude mark + wordmark. The mark bounces only while traffic is flowing;
+          the global reduced-motion rule collapses that animation for users who
+          request it. The lockup never wraps or compresses. */}
       <div className="flex shrink-0 items-center gap-2 text-ink">
-        <SpikeMark size={15} />
+        <span className={cx(status === 'active' && 'header-claude-active')}>
+          <BrandMark svg={CLAUDE_MARK} size={17} />
+        </span>
         <span className="display text-[20px] tracking-[-0.3px] whitespace-nowrap max-sm:hidden">
-          Agent DevTools
+          Claude DevTools
         </span>
       </div>
 
@@ -709,21 +705,21 @@ function Header({
         role="status"
         className={cx(
           'flex shrink-0 items-center gap-1.5 text-[13px]',
-          status === 'live' ? 'text-success-fg' : 'text-muted-soft',
+          status === 'offline' ? 'text-muted-soft' : 'text-success-fg',
         )}
         title={STATUS_HINT[status]}
       >
         {/* The pulse is reserved for traffic. Breathing *is* the signal, so it
             has to mean the thing being watched — an exchange open through the
-            proxy — and not merely that this page found the server. `idle` keeps
-            a solid dot: connected, armed, nothing arriving. `styles.css` stops
+            proxy — and not merely that this page found the server. `ready` keeps
+            a solid green dot: connected, armed, nothing arriving. `styles.css` stops
             every animation under `prefers-reduced-motion`, where the colour and
             the word carry the state on their own. */}
         <span
           className={cx(
             'h-1.5 w-1.5 rounded-full',
-            status === 'live' && 'animate-pulse bg-success',
-            status === 'idle' && 'bg-muted-soft',
+            status === 'active' && 'animate-pulse bg-success',
+            status === 'ready' && 'bg-success',
             status === 'offline' && 'bg-hairline',
           )}
           aria-hidden
@@ -735,8 +731,8 @@ function Header({
         The right-hand cluster, in one fixed order: where the traffic goes
         (upstream), how to point traffic here (the shell mark), then the tools
         that act on what was captured — diff, clear — then the controls that
-        change nothing about the capture at all: theme, settings, and the agent
-        the UI is pointed at. Destination first, then actions, then chrome.
+        change nothing about the capture at all: theme and settings. Destination
+        first, then actions, then chrome.
       */}
       <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
         {/* {config && (
@@ -755,7 +751,6 @@ function Header({
             click puts on the clipboard rather than just promising "Copy". The
             tick swaps tooltip and `aria-label` together, so pointer and
             screen-reader users get the same confirmation. */}
-        <AgentSelect />
         {config && (
           <HeaderIconButton label={copyLabel} onClick={() => copyCommand(command)}>
             {commandCopied ? (

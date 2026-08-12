@@ -7,8 +7,11 @@ import {
   type ReactNode,
 } from 'react';
 import type { ProviderId } from '../core/types.js';
+import claudeMark from '@lobehub/icons-static-svg/icons/claude.svg?raw';
 import claudeCodeMark from '@lobehub/icons-static-svg/icons/claudecode.svg?raw';
-import openaiMark from '@lobehub/icons-static-svg/icons/openai.svg?raw';
+
+/** The Claude brand mark used by the app's own lockup. */
+export const CLAUDE_MARK = claudeMark;
 
 /**
  * The agents this UI can be pointed at. First entry is the default.
@@ -19,7 +22,6 @@ import openaiMark from '@lobehub/icons-static-svg/icons/openai.svg?raw';
  */
 export const AGENTS = [
   { id: 'claude-code', label: 'Claude Code', provider: 'anthropic', mark: claudeCodeMark },
-  { id: 'openai', label: 'OpenAI', provider: 'openai', mark: openaiMark },
 ] as const;
 
 export type Agent = (typeof AGENTS)[number];
@@ -30,10 +32,7 @@ export const DEFAULT_AGENT: Agent = AGENTS[0];
 /**
  * The agent a captured provider belongs to, when the capture names one.
  *
- * The header's picker says which vendor this session is *about*; a conversation
- * reconstructed from traffic says which vendor it actually came from. With both
- * providers proxied through one port those can differ, and the observation has
- * to win — a trace of a gpt-5 run must not be drawn under Claude's mark.
+ * Unknown transport rows have no agent mark; reconstructed Claude traffic does.
  */
 export function agentForProvider(provider: ProviderId | undefined): Agent | undefined {
   return AGENTS.find((candidate) => candidate.provider === provider);
@@ -61,7 +60,7 @@ export function BrandMark({ svg, size = 15 }: { svg: string; size?: number }) {
   );
 }
 
-const STORAGE_KEY = 'agent-devtools:agent';
+const STORAGE_KEY = 'claude-devtools:agent';
 
 interface AgentContextValue {
   agent: Agent;
