@@ -980,7 +980,7 @@ function Gutter({
   return (
     <div className={cx('flex items-center gap-2.5', align === 'end' && 'justify-end')}>
       {mark ? (
-        <span className="inline-flex size-8 shrink-0 items-center justify-center text-primary">
+        <span className="relative inline-flex size-8 shrink-0 items-center justify-center text-primary">
           {label}
         </span>
       ) : (

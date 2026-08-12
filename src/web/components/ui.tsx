@@ -143,7 +143,7 @@ export function TagLabel({
       className={cx(
         'inline-flex shrink-0 items-center rounded-full text-[11px] leading-5 font-medium uppercase',
         iconOnly
-          ? 'size-8 justify-center'
+          ? 'relative size-8 justify-center'
           : cx(
               'py-0.5 tracking-[1.5px]',
               !flush && (size === 'control' ? 'px-3' : 'px-2.5'),

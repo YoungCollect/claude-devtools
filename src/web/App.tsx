@@ -53,6 +53,8 @@ type ViewId = (typeof VIEWS)[number]['id'];
 interface Selection {
   transportId: string;
   node?: TraceNode;
+  /** Exchange magnifier opens the request payload rather than the overview. */
+  openPayload?: boolean;
 }
 
 /**
@@ -487,7 +489,9 @@ export function App() {
                   selectedNodeId={selection?.node?.id}
                   selectedRequestId={selection?.transportId}
                   onInspect={inspectNode}
-                  onInspectRequest={(transportId) => setSelection({ transportId })}
+                  onInspectRequest={(transportId) =>
+                    setSelection({ transportId, openPayload: true })
+                  }
                 />
                 ) : (
                   <WaitingForTraffic commands={runCommands(config)} />
@@ -506,6 +510,7 @@ export function App() {
         <Inspector
           transportId={selection?.transportId}
           focusNode={selection?.node}
+          openPayload={selection?.openPayload}
           rev={snapshot.rev}
           onClose={() => setSelection(undefined)}
         />

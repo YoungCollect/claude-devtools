@@ -52,19 +52,25 @@ export interface InspectorProps {
   transportId?: string;
   /** The trace node the user drilled down from, when there is one. */
   focusNode?: TraceNode;
+  /** Opens the request Payload tab with Body expanded for an exchange entry. */
+  openPayload?: boolean;
   rev: number;
   onClose: () => void;
 }
 
-export function Inspector({ transportId, focusNode, rev, onClose }: InspectorProps) {
+export function Inspector({ transportId, focusNode, openPayload = false, rev, onClose }: InspectorProps) {
   // The selection is cleared the moment the user closes the drawer, but the
   // panel is still on screen sliding out. Holding the last request here keeps it
   // rendered until the close animation actually finishes.
-  const [shown, setShown] = useState<{ transportId: string; focusNode?: TraceNode }>();
+  const [shown, setShown] = useState<{
+    transportId: string;
+    focusNode?: TraceNode;
+    openPayload: boolean;
+  }>();
 
   useEffect(() => {
-    if (transportId !== undefined) setShown({ transportId, focusNode });
-  }, [transportId, focusNode]);
+    if (transportId !== undefined) setShown({ transportId, focusNode, openPayload });
+  }, [transportId, focusNode, openPayload]);
 
   return (
     <Drawer
@@ -82,7 +88,14 @@ export function Inspector({ transportId, focusNode, rev, onClose }: InspectorPro
         className="border-hairline bg-canvas"
         style={INSPECTOR_DRAWER_STYLE}
       >
-        {shown && <InspectorPanel transportId={shown.transportId} focusNode={shown.focusNode} rev={rev} />}
+        {shown && (
+          <InspectorPanel
+            transportId={shown.transportId}
+            focusNode={shown.focusNode}
+            openPayload={shown.openPayload}
+            rev={rev}
+          />
+        )}
       </DrawerContent>
     </Drawer>
   );
@@ -91,13 +104,15 @@ export function Inspector({ transportId, focusNode, rev, onClose }: InspectorPro
 function InspectorPanel({
   transportId,
   focusNode,
+  openPayload,
   rev,
 }: {
   transportId: string;
   focusNode?: TraceNode;
+  openPayload: boolean;
   rev: number;
 }) {
-  const [tab, setTab] = useState<TabId>(focusNode ? 'payload' : 'overview');
+  const [tab, setTab] = useState<TabId>(focusNode || openPayload ? 'payload' : 'overview');
   const [loadedRecord, setLoadedRecord] = useState<KeyedTransportDetail<TransportDetail>>();
   const record = transportDetailForId(transportId, loadedRecord);
   const tabRailRef = useRef<HTMLDivElement>(null);
@@ -135,8 +150,8 @@ function InspectorPanel({
   // whichever tab they had moved to.
   const focusNodeId = focusNode?.id;
   useEffect(() => {
-    if (focusNodeId !== undefined) setTab('payload');
-  }, [focusNodeId]);
+    if (focusNodeId !== undefined || openPayload) setTab('payload');
+  }, [focusNodeId, openPayload]);
 
   useEffect(() => {
     let cancelled = false;
@@ -208,7 +223,7 @@ function InspectorPanel({
         {!record ? (
           <Empty>Request not found — it may have been evicted from the buffer.</Empty>
         ) : (
-          <TabBody tab={tab} record={record} focusNode={focusNode} />
+          <TabBody tab={tab} record={record} focusNode={focusNode} openPayload={openPayload} />
         )}
       </div>
     </>
@@ -219,10 +234,12 @@ function TabBody({
   tab,
   record,
   focusNode,
+  openPayload,
 }: {
   tab: TabId;
   record: TransportDetail;
   focusNode?: TraceNode;
+  openPayload: boolean;
 }) {
   switch (tab) {
     case 'overview':
@@ -230,7 +247,7 @@ function TabBody({
     case 'headers':
       return <Headers record={record} />;
     case 'payload':
-      return <Payload record={record} focusNode={focusNode} />;
+      return <Payload record={record} focusNode={focusNode} openPayload={openPayload} />;
     case 'response':
       return <Response record={record} />;
     case 'stream':
@@ -358,7 +375,15 @@ function HeaderTable({ headers }: { headers: Record<string, string> }) {
   return <KeyValue rows={rows.map(([k, v]) => [k, v] as [string, string])} />;
 }
 
-function Payload({ record, focusNode }: { record: TransportDetail; focusNode?: TraceNode }) {
+function Payload({
+  record,
+  focusNode,
+  openPayload,
+}: {
+  record: TransportDetail;
+  focusNode?: TraceNode;
+  openPayload: boolean;
+}) {
   const inspection = record.requestInspection;
   const systemText = inspection?.systemText;
   const systemFormats = useMemo<ContentFormat[]>(
@@ -380,10 +405,10 @@ function Payload({ record, focusNode }: { record: TransportDetail; focusNode?: T
   // pretty-printed body, so a body the proxy had not kept verbatim copied
   // nothing at all.
   const bodyText = record.requestBodyRaw ?? pretty(record.requestBody);
-  const [bodyOpen, setBodyOpen] = useState(false);
+  const [bodyOpen, setBodyOpen] = useState(openPayload);
   useEffect(() => {
-    if (focusNodeId !== undefined) setBodyOpen(true);
-  }, [focusNodeId, focusField]);
+    if (focusNodeId !== undefined || openPayload) setBodyOpen(true);
+  }, [focusNodeId, focusField, openPayload]);
 
   return (
     <>
