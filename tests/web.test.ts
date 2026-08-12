@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { transportForConversation } from '../src/web/transport.js';
 import { feedStatus } from '../src/web/activity.js';
-import { jsonContainer } from '../src/web/json.js';
+import { jsonContainer, jsonNodeExpansion } from '../src/web/json.js';
 import { focusBodyField } from '../src/web/inspect-focus.js';
 import {
   exchangeHeaderFields,
@@ -38,6 +38,20 @@ test('JSON body renderer accepts parsed or raw containers and rejects non-JSON t
   assert.deepEqual(jsonContainer(undefined, '{"items":[1,2]}'), { items: [1, 2] });
   assert.equal(jsonContainer(undefined, 'not json'), undefined);
   assert.equal(jsonContainer('primitive', '"primitive"'), undefined);
+});
+
+test('a focused JSON field opens its immediate container children only', () => {
+  const systemBlock = { type: 'text', text: 'prompt' };
+  const message = { role: 'user', content: 'hello' };
+  const data = { system: [systemBlock], messages: [message] };
+  const shouldExpand = jsonNodeExpansion(data, ['system']);
+
+  assert.equal(shouldExpand(0, data), true);
+  assert.equal(shouldExpand(1, data.system, 'system'), true);
+  assert.equal(shouldExpand(1, data.messages, 'messages'), false);
+  assert.equal(shouldExpand(2, systemBlock), true);
+  assert.equal(shouldExpand(2, message), false);
+  assert.equal(shouldExpand(3, systemBlock.text, 'text'), false);
 });
 
 function traceNode(kind: TraceNodeKind, extra: Partial<TraceNode> = {}): TraceNode {

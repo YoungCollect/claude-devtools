@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState } from 'react';
-import { ExternalLink, UserRound } from 'lucide-react';
+import { ExternalLink, Search, UserRound } from 'lucide-react';
 import { agentForProvider, BrandMark, useAgent } from '../agent.js';
 import { splitTaggedUserContent } from '../../core/tagged-content.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
@@ -19,7 +19,6 @@ import {
   groupTraceSections,
   labelExchangePhase,
   summarizeBackgroundActivity,
-  turnNodes,
   type ToolActivity,
   type TraceDisplayPhase,
   type TraceItem,
@@ -72,8 +71,8 @@ export interface TraceViewProps {
 
 /**
  * The Chat Trace: the agent's run as a developer reads it, in the order it
- * happened. Every row is a drill-down handle — that link from "what the agent
- * did" to "what went over the wire" is the whole point of the tool.
+ * happened. Exchange headers are the general transport drill-down; system and
+ * context pills additionally link to the exact body field they came from.
  *
  * Adjacent request/response phases share one dashed block. When concurrent
  * traffic separates them, each phase keeps its node position and gets its own
@@ -231,12 +230,7 @@ function ExchangeBlock({
     <div className="flex flex-col divide-y divide-hairline-soft">
       {items.map((item) =>
         item.type === 'turn' ? (
-          <TurnRow
-            key={item.key}
-            turn={item}
-            selectedNodeId={selectedNodeId}
-            onInspect={onInspect}
-          />
+          <TurnRow key={item.key} turn={item} />
         ) : (
           <TraceRow
             key={item.key}
@@ -286,12 +280,13 @@ function ExchangePhaseHeader({
   onInspectRequest?: (transportId: string) => void;
 }) {
   const fields = exchangeHeaderFields(phase);
+  const label = labelExchangePhase(request?.turnIndex, phase);
   return (
     <div
       className="flex items-center gap-2.5 border-b border-dashed border-hairline px-4 py-2"
     >
       <span className="shrink-0 text-[11px] font-medium tracking-[1.5px] text-muted-soft uppercase">
-        {labelExchangePhase(request?.turnIndex, phase)}
+        {label}
       </span>
       {fields.methodAndPath && request && (
         <span className="truncate font-mono text-[12px] text-muted-foreground">
@@ -322,10 +317,11 @@ function ExchangePhaseHeader({
         <button
           type="button"
           onClick={() => onInspectRequest(requestId)}
-          title="Inspect this HTTP exchange"
-          className="ml-auto shrink-0 text-[12px] font-medium text-primary"
+          aria-label={`Inspect ${label}`}
+          title={`Inspect ${label}`}
+          className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-md text-primary outline-none hover:bg-surface-soft focus-visible:ring-2 focus-visible:ring-primary/50"
         >
-          inspect →
+          <Search size={14} strokeWidth={2} aria-hidden />
         </button>
       )}
     </div>
@@ -341,51 +337,19 @@ function ExchangePhaseHeader({
  * tool rows were 30% of the trace's height for one command and eight lines of
  * output.
  */
-function TurnRow({
-  turn,
-  selectedNodeId,
-  onInspect,
-}: {
-  turn: TraceTurn;
-  selectedNodeId?: string;
-  onInspect: (node: TraceNode) => void;
-}) {
-  const members = turnNodes(turn);
-  const selected = selectedNodeId !== undefined && members.some(({ id }) => id === selectedNodeId);
-  // The row-level handle drills into the response that produced the turn.
-  // Each tool activity carries its own, because a result arrives on a *later*
-  // request and that request would otherwise have no handle in the trace.
-  const primary = members[0];
-
+function TurnRow({ turn }: { turn: TraceTurn }) {
   return (
-    <div className="group relative flex w-full justify-start border-l-2 border-transparent px-4 py-4">
+    <div className="flex w-full justify-start border-l-2 border-transparent px-4 py-4">
       <div className="min-w-0 flex-1">
         {turn.messages.map((node) => (
           <AssistantNode key={node.id} node={node} />
         ))}
         {turn.tools.length > 0 && (
           <div className={turn.messages.length > 0 ? 'mt-3' : undefined}>
-            <ToolStrip activities={turn.tools} onInspect={onInspect} />
+            <ToolStrip activities={turn.tools} />
           </div>
         )}
       </div>
-      {primary && (
-        <button
-          type="button"
-          onClick={() => onInspect(primary)}
-          title="Inspect the HTTP exchange behind this turn"
-          className={cx(
-            'absolute top-3 right-4 text-[12px] font-medium text-primary transition-opacity',
-            // A touch device has no hover to reveal this on (P2-01) — it stays
-            // shown there the way it already does for keyboard focus.
-            selected
-              ? 'opacity-100'
-              : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
-          )}
-        >
-          inspect →
-        </button>
-      )}
     </div>
   );
 }
@@ -398,13 +362,7 @@ function TurnRow({
  * `summarizeToolInput`'s one-line gist, so the actual arguments were reachable
  * only through the Inspector.
  */
-function ToolStrip({
-  activities,
-  onInspect,
-}: {
-  activities: ToolActivity[];
-  onInspect: (node: TraceNode) => void;
-}) {
+function ToolStrip({ activities }: { activities: ToolActivity[] }) {
   const [open, setOpen] = useState(false);
   const failed = activities.filter(({ result }) => result?.isError).length;
   const pending = activities.filter(({ result }) => result === undefined).length;
@@ -427,7 +385,7 @@ function ToolStrip({
       {open && (
         <div className="mt-2 space-y-2">
           {activities.map((activity) => (
-            <ToolActivityCard key={activity.id} activity={activity} onInspect={onInspect} />
+            <ToolActivityCard key={activity.id} activity={activity} />
           ))}
         </div>
       )}
@@ -435,18 +393,9 @@ function ToolStrip({
   );
 }
 
-function ToolActivityCard({
-  activity,
-  onInspect,
-}: {
-  activity: ToolActivity;
-  onInspect: (node: TraceNode) => void;
-}) {
+function ToolActivityCard({ activity }: { activity: ToolActivity }) {
   const { call, result } = activity;
   const name = call?.toolName ?? result?.toolName ?? 'tool';
-  // The result arrived on a different request than the call; that later request
-  // is the more useful drill-down, so it wins when both exist.
-  const target = result ?? call;
 
   return (
     <div className="rounded-lg border border-hairline">
@@ -470,16 +419,6 @@ function ToolActivityCard({
             tool {formatMs(result.durationMs)}
             {result.durationIsBatch ? ' · batch' : ''}
           </MetaBadge>
-        )}
-        {target && (
-          <button
-            type="button"
-            onClick={() => onInspect(target)}
-            title="Inspect the HTTP exchange behind this tool call"
-            className="ml-auto shrink-0 text-[12px] font-medium text-primary"
-          >
-            inspect →
-          </button>
         )}
       </div>
 
@@ -553,43 +492,14 @@ function TraceRow({
     node.kind === 'user' || node.kind === 'assistant' ? 'max-w-[72%]' : 'w-full';
   return (
     <div
-      // Equal padding on both sides, not just the gutter one. The inspect button
-      // is absolutely positioned, so only one edge strictly needs the room — but
-      // a full-width block inset further on one side than the other reads as
-      // misaligned, and the trace is scanned down its edges.
       className={cx(
-        'group relative flex w-full border-transparent px-4 py-4',
+        'flex w-full border-transparent px-4 py-4',
         rightAligned ? 'justify-end border-r-2' : 'justify-start border-l-2',
       )}
     >
       <div className={cx('min-w-0', contentWidth)}>
         <NodeBody node={node} selected={selected} onInspect={onInspect} />
       </div>
-      {/*
-        Inspecting is its own button, not a click anywhere on the row. Rows carry
-        their own controls — expanding a context block, folding a tag, selecting
-        text out of a payload — and a row-wide handler made every one of those a
-        near miss that threw the side panel open.
-      */}
-      {node.kind !== 'system' && node.kind !== 'context' && (
-        <button
-          type="button"
-          onClick={() => onInspect(node)}
-          title="Inspect the HTTP exchange behind this event"
-          className={cx(
-            // Revealed on hover so a scanned list stays quiet. Kept in the DOM
-            // rather than swapped with `hidden`, so it is still reachable by
-            // keyboard — focus brings it back on its own.
-            'absolute top-3 text-[12px] font-medium text-primary transition-opacity',
-            selected
-              ? 'opacity-100'
-              : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
-            rightAligned ? 'left-4' : 'right-4',
-          )}
-        >
-          inspect →
-        </button>
-      )}
     </div>
   );
 }

@@ -690,10 +690,15 @@ function Header({
           the global reduced-motion rule collapses that animation for users who
           request it. The lockup never wraps or compresses. */}
       <div className="flex shrink-0 items-center gap-2 text-ink">
-        <span className={cx(status === 'active' && 'header-claude-active')}>
-          <BrandMark svg={CLAUDE_MARK} size={17} />
+        <span
+          className={cx(
+            'flex h-6 w-6 shrink-0 items-center justify-center text-primary',
+            status === 'active' && 'header-claude-active',
+          )}
+        >
+          <BrandMark svg={CLAUDE_MARK} size={22} />
         </span>
-        <span className="display text-[20px] tracking-[-0.3px] whitespace-nowrap max-sm:hidden">
+        <span className="display text-[20px] leading-none tracking-[-0.3px] whitespace-nowrap max-sm:hidden">
           Claude DevTools
         </span>
       </div>

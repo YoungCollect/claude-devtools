@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { JsonView } from 'react-json-view-lite';
 
 import { pretty } from '../format.js';
-import { jsonContainer } from '../json.js';
+import { jsonContainer, jsonNodeExpansion } from '../json.js';
 import { DataSurface, DataSurfaceBody, DataSurfaceHeader } from './DataSurface.js';
 import { CodeBlock } from './ui.js';
 
@@ -47,6 +47,10 @@ export function JsonBodyViewer({
   // rebuilds the array each render must not re-run the rule and stomp on
   // whatever the user has expanded by hand since.
   const fieldKey = JSON.stringify(expandFields ?? []);
+  // Raw-only records parse into a new object, so memoise the container as well;
+  // otherwise any parent render would rebuild the expansion rule and overwrite
+  // the nodes the user opened or closed by hand.
+  const data = useMemo(() => jsonContainer(value, raw), [value, raw]);
 
   /*
    * Only the root container is open on arrival, so the tree renders as a list
@@ -55,16 +59,15 @@ export function JsonBodyViewer({
    * A request body is a few keys wrapping tens of thousands of tokens:
    * expanding `messages` on sight buried `model`, `tools` and `max_tokens`
    * under a page of content blocks. Level 0 is the root object itself; level 1
-   * is its fields, which is the only depth a focused drill-down opens — the
-   * point is to show where the node lives, not to unroll it.
+   * is its fields. A focused drill-down also opens that field's immediate
+   * container children: enough to reveal a system block or message object,
+   * without recursively unrolling the captured prompt.
    */
   const shouldExpandNode = useMemo(() => {
-    const focused = new Set<string>(JSON.parse(fieldKey) as string[]);
-    return (level: number, _value: unknown, field?: string) =>
-      level < 1 || (level === 1 && field !== undefined && focused.has(field));
-  }, [fieldKey]);
+    const focused = JSON.parse(fieldKey) as string[];
+    return jsonNodeExpansion(data, focused);
+  }, [data, fieldKey]);
 
-  const data = jsonContainer(value, raw);
   if (!data) return <CodeBlock text={value !== undefined ? pretty(value) : raw} />;
 
   return (
