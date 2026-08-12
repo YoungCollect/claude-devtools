@@ -35,7 +35,7 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2.5 border-b border-hairline px-4 py-2.5">
+      <div className="flex items-center gap-2.5 border-b border-hairline px-4 py-4.25">
         <label htmlFor="network-filter" className="sr-only">
           Filter requests by path, model, or status
         </label>

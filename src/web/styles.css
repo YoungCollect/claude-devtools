@@ -416,6 +416,25 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/*
+ * Context rows keep their full `py-4` inset. Message rows move their final 8px
+ * into the ContentViewer controls and use `pb-0`, so the amount shared at the
+ * next boundary depends on the preceding row. Unclassified rows (thinking,
+ * compaction, etc.) deliberately break the chain.
+ */
+.trace-stack {
+  --trace-context-shared-inset: calc(var(--spacing) * 4);
+  --trace-message-shared-inset: calc(var(--spacing) * 2);
+}
+
+.trace-stack > [data-trace-kind='context'] + [data-trace-row] {
+  margin-block-start: calc(-1 * var(--trace-context-shared-inset));
+}
+
+.trace-stack > [data-trace-kind='message'] + [data-trace-row] {
+  margin-block-start: calc(-1 * var(--trace-message-shared-inset));
+}
+
 /* Tailwind v4 dropped v3's preflight rule that gave buttons a pointer cursor,
    so without this every control in the app reads as inert text. Disabled
    buttons keep the default arrow, which is the whole point of the distinction. */

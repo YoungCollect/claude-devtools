@@ -228,7 +228,7 @@ function ExchangeBlock({
   onInspectRequest?: (transportId: string, tab: 'payload' | 'response') => void;
 }) {
   const renderRows = (items: readonly TraceItem[]) => (
-    <div className="flex flex-col divide-y divide-hairline-soft">
+    <div className="trace-stack flex flex-col divide-y divide-hairline-soft">
       {items.map((item) =>
         item.type === 'turn' ? (
           <TurnRow key={item.key} turn={item} />
@@ -340,7 +340,14 @@ function ExchangePhaseHeader({
  */
 function TurnRow({ turn }: { turn: TraceTurn }) {
   return (
-    <div className="flex w-full justify-start border-l-2 border-transparent px-4 py-4">
+    <div
+      data-trace-row=""
+      data-trace-kind="message"
+      className={cx(
+        'flex w-full justify-start border-l-2 border-transparent px-4 pt-4',
+        turn.tools.length > 0 ? 'pb-2' : 'pb-0',
+      )}
+    >
       <div className="min-w-0 flex-1">
         {turn.messages.map((node) => (
           <AssistantNode key={node.id} node={node} />
@@ -484,6 +491,14 @@ function TraceRow({
   selected: boolean;
   onInspect: (node: TraceNode) => void;
 }) {
+  const rowKind =
+    node.kind === 'system' || node.kind === 'context'
+      ? 'context'
+      : node.kind === 'user' || node.kind === 'assistant' || node.kind === 'error'
+        ? 'message'
+        : undefined;
+  const messageHasControls =
+    (node.kind === 'user' || node.kind === 'assistant') && Boolean(node.text);
   const rightAligned =
     node.kind === 'system' || node.kind === 'context' || node.kind === 'user';
   // System and context blocks hold rendered markdown and tag outlines. Those are
@@ -493,8 +508,11 @@ function TraceRow({
     node.kind === 'user' || node.kind === 'assistant' ? 'max-w-[72%]' : 'w-full';
   return (
     <div
+      data-trace-row={rowKind === undefined ? undefined : ''}
+      data-trace-kind={rowKind}
       className={cx(
-        'flex w-full border-transparent px-4 py-4',
+        'flex w-full border-transparent px-4 pt-4',
+        rowKind === 'message' ? (messageHasControls ? 'pb-0' : 'pb-2') : 'pb-4',
         rightAligned ? 'justify-end border-r-2' : 'justify-start border-l-2',
       )}
     >
@@ -637,6 +655,7 @@ function UserBubble({
           text={text}
           diffSource={{ sourceId, sessionId, label: 'user message' }}
           align="end"
+          spacing="message"
         />
       )}
     </div>
@@ -662,6 +681,7 @@ function TurnControls({
   align,
   format = 'markdown',
   viewModes,
+  spacing,
 }: {
   text: string;
   diffSource: GitDiffSourceIdentity;
@@ -675,9 +695,16 @@ function TurnControls({
   format?: GitDiffFormat;
   /** Only the blocks with two rendered views offer a toggle, and only when on. */
   viewModes?: ContentToolbarProps['viewModes'];
+  /** Message rows transfer their final 8px inset here; Context keeps its own row padding. */
+  spacing: 'message' | 'context';
 }) {
   return (
-    <div className="mt-0.5 opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+    <div
+      className={cx(
+        spacing === 'message' ? 'py-2' : 'mt-0.5',
+        'opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100',
+      )}
+    >
       <ContentToolbar
         variant="inline"
         text={text}
@@ -809,6 +836,7 @@ function AssistantNode({ node }: { node: TraceNode }) {
           }}
           // The assistant sits on the left, so its controls mirror the user's.
           align="start"
+          spacing="message"
         />
       )}
     </div>
@@ -929,6 +957,7 @@ function ContextNode({
             text={text}
             diffSource={{ sourceId, sessionId, label }}
             align="end"
+            spacing="context"
             format={diffFormatFor(active, formats)}
             viewModes={
               SHOW_CHAT_VIEW_MODES ? { options: modes, active, onSelect: setMode } : undefined
