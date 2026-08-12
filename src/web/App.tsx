@@ -39,8 +39,9 @@ import { groupTraceSections } from './trace-groups.js';
 import { primaryRunCommand, runCommands, type RunCommand } from './run-command.js';
 import { useUrlRoute } from './route.js';
 import { useTheme } from './theme.js';
-import { clearGitDiff, setGitDiffOpen } from './git-diff.js';
+import { clearGitDiff, setGitDiffOpen, useGitDiff } from './git-diff.js';
 import { transportForConversation } from './transport.js';
+import { gitDiffShortcut } from './shortcuts.js';
 
 const VIEWS = [
   { id: 'trace', label: 'Chat Trace' },
@@ -60,6 +61,14 @@ interface Selection {
  * of the end still counts as "reading the newest event".
  */
 const BOTTOM_SLACK_PX = 48;
+
+function isEditableShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]') !== null
+  );
+}
 
 /**
  * The empty trace pane, which doubles as the onboarding step.
@@ -185,6 +194,8 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
+  const { open: gitDiffOpen } = useGitDiff();
+  const gitDiffShortcutDeadline = useRef<number | undefined>(undefined);
 
   // `pinned` means the user picked a conversation explicitly; until then the UI
   // follows whatever trace is currently active, which is what you want when you
@@ -198,6 +209,44 @@ export function App() {
   useEffect(() => {
     void api.config().then(setConfig).catch(() => undefined);
   }, []);
+
+  // `G` then `D` is an app-level chord rather than a browser modifier shortcut,
+  // so it does not steal Find, Bookmark, or another native command. Editing and
+  // modal contexts opt out: typed content and an open decision always win.
+  useEffect(() => {
+    const openGitDiff = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.repeat ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        isEditableShortcutTarget(event.target) ||
+        document.querySelector('[role="alertdialog"]') !== null ||
+        (!gitDiffOpen && document.querySelector('[role="dialog"]') !== null)
+      ) {
+        gitDiffShortcutDeadline.current = undefined;
+        return;
+      }
+
+      const result = gitDiffShortcut(
+        gitDiffShortcutDeadline.current,
+        event.key,
+        performance.now(),
+      );
+      gitDiffShortcutDeadline.current = result.waitingUntil;
+      if (event.key.toLowerCase() === 'g' || result.openDiff || result.closeDiff) {
+        event.preventDefault();
+      }
+      if (result.openDiff) setGitDiffOpen(true);
+      if (result.closeDiff) setGitDiffOpen(false);
+    };
+
+    document.addEventListener('keydown', openGitDiff);
+    return () => document.removeEventListener('keydown', openGitDiff);
+  }, [gitDiffOpen]);
 
   // Distinguishes "the first snapshot has not arrived" from "the capture is
   // genuinely empty". Without it, the initial empty state would look like a
@@ -765,7 +814,7 @@ function Header({
             )}
           </HeaderIconButton>
         )}
-        <HeaderIconButton label="Open git diff" onClick={onOpenDiff}>
+        <HeaderIconButton label="Git diff — open G D, close G C" onClick={onOpenDiff}>
           <Columns2 size={15} aria-hidden />
         </HeaderIconButton>
         <ClearButton onClear={onClear} />

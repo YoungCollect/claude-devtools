@@ -17,6 +17,7 @@ import {
   turnNodes,
 } from '../src/web/trace-groups.js';
 import { readRoute, routeHref } from '../src/web/route.js';
+import { gitDiffShortcut } from '../src/web/shortcuts.js';
 import { anthropicAdapter } from '../src/core/adapters/anthropic.js';
 import type { TraceNode, TraceNodeKind } from '../src/core/types.js';
 
@@ -240,6 +241,24 @@ test('the header indicator separates the change feed from traffic through the pr
   // that snapshot is exactly what has stopped being updated.
   assert.equal(feedStatus(false, false), 'offline');
   assert.equal(feedStatus(false, true), 'offline');
+});
+
+test('G then D opens Git Diff within the shortcut window', () => {
+  const waiting = gitDiffShortcut(undefined, 'g', 1_000);
+  assert.deepEqual(waiting, { waitingUntil: 2_000, openDiff: false });
+  assert.deepEqual(gitDiffShortcut(waiting.waitingUntil, 'd', 1_500), {
+    waitingUntil: undefined,
+    openDiff: true,
+  });
+});
+
+test('G then C closes Git Diff within the shortcut window', () => {
+  const waiting = gitDiffShortcut(undefined, 'g', 1_000);
+  assert.deepEqual(gitDiffShortcut(waiting.waitingUntil, 'c', 1_500), {
+    waitingUntil: undefined,
+    openDiff: false,
+    closeDiff: true,
+  });
 });
 
 test('the selected conversation and view round-trip through the URL', () => {
