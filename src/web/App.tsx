@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, Columns2, Menu, Settings, Terminal, Trash2 } from 'lucide-react';
+import { Check, Columns2, Eraser, Menu, Settings, Terminal } from 'lucide-react';
 import { api, subscribeToRevisions, type ServerConfig } from './api.js';
 import { feedStatus, useTrafficActive, type FeedStatus } from './activity.js';
 import { DataSurface } from './components/DataSurface.js';
@@ -53,8 +53,8 @@ type ViewId = (typeof VIEWS)[number]['id'];
 interface Selection {
   transportId: string;
   node?: TraceNode;
-  /** Exchange magnifier opens the request payload rather than the overview. */
-  openPayload?: boolean;
+  /** The transport tab requested by a Chat Trace phase magnifier. */
+  inspectorTab?: 'payload' | 'response';
 }
 
 /**
@@ -371,13 +371,6 @@ export function App() {
           onToggleTheme={toggleTheme}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
-          onClear={async () => {
-            clearGitDiff();
-            // Rejects on failure so the button can show it; refreshing on a failed
-            // clear would present unchanged data as if the wipe had worked.
-            await api.clear();
-            await refresh();
-          }}
           onOpenDiff={() => setGitDiffOpen(true)}
         />
 
@@ -390,8 +383,8 @@ export function App() {
 
               Both the scrim and the panel are `absolute` inside this row
               rather than `fixed` to the viewport, so neither covers the
-              header: the menu toggle that opened the panel, and Clear / Diff /
-              the theme switch beside it, all stay reachable while it is open. */}
+              header: the menu toggle that opened the panel and the global
+              controls beside it stay reachable while it is open. */}
           {sidebarOpen && (
             <button
               type="button"
@@ -421,8 +414,19 @@ export function App() {
                 themselves, the two bars derive different heights from different
                 type scales (12px label vs 14px tab), and the rules that separate
                 them from the content below stop meeting at the divider. */}
-            <div className="flex h-12 shrink-0 items-center border-b border-hairline px-4 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase">
-              Conversations
+            <div className="flex h-12 shrink-0 items-center justify-between border-b border-hairline pl-4 pr-2">
+              <span className="text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase">
+                Conversations
+              </span>
+              <ClearButton
+                onClear={async () => {
+                  clearGitDiff();
+                  // Rejects on failure so the button can show it; refreshing on a failed
+                  // clear would present unchanged data as if the wipe had worked.
+                  await api.clear();
+                  await refresh();
+                }}
+              />
             </div>
             <ConversationList
               conversations={snapshot.conversations}
@@ -489,8 +493,8 @@ export function App() {
                   selectedNodeId={selection?.node?.id}
                   selectedRequestId={selection?.transportId}
                   onInspect={inspectNode}
-                  onInspectRequest={(transportId) =>
-                    setSelection({ transportId, openPayload: true })
+                  onInspectRequest={(transportId, inspectorTab) =>
+                    setSelection({ transportId, inspectorTab })
                   }
                 />
                 ) : (
@@ -510,7 +514,7 @@ export function App() {
         <Inspector
           transportId={selection?.transportId}
           focusNode={selection?.node}
-          openPayload={selection?.openPayload}
+          entryTab={selection?.inspectorTab}
           rev={snapshot.rev}
           onClose={() => setSelection(undefined)}
         />
@@ -524,9 +528,9 @@ export function App() {
  * Clear, behind a confirm.
  *
  * Deleting one conversation takes two deliberate acts and reports progress and
- * failure. Clear wipes every conversation, every trace and the database, cannot
- * be undone, and sits one stray click from the theme toggle — the protection
- * was inverted relative to the damage.
+ * failure. Clear wipes every conversation, every trace and the database and
+ * cannot be undone, so it lives beside the Conversations title and keeps a
+ * confirmation boundary around the list-wide action.
  *
  * A modal rather than the in-place arm it replaces. The arm asked for a second
  * click on the same 32px target the first one landed on, which is the click a
@@ -552,12 +556,13 @@ function ClearButton({ onClear }: { onClear: () => Promise<void> | void }) {
       <HeaderIconButton
         label={label}
         tone={state === 'failed' ? 'danger' : 'neutral'}
+        appearance="ghost"
         onClick={() => {
           if (state === 'clearing') return;
           setOpen(true);
         }}
       >
-        <Trash2 size={15} aria-hidden />
+        <Eraser size={15} aria-hidden />
       </HeaderIconButton>
 
       <AlertDialog open={open} onOpenChange={setOpen}>
@@ -709,7 +714,6 @@ function Header({
   onToggleTheme,
   sidebarOpen,
   onToggleSidebar,
-  onClear,
   onOpenDiff,
 }: {
   config: ServerConfig | undefined;
@@ -718,7 +722,6 @@ function Header({
   onToggleTheme: () => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
-  onClear: () => Promise<void> | void;
   onOpenDiff: () => void;
 }) {
   const command = primaryRunCommand(config);
@@ -789,7 +792,7 @@ function Header({
       {/*
         The right-hand cluster, in one fixed order: where the traffic goes
         (upstream), how to point traffic here (the shell mark), then the tools
-        that act on what was captured — diff, clear — then the controls that
+        that act on what was captured — diff — then the controls that
         change nothing about the capture at all: theme and settings. Destination
         first, then actions, then chrome.
       */}
@@ -797,7 +800,7 @@ function Header({
         {/* {config && (
           <span
             title={config.upstream}
-            // Hidden below `lg`: with four controls competing for the same
+            // Hidden below `lg`: with the header controls competing for the same
             // row, upstream is the one that can be recovered from the tooltip
             // instead of pushing on the buttons beside it.
             className="hidden max-w-[220px] truncate font-mono text-[12.5px] text-muted-soft lg:block"
@@ -822,7 +825,6 @@ function Header({
         <HeaderIconButton label="Git diff — open G D, close G C" onClick={onOpenDiff}>
           <Columns2 size={15} aria-hidden />
         </HeaderIconButton>
-        <ClearButton onClear={onClear} />
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         {config && <SettingsPopover config={config} />}
       </div>

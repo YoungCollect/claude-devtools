@@ -204,6 +204,13 @@ export function exchangeHeaderFields(phase: TraceDisplayPhase): ExchangeHeaderFi
   };
 }
 
+/** The Inspector tab opened by a Chat Trace exchange/phase magnifier. */
+export function inspectorTabForPhase(
+  phase: TraceDisplayPhase,
+): 'payload' | 'response' {
+  return phase === 'response' ? 'response' : 'payload';
+}
+
 /** Which request a rendered item came out of. */
 function requestIdFor(item: TraceItem): string | undefined {
   if (item.type === 'node') {

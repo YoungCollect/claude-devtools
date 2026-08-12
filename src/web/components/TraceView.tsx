@@ -17,6 +17,7 @@ import {
   exchangeHeaderFields,
   formatBackgroundActivitySummary,
   groupTraceSections,
+  inspectorTabForPhase,
   labelExchangePhase,
   summarizeBackgroundActivity,
   type ToolActivity,
@@ -65,8 +66,8 @@ export interface TraceViewProps {
   /** The exchange the Inspector is currently open on, whichever view opened it. */
   selectedRequestId?: string;
   onInspect: (node: TraceNode) => void;
-  /** Opens the Inspector on a whole exchange rather than on one node. */
-  onInspectRequest?: (transportId: string) => void;
+  /** Opens the Inspector on a whole exchange/phase rather than on one node. */
+  onInspectRequest?: (transportId: string, tab: 'payload' | 'response') => void;
 }
 
 /**
@@ -158,7 +159,7 @@ function BackgroundActivity({
   selectedNodeId?: string;
   selectedRequestId?: string;
   onInspect: (node: TraceNode) => void;
-  onInspectRequest?: (transportId: string) => void;
+  onInspectRequest?: (transportId: string, tab: 'payload' | 'response') => void;
 }) {
   const [open, setOpen] = useState(false);
   const requests = [...requestsById.values()];
@@ -224,7 +225,7 @@ function ExchangeBlock({
   selected: boolean;
   selectedNodeId?: string;
   onInspect: (node: TraceNode) => void;
-  onInspectRequest?: (transportId: string) => void;
+  onInspectRequest?: (transportId: string, tab: 'payload' | 'response') => void;
 }) {
   const renderRows = (items: readonly TraceItem[]) => (
     <div className="flex flex-col divide-y divide-hairline-soft">
@@ -277,7 +278,7 @@ function ExchangePhaseHeader({
   phase: TraceDisplayPhase;
   request?: TransportSummary;
   requestId: string;
-  onInspectRequest?: (transportId: string) => void;
+  onInspectRequest?: (transportId: string, tab: 'payload' | 'response') => void;
 }) {
   const fields = exchangeHeaderFields(phase);
   const label = labelExchangePhase(request?.turnIndex, phase);
@@ -316,7 +317,7 @@ function ExchangePhaseHeader({
       {onInspectRequest && (
         <button
           type="button"
-          onClick={() => onInspectRequest(requestId)}
+          onClick={() => onInspectRequest(requestId, inspectorTabForPhase(phase))}
           aria-label={`Inspect ${label}`}
           title={`Inspect ${label}`}
           className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-md text-primary outline-none hover:bg-surface-soft focus-visible:ring-2 focus-visible:ring-primary/50"
@@ -676,7 +677,7 @@ function TurnControls({
   viewModes?: ContentToolbarProps['viewModes'];
 }) {
   return (
-    <div className="mt-1.5 opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+    <div className="mt-0.5 opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
       <ContentToolbar
         variant="inline"
         text={text}

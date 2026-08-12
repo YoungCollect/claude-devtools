@@ -102,10 +102,7 @@ export function createApi({
   app.get('/api/transport/:id', (c) => {
     const record = store.getTransport(c.req.param('id'));
     if (!record) return c.json({ error: 'not found' }, 404);
-    // Credentials stay masked unless the caller opts in per request — the UI
-    // does that behind an explicit "reveal" toggle.
-    const reveal = c.req.query('reveal') === '1';
-    return c.json({ record: presentRecord(hydrate(record, persistence), reveal) });
+    return c.json({ record: presentRecord(hydrate(record, persistence)) });
   });
 
   app.post('/api/clear', (c) => {
@@ -201,15 +198,15 @@ function hydrate(record: TransportRecord, persistence: Persistence | undefined):
 }
 
 /** Shapes a record for the wire: masked headers plus derived timing. */
-function presentRecord(record: TransportRecord, reveal: boolean) {
+function presentRecord(record: TransportRecord) {
   const { startedAt, ttfbAt, firstTokenAt, endedAt } = record.timing;
   return {
     ...record,
     assembledResponse: assembleStreamResponse(record),
     requestInspection: inspectRequest(record),
-    requestHeaders: redactHeaders(record.requestHeaders, reveal),
+    requestHeaders: redactHeaders(record.requestHeaders),
     responseHeaders: record.responseHeaders
-      ? redactHeaders(record.responseHeaders, reveal)
+      ? redactHeaders(record.responseHeaders)
       : undefined,
     derivedTiming: {
       totalMs: endedAt !== undefined ? endedAt - startedAt : undefined,

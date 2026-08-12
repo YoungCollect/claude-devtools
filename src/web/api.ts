@@ -65,10 +65,8 @@ export const api = {
     mutate(`/api/conversations/${encodeURIComponent(conversationId)}`, 'DELETE'),
   renameConversation: (conversationId: string, title: string) =>
     mutate(`/api/conversations/${encodeURIComponent(conversationId)}`, 'PATCH', { title }),
-  transport: (id: string, reveal: boolean) =>
-    getJson<{ record: TransportDetail }>(
-      `/api/transport/${encodeURIComponent(id)}${reveal ? '?reveal=1' : ''}`,
-    ),
+  transport: (id: string) =>
+    getJson<{ record: TransportDetail }>(`/api/transport/${encodeURIComponent(id)}`),
   // Throws on a failed clear, so the caller does not refresh and present
   // unchanged data as if the wipe had succeeded.
   clear: () => mutate('/api/clear', 'POST'),

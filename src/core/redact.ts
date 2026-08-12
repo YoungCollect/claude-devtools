@@ -2,8 +2,8 @@
  * Everything this tool captures is sensitive: `x-api-key` and `authorization`
  * carry live credentials, and request bodies carry whole source files. The
  * store keeps the raw bytes (you cannot debug what you cannot see), so the
- * redaction boundary sits at the API layer instead — headers go out masked
- * unless the caller explicitly asks to reveal them.
+ * redaction boundary sits at the API layer instead — headers always go out
+ * masked.
  */
 
 const SENSITIVE_HEADERS = new Set([
@@ -44,9 +44,7 @@ export function maskSecret(value: string): string {
 
 export function redactHeaders(
   headers: Record<string, string>,
-  reveal: boolean,
 ): Record<string, string> {
-  if (reveal) return headers;
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) {
     out[key] = isSensitiveHeader(key) ? maskSecret(value) : value;

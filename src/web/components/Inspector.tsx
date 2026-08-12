@@ -20,7 +20,6 @@ import {
   tabPanelProps,
   Tabs,
 } from './ui.js';
-import { Button } from './ui/button.js';
 import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from './ui/drawer.js';
 
 const TABS = [
@@ -52,8 +51,8 @@ export interface InspectorProps {
   transportId?: string;
   /** The trace node the user drilled down from, when there is one. */
   focusNode?: TraceNode;
-  /** Opens the request Payload tab with Body expanded for an exchange entry. */
-  openPayload?: boolean;
+  /** Tab requested by a Chat Trace exchange/phase entry. */
+  entryTab?: 'payload' | 'response';
   rev: number;
   onClose: () => void;
 }
@@ -61,7 +60,7 @@ export interface InspectorProps {
 export function Inspector({
   transportId,
   focusNode,
-  openPayload = false,
+  entryTab,
   rev,
   onClose,
 }: InspectorProps) {
@@ -71,12 +70,12 @@ export function Inspector({
   const [shown, setShown] = useState<{
     transportId: string;
     focusNode?: TraceNode;
-    openPayload: boolean;
+    entryTab?: 'payload' | 'response';
   }>();
 
   useEffect(() => {
-    if (transportId !== undefined) setShown({ transportId, focusNode, openPayload });
-  }, [transportId, focusNode, openPayload]);
+    if (transportId !== undefined) setShown({ transportId, focusNode, entryTab });
+  }, [transportId, focusNode, entryTab]);
 
   return (
     <Drawer
@@ -98,7 +97,7 @@ export function Inspector({
           <InspectorPanel
             transportId={shown.transportId}
             focusNode={shown.focusNode}
-            openPayload={shown.openPayload}
+            entryTab={shown.entryTab}
             rev={rev}
           />
         )}
@@ -110,34 +109,18 @@ export function Inspector({
 function InspectorPanel({
   transportId,
   focusNode,
-  openPayload,
+  entryTab,
   rev,
 }: {
   transportId: string;
   focusNode?: TraceNode;
-  openPayload: boolean;
+  entryTab?: 'payload' | 'response';
   rev: number;
 }) {
-  const [tab, setTab] = useState<TabId>(focusNode || openPayload ? 'payload' : 'overview');
+  const [tab, setTab] = useState<TabId>(focusNode ? 'payload' : (entryTab ?? 'overview'));
   const [loadedRecord, setLoadedRecord] = useState<KeyedTransportDetail<TransportDetail>>();
   const record = transportDetailForId(transportId, loadedRecord);
   const tabRailRef = useRef<HTMLDivElement>(null);
-
-  /*
-   * Credentials default masked every time a new request is opened — carrying
-   * the previous request's `reveal` over would leave secrets visible on a
-   * request nobody asked to unmask.
-   *
-   * Stored as *which request* is revealed rather than as a boolean reset by an
-   * effect. An effect resets one render too late: the fetch below would already
-   * have run for the new id with the stale `reveal === true` and asked the API
-   * to unredact it. The response was discarded by the cleanup, so nothing was
-   * ever displayed — but the request still went out, and "we fetched the
-   * credentials and threw them away" is not a defensible reading of masked.
-   * Deriving it means the new id is masked in the very first render.
-   */
-  const [revealedId, setRevealedId] = useState<string>();
-  const reveal = revealedId === transportId;
 
   // The active tab scrolls into view when the rail is horizontally clipped
   // (narrow Inspector, or `Tabs`' own arrow-key navigation moving focus past
@@ -156,13 +139,14 @@ function InspectorPanel({
   // whichever tab they had moved to.
   const focusNodeId = focusNode?.id;
   useEffect(() => {
-    if (focusNodeId !== undefined || openPayload) setTab('payload');
-  }, [focusNodeId, openPayload]);
+    if (focusNodeId !== undefined) setTab('payload');
+    else if (entryTab !== undefined) setTab(entryTab);
+  }, [transportId, focusNodeId, entryTab]);
 
   useEffect(() => {
     let cancelled = false;
     api
-      .transport(transportId, reveal)
+      .transport(transportId)
       .then(({ record: next }) => {
         if (!cancelled) setLoadedRecord({ transportId, value: next });
       })
@@ -172,7 +156,7 @@ function InspectorPanel({
     return () => {
       cancelled = true;
     };
-  }, [transportId, reveal, rev]);
+  }, [transportId, rev]);
 
   return (
     <>
@@ -185,16 +169,6 @@ function InspectorPanel({
         )}
         {record?.isStream && <MetaBadge tone="emph">stream</MetaBadge>}
         <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="button"
-            variant="chrome"
-            data-active={reveal ? 'true' : undefined}
-            aria-pressed={reveal}
-            onClick={() => setRevealedId(reveal ? undefined : transportId)}
-            title="Reveal credentials in headers"
-          >
-            {reveal ? 'secrets shown' : 'secrets masked'}
-          </Button>
           <DrawerClose
             className="px-1 text-muted-foreground hover:text-ink"
             aria-label="Close inspector"
@@ -229,7 +203,7 @@ function InspectorPanel({
         {!record ? (
           <Empty>Request not found — it may have been evicted from the buffer.</Empty>
         ) : (
-          <TabBody tab={tab} record={record} focusNode={focusNode} openPayload={openPayload} />
+          <TabBody tab={tab} record={record} focusNode={focusNode} />
         )}
       </div>
     </>
@@ -240,12 +214,10 @@ function TabBody({
   tab,
   record,
   focusNode,
-  openPayload,
 }: {
   tab: TabId;
   record: TransportDetail;
   focusNode?: TraceNode;
-  openPayload: boolean;
 }) {
   switch (tab) {
     case 'overview':
@@ -253,7 +225,7 @@ function TabBody({
     case 'headers':
       return <Headers record={record} />;
     case 'payload':
-      return <Payload record={record} focusNode={focusNode} openPayload={openPayload} />;
+      return <Payload record={record} focusNode={focusNode} />;
     case 'response':
       return <Response record={record} />;
     case 'stream':
@@ -384,11 +356,9 @@ function HeaderTable({ headers }: { headers: Record<string, string> }) {
 function Payload({
   record,
   focusNode,
-  openPayload,
 }: {
   record: TransportDetail;
   focusNode?: TraceNode;
-  openPayload: boolean;
 }) {
   const inspection = record.requestInspection;
   const systemText = inspection?.systemText;
@@ -411,10 +381,10 @@ function Payload({
   // pretty-printed body, so a body the proxy had not kept verbatim copied
   // nothing at all.
   const bodyText = record.requestBodyRaw ?? pretty(record.requestBody);
-  const [bodyOpen, setBodyOpen] = useState(openPayload);
+  const [bodyOpen, setBodyOpen] = useState(true);
   useEffect(() => {
-    if (focusNodeId !== undefined || openPayload) setBodyOpen(true);
-  }, [focusNodeId, focusField, openPayload]);
+    setBodyOpen(true);
+  }, [record.id, focusNodeId]);
 
   return (
     <>

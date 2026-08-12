@@ -547,15 +547,15 @@ function CheckIcon() {
  * feeds `aria-label` and the tooltip from a single prop, so the pointer and the
  * screen reader always hear the same name.
  *
- * It borrows the `chrome` button's fill and hairline (one CVA definition, not a
- * hand-rolled lookalike) and only adds the danger tone, which no worded button
- * needed: an icon-only control that has gone wrong — Clear after a failed wipe
- * — has to *look* it, having no word left to say so.
+ * It normally borrows the `chrome` button's fill and hairline (one CVA
+ * definition, not a hand-rolled lookalike). A quieter action can opt into the
+ * borderless ghost treatment while preserving the same tooltip and focus model.
  */
 export function HeaderIconButton({
   label,
   onClick,
   tone = 'neutral',
+  appearance = 'chrome',
   expanded,
   children,
 }: {
@@ -565,6 +565,7 @@ export function HeaderIconButton({
   /** `danger` marks a control in a destructive or failed state, e.g. Clear
    * after a wipe that did not go through. */
   tone?: 'neutral' | 'danger';
+  appearance?: 'chrome' | 'ghost';
   /** Set only by a disclosure — it declares the button a panel trigger. */
   expanded?: boolean;
   children: ReactNode;
@@ -584,9 +585,12 @@ export function HeaderIconButton({
         // tooltip would sit on top of the panel it just opened.
         closeOnClick={isDisclosure}
         className={cn(
-          buttonVariants({ variant: 'chrome', size: 'icon' }),
+          buttonVariants({ variant: appearance, size: 'icon' }),
           'text-muted-foreground hover:text-ink',
-          tone === 'danger' && 'border-error-fg bg-error-bg text-error-fg hover:text-error-fg',
+          tone === 'danger' &&
+            (appearance === 'ghost'
+              ? 'bg-error-bg text-error-fg hover:text-error-fg'
+              : 'border-error-fg bg-error-bg text-error-fg hover:text-error-fg'),
         )}
       >
         {children}

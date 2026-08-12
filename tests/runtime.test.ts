@@ -521,9 +521,30 @@ test('credential headers are masked by name and by shape', () => {
     assert.equal(isSensitiveHeader(name), false, `${name} must not be masked`);
   }
 
-  const masked = redactHeaders({ 'x-acme-auth-token': 'sk-live-abcdefghijklmnop' }, false);
+  const masked = redactHeaders({ 'x-acme-auth-token': 'sk-live-abcdefghijklmnop' });
   assert.ok(!masked['x-acme-auth-token']?.includes('efghijklm'));
-  assert.equal(redactHeaders({ 'x-acme-auth-token': 'v' }, true)['x-acme-auth-token'], 'v');
+  assert.equal(redactHeaders({ 'x-acme-auth-token': 'v' })['x-acme-auth-token'], '••••••');
+});
+
+test('the transport API never reveals credentials, including for the retired reveal query', async () => {
+  const store = new Store();
+  const record = request('masked_transport');
+  record.requestHeaders.authorization = 'Bearer credential-that-must-stay-masked';
+  store.putTransport(record);
+  const app = createApi({
+    store,
+    config: loadConfig([], {}),
+    clearState: () => {},
+    deleteConversation: () => false,
+    renameConversation: () => false,
+  });
+
+  const response = await app.request('/api/transport/masked_transport?reveal=1');
+  const body = (await response.json()) as {
+    record: { requestHeaders: Record<string, string> };
+  };
+  assert.equal(response.status, 200);
+  assert.ok(!body.record.requestHeaders.authorization?.includes('must-stay-masked'));
 });
 
 test('a tool-less request is only utility when it looks like a side call', () => {

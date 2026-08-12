@@ -24,13 +24,8 @@ const buttonVariants = cva(
         // hand-rolled `<button>` in `ui.tsx` before P2-02 folded it in here —
         // one CVA definition now, not two components that can drift apart.
         //
-        // `data-active` drives the visual "selected" look and is set whenever
-        // the caller wants it — today, the Inspector's secrets reveal. It is
-        // deliberately not `aria-pressed`: only an actual toggle should
-        // announce as pressed, and this variant is also used by buttons that
-        // are not toggles at all.
         chrome:
-          "border-hairline bg-canvas text-body hover:border-muted-soft hover:text-ink data-[active=true]:border-primary data-[active=true]:bg-primary data-[active=true]:text-primary-foreground",
+          "border-hairline bg-canvas text-body hover:border-muted-soft hover:text-ink",
       },
       size: {
         default:

@@ -163,8 +163,7 @@ export class Persistence {
    * the caller can drop them from memory.
    *
    * Credentials are masked on the way in: a trace file that outlives the
-   * session it came from must not carry a live token. The in-memory record
-   * keeps the real header, which is what the Inspector's reveal toggle reads.
+   * session it came from must not carry a live token.
    */
   saveTransport(record: TransportRecord): void {
     const bodies: TransportBodies = {
@@ -175,9 +174,9 @@ export class Persistence {
     const bodiesJson = JSON.stringify(bodies);
     const meta = JSON.stringify({
       ...record,
-      requestHeaders: redactHeaders(record.requestHeaders, false),
+      requestHeaders: redactHeaders(record.requestHeaders),
       responseHeaders: record.responseHeaders
-        ? redactHeaders(record.responseHeaders, false)
+        ? redactHeaders(record.responseHeaders)
         : undefined,
       requestBodyRaw: undefined,
       requestBody: undefined,

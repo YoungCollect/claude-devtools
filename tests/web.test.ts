@@ -11,6 +11,7 @@ import {
   groupByRequest,
   groupTrace,
   groupTraceSections,
+  inspectorTabForPhase,
   labelExchangePhase,
   splitExchangePhases,
   summarizeBackgroundActivity,
@@ -475,6 +476,9 @@ test('an exchange labels its request and response as separate numbered phases', 
   assert.equal(labelExchangePhase(2, 'request'), '#3 REQUEST');
   assert.equal(labelExchangePhase(2, 'response'), '#3 RESPONSE');
   assert.equal(labelExchangePhase(3, 'complete'), '#4');
+  assert.equal(inspectorTabForPhase('request'), 'payload');
+  assert.equal(inspectorTabForPhase('complete'), 'payload');
+  assert.equal(inspectorTabForPhase('response'), 'response');
   assert.deepEqual(exchangeHeaderFields('request'), {
     methodAndPath: true,
     statusAndDuration: true,

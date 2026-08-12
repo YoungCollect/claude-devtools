@@ -1,8 +1,7 @@
 /**
- * A transport response is safe to display only while its key still matches
- * the active selection. This derivation prevents a previously revealed record
- * (including credential-bearing headers) from surviving the synchronous render
- * between a selection change and the next masked fetch completing.
+ * A transport response belongs on screen only while its key still matches the
+ * active selection. This prevents the previous request from flashing during
+ * the synchronous render before the next fetch completes.
  */
 export interface KeyedTransportDetail<T> {
   transportId: string;

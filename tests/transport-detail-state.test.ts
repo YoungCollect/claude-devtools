@@ -3,16 +3,16 @@ import test from 'node:test';
 
 import { transportDetailForId } from '../src/web/transport-detail-state.js';
 
-test('a revealed transport detail is hidden synchronously when the active request changes', () => {
-  const revealed = {
+test('a stale transport detail is hidden synchronously when the active request changes', () => {
+  const loaded = {
     transportId: 'request-old',
-    value: { credentialsRevealed: true },
+    value: { method: 'POST' },
   };
 
-  assert.deepEqual(transportDetailForId('request-old', revealed), revealed.value);
+  assert.deepEqual(transportDetailForId('request-old', loaded), loaded.value);
   assert.equal(
-    transportDetailForId('request-new', revealed),
+    transportDetailForId('request-new', loaded),
     undefined,
-    'the old credential-bearing record must not remain visible while the new masked fetch is pending',
+    'the previous record must not remain visible while the next fetch is pending',
   );
 });
