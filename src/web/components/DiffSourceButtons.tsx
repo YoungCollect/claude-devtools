@@ -65,7 +65,7 @@ function DiffSourceButton({
       onClick={onClick}
       pressed={active}
     >
-      <Icon size={13} strokeWidth={2} aria-hidden />
+      <Icon size={14} strokeWidth={2} aria-hidden />
     </ToolbarIconButton>
   );
 }

@@ -227,10 +227,14 @@ test('trace separates system, tagged context, and real user text by payload stru
       { role: 'system', content: 'System message injection.' },
       {
         role: 'user',
-        content:
-          '<system-reminder priority="high">injected</system-reminder>\n' +
-          'hello from the human\n' +
-          '<command-name>/review</command-name>',
+        content: [
+          {
+            type: 'text',
+            text: '<system-reminder priority="high">injected</system-reminder>',
+          },
+          { type: 'text', text: 'hello from the human' },
+          { type: 'text', text: '<command-name>/review</command-name>' },
+        ],
       },
     ],
   };
@@ -275,6 +279,16 @@ test('trace separates system, tagged context, and real user text by payload stru
         systemSource: undefined,
         text: '<command-name>/review</command-name>',
       },
+    ],
+  );
+  assert.deepEqual(
+    store.getNodes(conversationId).map(({ sourcePath }) => sourcePath),
+    [
+      undefined,
+      ['messages', 0, 'content'],
+      ['messages', 1, 'content', 0],
+      ['messages', 1, 'content', 1],
+      ['messages', 1, 'content', 2],
     ],
   );
   assert.equal(store.getConversation(conversationId)?.title, 'hello from the human');

@@ -6,7 +6,11 @@ export type JsonNodeExpansion = (level: number, value: unknown, field?: string) 
 export function jsonNodeExpansion(
   data: JsonContainer | undefined,
   expandFields: readonly string[],
+  sourcePath?: readonly (string | number)[],
 ): JsonNodeExpansion {
+  const exact = sourcePath ? containersAlongPath(data, sourcePath) : undefined;
+  if (exact) return (_level, value) => isContainer(value) && exact.has(value);
+
   const focused = new Set(expandFields);
   const focusedChildren = new Set<JsonContainer>();
 
@@ -27,6 +31,31 @@ export function jsonNodeExpansion(
     (level === 2 && isContainer(_value) && focusedChildren.has(_value));
 }
 
+/** Returns every container from the root through a valid opaque body path. */
+function containersAlongPath(
+  data: JsonContainer | undefined,
+  path: readonly (string | number)[],
+): Set<JsonContainer> | undefined {
+  if (!data) return undefined;
+  const containers = new Set<JsonContainer>([data]);
+  let value: unknown = data;
+
+  for (const segment of path) {
+    if (Array.isArray(value) && typeof segment === 'number') {
+      if (!Number.isInteger(segment) || segment < 0 || segment >= value.length) return undefined;
+      value = value[segment];
+    } else if (isRecord(value) && typeof segment === 'string') {
+      if (!Object.hasOwn(value, segment)) return undefined;
+      value = value[segment];
+    } else {
+      return undefined;
+    }
+    if (isContainer(value)) containers.add(value);
+  }
+
+  return containers;
+}
+
 /** Returns a tree-renderable JSON object/array, parsing raw HTTP text as a fallback. */
 export function jsonContainer(value: unknown, raw?: string): JsonContainer | undefined {
   if (isContainer(value)) return value;
@@ -41,4 +70,8 @@ export function jsonContainer(value: unknown, raw?: string): JsonContainer | und
 
 function isContainer(value: unknown): value is JsonContainer {
   return typeof value === 'object' && value !== null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return isContainer(value) && !Array.isArray(value);
 }

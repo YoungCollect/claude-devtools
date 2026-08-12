@@ -42,7 +42,7 @@ export const anthropicAdapter: ProviderAdapter = {
       sessionId: readSessionId(record.requestHeaders),
       systemFp: fingerprint('system', system),
       system,
-      history: messages.flatMap(readMessage),
+      history: messages.flatMap((message, index) => readMessage(message, index)),
     };
   },
 
@@ -283,7 +283,7 @@ function readSystem(system: unknown): string | undefined {
 }
 
 /** One provider message becomes zero or more history items, one per block. */
-function readMessage(raw: unknown): HistoryItem[] {
+function readMessage(raw: unknown, messageIndex: number): HistoryItem[] {
   const message = asRecord(raw);
   if (!message) return [];
   const role = asString(message.role);
@@ -291,14 +291,15 @@ function readMessage(raw: unknown): HistoryItem[] {
 
   if (typeof content === 'string') {
     if (!content.trim()) return [];
-    return [textHistoryItem(role, content)];
+    return [textHistoryItem(role, content, ['messages', messageIndex, 'content'])];
   }
   if (!Array.isArray(content)) return [];
 
   const items: HistoryItem[] = [];
-  for (const rawBlock of content) {
+  for (const [blockIndex, rawBlock] of content.entries()) {
     const block = asRecord(rawBlock);
     if (!block) continue;
+    const sourcePath = ['messages', messageIndex, 'content', blockIndex] as const;
 
     switch (block.type) {
       case 'text': {
@@ -306,13 +307,13 @@ function readMessage(raw: unknown): HistoryItem[] {
         // Empty text blocks are dropped on both sides of the fingerprint
         // comparison; the API is inconsistent about echoing them back.
         if (!text.trim()) break;
-        items.push(textHistoryItem(role, text));
+        items.push(textHistoryItem(role, text, sourcePath));
         break;
       }
       case 'thinking': {
         const text = asString(block.thinking) ?? '';
         if (!text.trim()) break;
-        items.push({ fp: fpThinking(text), kind: 'thinking', text });
+        items.push({ fp: fpThinking(text), kind: 'thinking', text, sourcePath: [...sourcePath] });
         break;
       }
       case 'tool_use': {
@@ -324,6 +325,7 @@ function readMessage(raw: unknown): HistoryItem[] {
           toolUseId: id,
           toolName: name,
           toolInput: block.input,
+          sourcePath: [...sourcePath],
         });
         break;
       }
@@ -335,13 +337,19 @@ function readMessage(raw: unknown): HistoryItem[] {
           toolUseId: id,
           toolResult: block.content,
           isError: block.is_error === true,
+          sourcePath: [...sourcePath],
         });
         break;
       }
       case 'image':
       case 'document': {
         const label = `[${block.type}]`;
-        items.push({ fp: fingerprintAttachment(block), kind: 'user', text: label });
+        items.push({
+          fp: fingerprintAttachment(block),
+          kind: 'user',
+          text: label,
+          sourcePath: [...sourcePath],
+        });
         break;
       }
       default:
@@ -351,13 +359,20 @@ function readMessage(raw: unknown): HistoryItem[] {
   return items;
 }
 
-function textHistoryItem(role: string | undefined, text: string): HistoryItem {
-  if (role === 'assistant') return { fp: fpAssistant(text), kind: 'assistant', text };
+function textHistoryItem(
+  role: string | undefined,
+  text: string,
+  sourcePath: readonly (string | number)[],
+): HistoryItem {
+  if (role === 'assistant') {
+    return { fp: fpAssistant(text), kind: 'assistant', text, sourcePath: [...sourcePath] };
+  }
   if (role === 'system') {
     return {
       fp: fpSystemText(text),
       kind: 'system',
       text,
+      sourcePath: [...sourcePath],
       segments: [{ kind: 'system', systemSource: 'message', text }],
     };
   }
@@ -367,6 +382,7 @@ function textHistoryItem(role: string | undefined, text: string): HistoryItem {
     fp: fpUser(text),
     kind: 'user',
     text,
+    sourcePath: [...sourcePath],
     segments: splitTaggedUserContent(text),
   };
 }

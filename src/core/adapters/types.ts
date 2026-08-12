@@ -25,6 +25,8 @@ export interface HistoryItem {
   text?: string;
   /** Display-only split of one provider block; `fp` still represents the original block. */
   segments?: HistorySegment[];
+  /** Opaque path to this item inside the provider request body. */
+  sourcePath?: Array<string | number>;
   toolName?: string;
   toolUseId?: string;
   toolInput?: unknown;

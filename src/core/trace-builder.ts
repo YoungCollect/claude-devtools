@@ -204,6 +204,7 @@ export class TraceBuilder {
         kind: item.kind,
         ts: record.timing.startedAt,
         text: item.text,
+        sourcePath: item.sourcePath,
         sideCall: true,
         revealedByRequestId: record.id,
       });
@@ -375,6 +376,7 @@ export class TraceBuilder {
             text: segment.text,
             contextTag: segment.contextTag,
             systemSource: segment.systemSource,
+            sourcePath: item.sourcePath,
             revealedByRequestId: record.id,
           });
         }
@@ -396,6 +398,7 @@ export class TraceBuilder {
         toolName: item.toolName,
         toolUseId: item.toolUseId,
         toolInput: item.toolInput,
+        sourcePath: item.sourcePath,
         revealedByRequestId: record.id,
         model: isAgentOutput ? record.model : undefined,
         modelFromRequest: isAgentOutput && record.model !== undefined ? true : undefined,
@@ -448,6 +451,7 @@ export class TraceBuilder {
       toolUseId: item.toolUseId,
       toolResult: item.toolResult,
       isError: item.isError,
+      sourcePath: item.sourcePath,
       revealedByRequestId: record.id,
       durationMs,
       durationIsBatch,

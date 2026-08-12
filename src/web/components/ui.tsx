@@ -457,11 +457,9 @@ export function ToolbarIconButton({
         aria-label={label}
         closeOnClick={false}
         className={cx(
-          // The icon itself stays the same size; the hit area is 32px — the
-          // WCAG 2.2 AA minimum is 24px and 26px already cleared it, but a
-          // uniform 32px target across the toolbar costs nothing else on the
-          // row (P2-03).
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors',
+          // A compact 28px target keeps icon controls quieter than the worded
+          // view-mode buttons while staying above WCAG 2.2 AA's 24px minimum.
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-colors',
           pressed
             ? 'border-primary bg-primary text-primary-foreground'
             : confirmed
@@ -506,8 +504,8 @@ export function CopyIconButton({
 function CopyIcon() {
   return (
     <svg
-      width="13"
-      height="13"
+      width="14"
+      height="14"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -525,8 +523,8 @@ function CopyIcon() {
 function CheckIcon() {
   return (
     <svg
-      width="13"
-      height="13"
+      width="14"
+      height="14"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

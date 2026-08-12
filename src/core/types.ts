@@ -161,6 +161,12 @@ export interface TraceNode {
   /** Distinguishes the request-level prompt from a system-role history message. */
   systemSource?: 'prompt' | 'message';
 
+  /**
+   * Opaque location inside the captured request body that revealed this node.
+   * Adapters create it; the core and UI only preserve and traverse it.
+   */
+  sourcePath?: Array<string | number>;
+
   /** tool_call / tool_result. */
   toolName?: string;
   toolUseId?: string;

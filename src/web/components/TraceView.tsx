@@ -607,7 +607,7 @@ function UserBubble({
       <Gutter
         label={
           <>
-            <UserRound size={22} aria-hidden />
+            <UserRound size={18} aria-hidden />
             <span className="sr-only">User</span>
           </>
         }

@@ -19,6 +19,7 @@ import {
 import { readRoute, routeHref } from '../src/web/route.js';
 import { gitDiffShortcut } from '../src/web/shortcuts.js';
 import { anthropicAdapter } from '../src/core/adapters/anthropic.js';
+import { splitTaggedUserContent } from '../src/core/tagged-content.js';
 import type { TraceNode, TraceNodeKind } from '../src/core/types.js';
 
 test('network transport is isolated to the selected conversation', () => {
@@ -41,6 +42,21 @@ test('JSON body renderer accepts parsed or raw containers and rejects non-JSON t
   assert.equal(jsonContainer('primitive', '"primitive"'), undefined);
 });
 
+test('a tag marks context only when it wraps the entire user text block', () => {
+  const text =
+    '<session>\nhow do you feel today?\n</session>\n\n' +
+    'Write the title in the predominant language of the session.';
+
+  assert.deepEqual(splitTaggedUserContent(text), [{ kind: 'user', text }]);
+  assert.deepEqual(splitTaggedUserContent('<system-reminder>injected</system-reminder>'), [
+    {
+      kind: 'context',
+      contextTag: 'system-reminder',
+      text: '<system-reminder>injected</system-reminder>',
+    },
+  ]);
+});
+
 test('a focused JSON field opens its immediate container children only', () => {
   const systemBlock = { type: 'text', text: 'prompt' };
   const message = { role: 'user', content: 'hello' };
@@ -53,6 +69,33 @@ test('a focused JSON field opens its immediate container children only', () => {
   assert.equal(shouldExpand(2, systemBlock), true);
   assert.equal(shouldExpand(2, message), false);
   assert.equal(shouldExpand(3, systemBlock.text, 'text'), false);
+});
+
+test('an exact JSON source path opens only the matching message and content block', () => {
+  const systemMessage = { role: 'system', content: 'injected system message' };
+  const reminderBlock = { type: 'text', text: '<system-reminder>injected</system-reminder>' };
+  const userMessage = { role: 'user', content: [reminderBlock] };
+  const data = { messages: [systemMessage, userMessage] };
+  const shouldExpand = jsonNodeExpansion(
+    data,
+    ['messages'],
+    ['messages', 1, 'content', 0],
+  );
+
+  assert.equal(shouldExpand(0, data), true);
+  assert.equal(shouldExpand(1, data.messages, 'messages'), true);
+  assert.equal(shouldExpand(2, systemMessage), false);
+  assert.equal(shouldExpand(2, userMessage), true);
+  assert.equal(shouldExpand(3, userMessage.content, 'content'), true);
+  assert.equal(shouldExpand(4, reminderBlock), true);
+
+  const shouldExpandSystem = jsonNodeExpansion(
+    data,
+    ['messages'],
+    ['messages', 0, 'content'],
+  );
+  assert.equal(shouldExpandSystem(2, systemMessage), true);
+  assert.equal(shouldExpandSystem(2, userMessage), false);
 });
 
 function traceNode(kind: TraceNodeKind, extra: Partial<TraceNode> = {}): TraceNode {

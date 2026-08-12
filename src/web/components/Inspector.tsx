@@ -419,6 +419,7 @@ function Payload({ record, focusNode }: { record: TransportDetail; focusNode?: T
           value={record.requestBody}
           raw={record.requestBodyRaw}
           expandFields={focusField !== undefined ? [focusField] : undefined}
+          expandPath={focusNode?.sourcePath}
         />
       </Section>
 

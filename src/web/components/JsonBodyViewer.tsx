@@ -34,6 +34,7 @@ export function JsonBodyViewer({
   value,
   raw = '',
   expandFields,
+  expandPath,
 }: {
   value: unknown;
   raw?: string;
@@ -42,11 +43,14 @@ export function JsonBodyViewer({
    * a trace node, which expands the one field that node came out of.
    */
   expandFields?: readonly string[];
+  /** Exact adapter-provided location of a trace node within the body. */
+  expandPath?: readonly (string | number)[];
 }) {
   // Keyed on the field names themselves, not the array identity: a caller that
   // rebuilds the array each render must not re-run the rule and stomp on
   // whatever the user has expanded by hand since.
   const fieldKey = JSON.stringify(expandFields ?? []);
+  const pathKey = JSON.stringify(expandPath ?? []);
   // Raw-only records parse into a new object, so memoise the container as well;
   // otherwise any parent render would rebuild the expansion rule and overwrite
   // the nodes the user opened or closed by hand.
@@ -65,8 +69,9 @@ export function JsonBodyViewer({
    */
   const shouldExpandNode = useMemo(() => {
     const focused = JSON.parse(fieldKey) as string[];
-    return jsonNodeExpansion(data, focused);
-  }, [data, fieldKey]);
+    const path = JSON.parse(pathKey) as Array<string | number>;
+    return jsonNodeExpansion(data, focused, path.length > 0 ? path : undefined);
+  }, [data, fieldKey, pathKey]);
 
   if (!data) return <CodeBlock text={value !== undefined ? pretty(value) : raw} />;
 
