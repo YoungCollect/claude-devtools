@@ -17,19 +17,19 @@ export function parseTraceFilterNumbers(value: string): number[] {
 /** Canonical display form used after paste and when the field loses focus. */
 export function formatTraceFilterInput(value: string): string {
   return parseTraceFilterNumbers(value)
-    .map((number) => `#${number}`)
+    .map(String)
     .join(', ');
 }
 
 /** Completes the delimiter and primes the field for the next exchange number. */
 export function completeTraceFilterInput(value: string): string {
   const formatted = formatTraceFilterInput(value);
-  return formatted ? `${formatted}, #` : '#';
+  return formatted ? `${formatted}, ` : '';
 }
 
 /**
  * Keeps the captured chronology. Query order intentionally has no influence:
- * "#11, #2" selects the same sections as "#2, #11" and both render #2 first.
+ * "11, 2" selects the same sections as "2, 11" and both render #2 first.
  */
 export function filterTraceSections(
   sections: readonly TraceSection[],

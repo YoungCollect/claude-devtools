@@ -611,17 +611,17 @@ test('an exchange labels its request and response as separate numbered phases', 
 });
 
 test('trace number filters accept flexible separators and remove duplicates', () => {
-  assert.deepEqual(parseTraceFilterNumbers('#2'), [2]);
-  assert.deepEqual(parseTraceFilterNumbers('#11,#2'), [11, 2]);
-  assert.deepEqual(parseTraceFilterNumbers('#3, #4, #5, #3'), [3, 4, 5]);
-  assert.deepEqual(parseTraceFilterNumbers('3 4，#5'), [3, 4, 5]);
-  assert.equal(formatTraceFilterInput('#11,#2'), '#11, #2');
+  assert.deepEqual(parseTraceFilterNumbers('2'), [2]);
+  assert.deepEqual(parseTraceFilterNumbers('11,2'), [11, 2]);
+  assert.deepEqual(parseTraceFilterNumbers('3, 4, 5, 3'), [3, 4, 5]);
+  assert.deepEqual(parseTraceFilterNumbers('3 4，5'), [3, 4, 5]);
+  assert.equal(formatTraceFilterInput('11,2'), '11, 2');
 });
 
 test('trace filter completion starts the next number without a typed comma', () => {
-  assert.equal(completeTraceFilterInput('#11'), '#11, #');
-  assert.equal(completeTraceFilterInput('#11, #'), '#11, #');
-  assert.equal(completeTraceFilterInput(''), '#');
+  assert.equal(completeTraceFilterInput('11'), '11, ');
+  assert.equal(completeTraceFilterInput('11, '), '11, ');
+  assert.equal(completeTraceFilterInput(''), '');
 });
 
 test('trace filtering follows captured order rather than query order', () => {
@@ -647,7 +647,7 @@ test('trace filtering follows captured order rather than query order', () => {
   const filtered = filterTraceSections(
     sections,
     transport,
-    parseTraceFilterNumbers('#11, #2'),
+    parseTraceFilterNumbers('11, 2'),
   );
 
   assert.deepEqual(

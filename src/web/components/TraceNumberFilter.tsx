@@ -1,4 +1,4 @@
-import { Search, X } from 'lucide-react';
+import { Hash, X } from 'lucide-react';
 import type { ChangeEvent, ClipboardEvent, KeyboardEvent } from 'react';
 import {
   completeTraceFilterInput,
@@ -16,7 +16,7 @@ export function TraceNumberFilter({ value, onChange }: TraceNumberFilterProps) {
   const change = (event: ChangeEvent<HTMLInputElement>) => {
     // Keep editing permissive. Canonical formatting happens at explicit entry
     // boundaries so controlled updates never fight cursor movement.
-    onChange(event.currentTarget.value.replaceAll('，', ',').replace(/#{2,}/g, '#'));
+    onChange(event.currentTarget.value.replaceAll('，', ',').replace(/[^\d,\s]/g, ''));
   };
 
   const keyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -26,14 +26,6 @@ export function TraceNumberFilter({ value, onChange }: TraceNumberFilterProps) {
       event.preventDefault();
       onChange(completeTraceFilterInput(value));
       return;
-    }
-    if (event.key !== '#') return;
-    const end = value.trimEnd();
-    if (end.endsWith('#')) {
-      event.preventDefault();
-    } else if (/\d$/.test(end)) {
-      event.preventDefault();
-      onChange(completeTraceFilterInput(value));
     }
   };
 
@@ -51,11 +43,11 @@ export function TraceNumberFilter({ value, onChange }: TraceNumberFilterProps) {
   return (
     <div
       className={cx(
-        'flex h-8 w-64 max-w-[46vw] shrink-0 items-center gap-2 rounded-lg border border-hairline bg-canvas px-2.5',
+        'flex h-8 w-58 max-w-[46vw] shrink-0 items-center gap-2 rounded-lg border border-hairline bg-canvas px-2.5',
         'focus-within:border-primary focus-within:ring-1 focus-within:ring-primary',
       )}
     >
-      <Search size={14} className="shrink-0 text-muted-soft" aria-hidden />
+      <Hash size={14} className="shrink-0 text-muted-soft" aria-hidden />
       <label htmlFor="trace-number-filter" className="sr-only">
         Filter Chat Trace by exchange number
       </label>
@@ -68,7 +60,7 @@ export function TraceNumberFilter({ value, onChange }: TraceNumberFilterProps) {
         onBlur={() => onChange(formatTraceFilterInput(value))}
         autoComplete="off"
         spellCheck={false}
-        placeholder="#2, #11"
+        placeholder="Number"
         className="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-ink outline-none placeholder:text-muted-soft"
       />
       {value && (

@@ -4,6 +4,10 @@ import './styles.css';
 import { App } from './App.js';
 import { AgentProvider } from './agent.js';
 
+if (import.meta.env.DEV) {
+  import("react-grab");
+}
+
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root');
 createRoot(root).render(

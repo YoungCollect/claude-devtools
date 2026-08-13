@@ -3,16 +3,11 @@ import { ExternalLink, Search, UserRound } from 'lucide-react';
 import { agentForProvider, BrandMark, useAgent } from '../agent.js';
 import { splitTaggedUserContent } from '../../core/tagged-content.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
-import { ContentToolbar, type ContentToolbarProps } from './ContentToolbar.js';
+import { ContentToolbar } from './ContentToolbar.js';
 import { ToolResultInputRow } from './ToolResultInputRow.js';
-import {
-  ContentViewer,
-  diffFormatFor,
-  useContentViewMode,
-  type ContentFormat,
-} from './ContentViewer.js';
+import { ContentViewer, type ContentFormat } from './ContentViewer.js';
 import { DataSurface, DataSurfaceBody } from './DataSurface.js';
-import type { GitDiffFormat, GitDiffSourceIdentity } from '../git-diff.js';
+import type { GitDiffSourceIdentity } from '../git-diff.js';
 import type { ProviderId, TraceNode, TransportSummary } from '../../core/types.js';
 import {
   exchangeHeaderFields,
@@ -674,7 +669,6 @@ function UserBubble({
           text={text}
           diffSource={{ sourceId, sessionId, label: 'user message' }}
           align="end"
-          spacing="message"
         />
       )}
     </div>
@@ -682,14 +676,17 @@ function UserBubble({
 }
 
 /**
- * A row's controls, under its block instead of inside it.
+ * A chat turn's controls, under its bubble instead of inside it.
  *
- * This is the shape every chat interface has settled on, and the reason holds
- * for every block in the trace: the bubble — or the expanded system prompt, or
- * the context outline — is one solid block of what was said, and what you can
- * *do* with it hangs below, off the reading line and on the page rather than on
- * the block's own fill. Inside, the row had to borrow that fill and sat within
- * the same rounded edge as the content, so it read as part of what was said.
+ * This is the shape every chat interface has settled on: the bubble is one
+ * solid block of what was said, and what you can *do* with it hangs below, off
+ * the reading line and on the page rather than on the bubble's own fill.
+ * Inside, the row had to borrow that fill and sat within the same rounded edge
+ * as the content, so it read as part of what was said.
+ *
+ * The context and system blocks do not use this. They are opened in order to
+ * act on them, so their controls live in the panel header where the pill left
+ * the pointer — see `ContextNode`.
  *
  * Revealed on hover over the whole row (and on keyboard focus), so a trace
  * scrolled past is nothing but conversation.
@@ -698,37 +695,20 @@ function TurnControls({
   text,
   diffSource,
   align,
-  format = 'markdown',
-  viewModes,
-  spacing,
 }: {
   text: string;
   diffSource: GitDiffSourceIdentity;
   /** Matches the block's own side, so the row stays under its own turn. */
   align: 'start' | 'end';
-  /**
-   * What a diff takes this text as. Chat turns render as markdown and cannot be
-   * switched (see `SHOW_CHAT_VIEW_MODES`); a context block can be an outline,
-   * so it passes whichever view is on screen.
-   */
-  format?: GitDiffFormat;
-  /** Only the blocks with two rendered views offer a toggle, and only when on. */
-  viewModes?: ContentToolbarProps['viewModes'];
-  /** Message rows transfer their final 8px inset here; Context keeps its own row padding. */
-  spacing: 'message' | 'context';
 }) {
   return (
-    <div
-      className={cx(
-        spacing === 'message' ? 'py-2' : 'mt-0.5',
-        'opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100',
-      )}
-    >
+    <div className="py-2 opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
       <ContentToolbar
         variant="inline"
         text={text}
-        diff={{ source: diffSource, format }}
-        viewModes={viewModes}
+        // A turn renders as markdown and cannot be switched
+        // (see `SHOW_CHAT_VIEW_MODES`), so the diff takes it as that.
+        diff={{ source: diffSource, format: 'markdown' }}
         align={align}
       />
     </div>
@@ -855,7 +835,6 @@ function AssistantNode({ node }: { node: TraceNode }) {
           }}
           // The assistant sits on the left, so its controls mirror the user's.
           align="start"
-          spacing="message"
         />
       )}
     </div>
@@ -910,9 +889,6 @@ function ContextNode({
       preferMarkdown ? (hasXmlStructure(text) ? ['markdown', 'xml'] : ['markdown']) : ['xml'],
     [text, preferMarkdown],
   );
-  // The block's controls live outside its card (see `TurnControls`), so the
-  // view state they act on is read here rather than inside the panel.
-  const { modes, active, setMode } = useContentViewMode(formats, SHOW_CHAT_VIEW_MODES);
   return (
     <div className="group/turn flex w-full flex-col">
       {/*
@@ -957,32 +933,26 @@ function ContextNode({
         )}
       </TagLabel>
       {/* Expanded, a context block is structure: show the tag outline, with the
-          exact source a click away. */}
+          exact source a click away.
+
+          The controls sit in the card's own header rather than under it, the
+          way the bubbles' do. A bubble is read whole, so a row below it is the
+          natural place to land after finishing; a context block is opened *to
+          act on it* — copy the prompt, take it as a diff side — and it can run
+          to 50vh of source, which put those controls a scroll and a long mouse
+          travel away from the pill you just clicked. In the header they stay
+          pinned beside that pill, at the same place whether the block is one
+          line or twenty screens. */}
       {open && (
-        <>
-          <ContentViewer
-            className="mt-1.5"
-            text={text}
-            formats={formats}
-            maxHeightClass="max-h-[50vh]"
-            showViewModes={SHOW_CHAT_VIEW_MODES}
-            controlsPlacement="external"
-            diffSource={{ sourceId, sessionId, label }}
-          />
-          {/* Under the card, not in it — the same rule the bubbles follow. The
-              row keeps the bottom edge it had, but on the page instead of
-              inside the panel's border. */}
-          <TurnControls
-            text={text}
-            diffSource={{ sourceId, sessionId, label }}
-            align="end"
-            spacing="context"
-            format={diffFormatFor(active, formats)}
-            viewModes={
-              SHOW_CHAT_VIEW_MODES ? { options: modes, active, onSelect: setMode } : undefined
-            }
-          />
-        </>
+        <ContentViewer
+          className="mt-1.5"
+          text={text}
+          formats={formats}
+          maxHeightClass="max-h-[50vh]"
+          showViewModes={SHOW_CHAT_VIEW_MODES}
+          controlsPlacement="top"
+          diffSource={{ sourceId, sessionId, label }}
+        />
       )}
     </div>
   );
