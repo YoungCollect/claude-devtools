@@ -21,6 +21,9 @@ import {
 } from '../src/web/trace-groups.js';
 import { readRoute, routeHref } from '../src/web/route.js';
 import { gitDiffShortcut } from '../src/web/shortcuts.js';
+import { greekLines } from '../src/web/greeking.js';
+import { clearGitDiff, toggleGitDiffSource } from '../src/web/git-diff.js';
+import { DiffTray } from '../src/web/components/DiffTray.js';
 import {
   completeTraceFilterInput,
   filterTraceSections,
@@ -658,4 +661,71 @@ test('trace filtering follows captured order rather than query order', () => {
     ),
     ['r2', 'r11'],
   );
+});
+
+test('greeking draws one bar per line, scaled to the longest line', () => {
+  // 60 chars is the longest, so it fills the bar; the 30-char line is half of
+  // it; the blank line keeps its row at zero width.
+  const widths = greekLines(['x'.repeat(60), 'y'.repeat(30), '', 'z'.repeat(15)].join('\n'));
+  assert.deepEqual(widths, [1, 0.5, 0, 0.25]);
+});
+
+test('greeking measures short sources against a floor, not against themselves', () => {
+  // Without the floor these two 4-char lines would each normalise to a full-width
+  // bar, drawing a stub tag exactly like a wall of prose.
+  const widths = greekLines('abcd\nabcd');
+  assert.ok(widths.every((width) => width < 0.2));
+});
+
+test('greeking samples the whole source, not its opening lines', () => {
+  // Two documents sharing a 30-line preamble must not draw identically.
+  const preamble = Array.from({ length: 30 }, () => 'shared line').join('\n');
+  const short = greekLines(preamble);
+  const long = greekLines(`${preamble}\n${'tail '.repeat(20)}`);
+  assert.notDeepEqual(short, long);
+});
+
+test('greeking caps its bar count however long the source is', () => {
+  const widths = greekLines(Array.from({ length: 4000 }, (_, i) => `line ${i}`).join('\n'));
+  assert.ok(widths.length > 0 && widths.length <= 14);
+});
+
+test('greeking ignores a trailing newline and yields nothing for empty text', () => {
+  assert.deepEqual(greekLines('only\n'), greekLines('only'));
+  assert.deepEqual(greekLines(''), []);
+});
+
+test('greeking keeps line lengths and discards everything else', () => {
+  // The tray sits on screen across conversations, so what it draws must depend
+  // on the shape of a source and on nothing else in it. Same lengths, entirely
+  // different characters, identical output.
+  const secret = greekLines('sk-ant-api03-0123456789\nAuthorization: Bearer xyz');
+  const harmless = greekLines('aaaaaaaaaaaaaaaaaaaaaaa\nbbbbbbbbbbbbbbbbbbbbbbbbb');
+  assert.deepEqual(secret, harmless);
+});
+
+test('the diff tray shows a chosen side beside a slot still waiting', () => {
+  toggleGitDiffSource('left', {
+    sourceId: 'node-1',
+    sessionId: 'c1',
+    label: 'system prompt',
+    text: 'You are an agent.\n\nFollow the rules.',
+    format: 'markdown',
+  });
+  try {
+    const html = renderToStaticMarkup(createElement(DiffTray));
+    assert.match(html, /system prompt/);
+    // The unfilled side is drawn and named, not omitted — that asymmetry is the
+    // whole signal the tray exists to carry.
+    assert.match(html, /No source chosen for Diff Right/);
+    // Shape only: the tray must never put the captured text on screen.
+    assert.doesNotMatch(html, /You are an agent/);
+  } finally {
+    clearGitDiff();
+  }
+});
+
+test('the diff tray stays out of the way when there is nothing pending', () => {
+  clearGitDiff();
+  assert.equal(renderToStaticMarkup(createElement(DiffTray)), '');
 });

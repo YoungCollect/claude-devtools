@@ -17,6 +17,7 @@ import {
 } from './components/ui/alert-dialog.js';
 import { Button } from './components/ui/button.js';
 import { ConversationList } from './components/ConversationList.js';
+import { DiffTray } from './components/DiffTray.js';
 import { GitDiffDialog } from './components/GitDiffDialog.js';
 import { Inspector } from './components/Inspector.js';
 import { NetworkView } from './components/NetworkView.js';
@@ -210,7 +211,14 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
-  const { open: gitDiffOpen } = useGitDiff();
+  const gitDiff = useGitDiff();
+  const gitDiffOpen = gitDiff.open;
+  // The tray is docked over the bottom of the conversation list, so the list
+  // has to be able to scroll out from under it — otherwise the last few
+  // conversations sit permanently behind it. Only while it is showing: a
+  // standing gap for a panel that is usually absent is worse than the overlap.
+  const diffTrayDocked =
+    !gitDiff.open && (gitDiff.left !== undefined || gitDiff.right !== undefined);
   const gitDiffShortcutDeadline = useRef<number | undefined>(undefined);
 
   // `pinned` means the user picked a conversation explicitly; until then the UI
@@ -436,6 +444,9 @@ export function App() {
               sidebarOpen
                 ? 'max-md:visible max-md:translate-x-0'
                 : 'max-md:invisible max-md:-translate-x-full md:visible',
+              // Only at `md` and up: below it the sidebar is an overlay that
+              // sits above the tray, so nothing is covered.
+              diffTrayDocked && 'md:pb-40',
             )}
           >
             {/* h-12 on both this and the view tabs opposite it. Left to size
@@ -544,6 +555,7 @@ export function App() {
           rev={snapshot.rev}
           onClose={() => setSelection(undefined)}
         />
+        <DiffTray />
         <GitDiffDialog theme={theme} />
       </div>
     </TooltipProvider>
