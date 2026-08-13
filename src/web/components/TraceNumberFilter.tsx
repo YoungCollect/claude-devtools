@@ -60,7 +60,7 @@ export function TraceNumberFilter({ value, onChange }: TraceNumberFilterProps) {
         onBlur={() => onChange(formatTraceFilterInput(value))}
         autoComplete="off"
         spellCheck={false}
-        placeholder="Number"
+        placeholder="Search Turn Number"
         className="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-ink outline-none placeholder:text-muted-soft"
       />
       {value && (

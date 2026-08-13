@@ -49,7 +49,8 @@
     "tailwindcss": "^4.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "vite-plugin-react-click-to-component": "^4.2.3"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

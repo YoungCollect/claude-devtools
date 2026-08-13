@@ -1,6 +1,7 @@
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { reactClickToComponent } from "vite-plugin-react-click-to-component";
 import tailwindcss from '@tailwindcss/vite';
 
 // The UI is a plain SPA. In dev it runs on :5173 and proxies /api to the
@@ -8,7 +9,7 @@ import tailwindcss from '@tailwindcss/vite';
 // same server, so the UI never needs to know its own origin.
 export default defineConfig({
   root: 'src/web',
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), reactClickToComponent(), tailwindcss()],
   resolve: {
     // Mirrors the `@/*` path mapping in tsconfig.json. Vite's `root` is already
     // `src/web`, but `root` is not an import alias — without this, shadcn/ui's
