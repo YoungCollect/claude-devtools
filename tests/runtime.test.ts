@@ -14,7 +14,7 @@ import { SseParser } from '../src/core/sse.js';
 import { Store } from '../src/core/store.js';
 import { TraceBuilder } from '../src/core/trace-builder.js';
 import type { TransportRecord } from '../src/core/types.js';
-import { CLAUDE_CODE, runCommand } from '../src/core/clients.js';
+import { CLAUDE_CODE, manualRunCommand, runCommand } from '../src/core/clients.js';
 import { createApi } from '../src/server/api.js';
 import { parseArgs } from '../src/server/cli.js';
 import { loadConfig } from '../src/server/config.js';
@@ -1124,9 +1124,11 @@ test('the Claude-only command line configures one upstream and launches Claude C
     args: [],
   });
   assert.equal(
-    runCommand('http://127.0.0.1:4141'),
+    manualRunCommand('http://127.0.0.1:4141'),
     'ANTHROPIC_BASE_URL=http://127.0.0.1:4141 claude',
   );
+  assert.equal(runCommand(), 'claude-devtools run');
+  assert.equal(runCommand(4998), 'claude-devtools run --ui-port 4998');
 });
 
 test('the Claude-only command line rejects legacy provider selection', () => {

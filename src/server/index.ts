@@ -239,7 +239,7 @@ function banner(): string {
 
   const nextStep = cli.runClient
     ? `  Starting ${cli.runClient.label}.\n`
-    : `  Point Claude Code at the proxy:\n\n    ${runCommand(proxyUrl)}`;
+    : `  Start Claude Code through this capture:\n\n    ${runCommand(config.uiPort)}`;
 
   return `
   claude-devtools${devMode ? '  ·  dev' : ''}

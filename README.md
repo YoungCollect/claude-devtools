@@ -84,7 +84,7 @@ claude-devtools run -- --model claude-sonnet-4-5
 The capture remains open when Claude exits so you can inspect the completed
 trace. Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to stop it.
 
-### Start Claude Code yourself
+### Start the capture first
 
 Start the capture:
 
@@ -92,14 +92,20 @@ Start the capture:
 claude-devtools
 ```
 
-Then point Claude Code at its loopback proxy from another terminal:
+Then join that capture and start Claude Code from another terminal:
 
 ```bash
-ANTHROPIC_BASE_URL=http://127.0.0.1:4141 claude
+claude-devtools run
 ```
 
 If a capture is already running, another `claude-devtools run` joins it instead
 of opening a competing SQLite writer.
+
+If the convenience command is unavailable, the equivalent manual launch is:
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:4141 claude
+```
 
 ## CLI reference
 

@@ -1,16 +1,14 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 
-import { runCommand, type ClaudeClientProfile } from '../core/clients.js';
+import { manualRunCommand, type ClaudeClientProfile } from '../core/clients.js';
 
 /**
  * Starting the agent for you, instead of telling you how to start it.
  *
- * `runCommand` has always known the whole answer — which binary, which
- * environment variable, which path under the proxy origin — and every caller
- * did the same thing with it: print it and wait for someone to paste it back.
- * This module executes it. The manual step it removes was also the step where
- * the base URL could be typed wrong or, worse, left pointing at a proxy that
- * had since moved.
+ * The client profile knows which binary and environment variable to use, and
+ * this module executes that configuration directly. The manual step it removes
+ * was also the step where the base URL could be typed wrong or, worse, left
+ * pointing at a proxy that had since moved.
  *
  * The client owns the terminal while it runs. That only works because this
  * server is silent after its banner — see `index.ts`, where every remaining
@@ -96,7 +94,7 @@ export function launchClient({ client, args, proxyUrl }: LaunchOptions): Launche
         console.error(
           `\nclaude-devtools: \`${client.binary}\` was not found on PATH, so ${client.label} was not started.\n` +
             '  The capture is running — start it yourself with:\n\n' +
-            `    ${runCommand(proxyUrl)}\n`,
+            `    ${manualRunCommand(proxyUrl)}\n`,
         );
       } else {
         console.error(`\nclaude-devtools: ${client.label} could not be started: ${error.message}\n`);

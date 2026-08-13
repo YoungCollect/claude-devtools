@@ -18,7 +18,12 @@ export const CLAUDE_CODE: ClaudeClientProfile = {
   pointAt: (proxyUrl) => ({ env: { ANTHROPIC_BASE_URL: proxyUrl }, args: [] }),
 };
 
-/** The shell command shown when the capture was started without `run`. */
-export function runCommand(proxyUrl: string): string {
+/** The preferred command for launching Claude Code into an existing capture. */
+export function runCommand(uiPort = 4142): string {
+  return uiPort === 4142 ? 'claude-devtools run' : `claude-devtools run --ui-port ${uiPort}`;
+}
+
+/** Direct launch fallback when the convenience CLI itself cannot be used. */
+export function manualRunCommand(proxyUrl: string): string {
   return `ANTHROPIC_BASE_URL=${proxyUrl} claude`;
 }

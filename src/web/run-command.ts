@@ -7,9 +7,9 @@ export interface RunCommand {
 }
 
 export function runCommands(config: ServerConfig | undefined): RunCommand[] {
-  return config ? [{ label: 'Claude Code', command: runCommand(config.proxyUrl) }] : [];
+  return config ? [{ label: 'Claude Code', command: runCommand(config.uiPort) }] : [];
 }
 
 export function primaryRunCommand(config: ServerConfig | undefined): string {
-  return config ? runCommand(config.proxyUrl) : '';
+  return config ? runCommand(config.uiPort) : '';
 }

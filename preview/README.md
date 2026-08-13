@@ -24,11 +24,11 @@ pnpm preview:capture
 ```
 
 That starts the proxy and UI exactly like `pnpm dev`, but writes to
-`preview/trace-preview.db` instead of your normal capture. Point Claude Code at
-it and work until the trace shows what you want the preview to show:
+`preview/trace-preview.db` instead of your normal capture. In another terminal,
+join it and work until the trace shows what you want the preview to show:
 
 ```bash
-ANTHROPIC_BASE_URL=http://127.0.0.1:4141 claude
+claude-devtools run
 ```
 
 Delete any conversation you would rather not publish from the sidebar before
