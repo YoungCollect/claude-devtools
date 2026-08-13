@@ -22,5 +22,7 @@
       "@/*": ["./src/web/*"]
     }
   },
-  "include": ["src/web", "src/core", "vite.config.ts"]
+  // `src/preview/paths.ts` only: the SPA imports the preview's file layout, but
+  // the generator beside it is Node code that belongs to tsconfig.preview.json.
+  "include": ["src/web", "src/core", "src/preview/paths.ts", "vite.config.ts"]
 }

@@ -41,12 +41,19 @@
     "dev:server": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx watch src/server/index.ts --dev",
     "dev:web": "vite",
     "build": "vite build && tsc -p tsconfig.server.json",
+    "preview:seed": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx src/preview/cli.ts seed",
+    "preview:capture": "concurrently -n server,web -c cyan,magenta \"pnpm preview:capture:server\" \"pnpm dev:web\"",
+    "preview:capture:server": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx watch src/server/index.ts --dev --db preview/trace-preview.db",
+    "preview:data": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx src/preview/cli.ts",
+    "preview:dev": "pnpm preview:data && vite --mode github",
+    "preview:build": "pnpm preview:data && vite build --mode github",
+    "preview:serve": "vite preview --mode github",
     "changeset": "changeset",
     "release": "changeset publish",
     "prepack": "pnpm build",
     "start": "node bin/claude-devtools.js",
     "test": "node --disable-warning=ExperimentalWarning --import tsx --test tests/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.preview.json"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -302,3 +302,27 @@ export interface RequestInspection {
   systemText?: string;
   bodyFields?: RequestBodyFields;
 }
+
+/** Timing the Inspector reads off a record, derived rather than stored twice. */
+export interface DerivedTiming {
+  totalMs?: number;
+  ttfbMs?: number;
+  firstTokenMs?: number;
+  streamMs?: number;
+  frameCount: number;
+}
+
+/**
+ * One transport exchange as the Inspector consumes it: the record plus the
+ * adapter-derived views of it, with credentials already masked.
+ *
+ * Declared here — not beside either producer — because two of them exist. The
+ * live API (`src/server/transport-view.ts`) serves this shape over HTTP, and
+ * the static preview build bakes the identical shape to JSON. One type keeps
+ * the second producer from drifting out from under the UI.
+ */
+export type TransportDetail = TransportRecord & {
+  derivedTiming: DerivedTiming;
+  assembledResponse?: AssembledResponse;
+  requestInspection?: RequestInspection;
+};

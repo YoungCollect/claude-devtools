@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, Columns2, Eraser, Menu, Settings, Terminal } from 'lucide-react';
-import { api, subscribeToRevisions, type ServerConfig } from './api.js';
+import { api, IS_STATIC_PREVIEW, subscribeToRevisions, type ServerConfig } from './api.js';
+import { previewMeta } from './preview-source.js';
 import { feedStatus, useTrafficActive, type FeedStatus } from './activity.js';
 import { DataSurface } from './components/DataSurface.js';
 import type { StateSnapshot, TraceNode } from '../core/types.js';
@@ -457,18 +458,23 @@ export function App() {
               <span className="text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase">
                 Conversations
               </span>
-              <ClearButton
-                onClear={async () => {
-                  clearGitDiff();
-                  // Rejects on failure so the button can show it; refreshing on a failed
-                  // clear would present unchanged data as if the wipe had worked.
-                  await api.clear();
-                  await refresh();
-                }}
-              />
+              {/* A published preview has nothing to wipe: the capture is a file
+                  on a static host, and the same page reloads it on refresh. */}
+              {!IS_STATIC_PREVIEW && (
+                <ClearButton
+                  onClear={async () => {
+                    clearGitDiff();
+                    // Rejects on failure so the button can show it; refreshing on a failed
+                    // clear would present unchanged data as if the wipe had worked.
+                    await api.clear();
+                    await refresh();
+                  }}
+                />
+              )}
             </div>
             <ConversationList
               conversations={snapshot.conversations}
+              readOnly={IS_STATIC_PREVIEW}
               selectedId={conversationId}
               onSelect={(id) => {
                 pinned.current = true;
@@ -745,6 +751,43 @@ const STATUS_HINT: Record<FeedStatus, string> = {
   offline: 'Change feed closed — this page has stopped updating',
 };
 
+/**
+ * Takes the live status indicator's place in a static preview.
+ *
+ * The indicator answers "is the change feed open" — a question with no meaning
+ * on a published page, where the answer would always be a reassuring green
+ * "ready" over data that stopped moving whenever the build ran. This says what
+ * is actually true instead, and names the capture's date so a visitor can tell
+ * how old the trace they are reading is.
+ */
+function PreviewBadge() {
+  const [meta, setMeta] = useState<{ generatedAt: string; source: string }>();
+
+  useEffect(() => {
+    void previewMeta().then(setMeta).catch(() => undefined);
+  }, []);
+
+  const captured = meta ? new Date(meta.generatedAt) : undefined;
+  return (
+    <span
+      className="flex shrink-0 items-center gap-1.5 rounded-full border border-hairline px-2.5 py-0.5 text-[12px] text-muted-foreground"
+      title={
+        captured
+          ? `Static preview of a recorded session, built ${captured.toLocaleString()}. Nothing here is live.`
+          : 'Static preview of a recorded session. Nothing here is live.'
+      }
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-hairline" aria-hidden />
+      preview
+      {captured && (
+        <span className="font-mono text-[11px] text-muted-soft max-sm:hidden">
+          {captured.toISOString().slice(0, 10)}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function Header({
   config,
   status,
@@ -801,6 +844,9 @@ function Header({
       {/* A status region: losing the change feed means the page has quietly
           stopped updating, which is exactly the kind of thing a screen reader
           user must not have to notice by re-reading the page. */}
+      {IS_STATIC_PREVIEW ? (
+        <PreviewBadge />
+      ) : (
       <span
         role="status"
         className={cx(
@@ -826,6 +872,7 @@ function Header({
         />
         {status}
       </span>
+      )}
 
       {/*
         The right-hand cluster, in one fixed order: where the traffic goes

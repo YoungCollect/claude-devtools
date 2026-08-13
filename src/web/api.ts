@@ -1,24 +1,18 @@
-import type {
-  AssembledResponse,
-  RequestInspection,
-  StateSnapshot,
-  TraceNode,
-  TransportRecord,
-} from '../core/types.js';
+import type { StateSnapshot, TraceNode } from '../core/types.js';
+import { previewApi, subscribeToPreviewRevisions } from './preview-source.js';
 
-export interface DerivedTiming {
-  totalMs?: number;
-  ttfbMs?: number;
-  firstTokenMs?: number;
-  streamMs?: number;
-  frameCount: number;
-}
+export type { DerivedTiming, TransportDetail } from '../core/types.js';
+import type { TransportDetail } from '../core/types.js';
 
-export type TransportDetail = TransportRecord & {
-  derivedTiming: DerivedTiming;
-  assembledResponse?: AssembledResponse;
-  requestInspection?: RequestInspection;
-};
+/**
+ * True in a build made by `pnpm preview:build`: the UI is reading baked JSON
+ * from a static host, not a proxy on loopback.
+ *
+ * Defined at build time so the flag folds to a constant. Components branch on
+ * it to hide the controls a published page cannot honour — Clear, rename,
+ * delete — rather than offering them and failing at the fetch.
+ */
+export const IS_STATIC_PREVIEW: boolean = import.meta.env.VITE_STATIC_PREVIEW === 'true';
 
 export interface ServerConfig {
   /** The loopback origin Claude Code points ANTHROPIC_BASE_URL at. */
@@ -54,7 +48,7 @@ async function mutate(path: string, method: string, body?: unknown): Promise<voi
   if (!res.ok) throw new Error(`${method} ${path}: ${res.status}`);
 }
 
-export const api = {
+const liveApi = {
   config: () => getJson<ServerConfig>('/api/config'),
   state: () => getJson<StateSnapshot>('/api/state'),
   nodes: (conversationId: string) =>
@@ -71,6 +65,15 @@ export const api = {
   // unchanged data as if the wipe had succeeded.
   clear: () => mutate('/api/clear', 'POST'),
 };
+
+/**
+ * The reads and writes the UI has, whichever source is behind them.
+ *
+ * Chosen once at module load from a build-time constant, so a preview bundle
+ * never carries a path that could reach loopback and a normal build behaves
+ * exactly as before.
+ */
+export const api: typeof liveApi = IS_STATIC_PREVIEW ? previewApi : liveApi;
 
 /**
  * The server publishes a revision number rather than diffs; we refetch on every
@@ -91,6 +94,10 @@ export function subscribeToRevisions({
   onRevision: (rev: number) => void;
   onStatus: (connected: boolean) => void;
 }): () => void {
+  // A static preview has no stream to open. Returning early keeps EventSource
+  // from retrying a URL that will 404 for as long as the page is left open.
+  if (IS_STATIC_PREVIEW) return subscribeToPreviewRevisions({ onRevision, onStatus });
+
   const source = new EventSource('/api/stream');
   source.addEventListener('rev', (event) => {
     onStatus(true);

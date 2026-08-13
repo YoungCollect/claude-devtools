@@ -187,6 +187,24 @@ Development services:
 Server and core edits restart the server; Vite hot-reloads the React UI; stored
 traces survive development restarts.
 
+### Static preview
+
+The UI is also published as a standalone page with a recorded session baked in,
+so it can be read without installing anything. It is the same SPA reading a
+directory of JSON instead of a live proxy — no server, no capture, no network
+access to anything.
+
+```bash
+pnpm preview:seed     # write a synthetic preview/trace-preview.db
+pnpm preview:dev      # serve it at 127.0.0.1:5174/agent-devtools/
+pnpm preview:build    # production bundle into preview/dist/
+```
+
+`.github/workflows/pages.yml` deploys it on every push to `main`. The capture it
+publishes is fabricated by default; recording your own means publishing your own
+prompts, which is why [`preview/README.md`](preview/README.md) covers that
+separately.
+
 Before opening a pull request, run:
 
 ```bash
@@ -218,8 +236,10 @@ src/
   server/
     proxy.ts                non-blocking loopback capture proxy
     api.ts                  local REST/SSE API and production SPA
+    transport-view.ts       record shaping shared by the API and the preview
     persistence.ts          SQLite persistence and retention
   web/                      React trace, network, diff, and inspector UI
+  preview/                  bakes a capture into the static GitHub Pages build
 ```
 
 Anthropic wire formats stop at the adapter boundary. The builder, storage layer,

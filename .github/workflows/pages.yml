@@ -1,0 +1,77 @@
+name: Preview
+
+# Publishes the static UI preview to GitHub Pages.
+#
+# The preview is built from `preview/trace-preview.db`, a capture committed to
+# this repository. Nothing here talks to a proxy or an upstream — the workflow
+# only turns that database into JSON and uploads the result.
+#
+# Before the first run, set Settings → Pages → Source to "GitHub Actions".
+on:
+  push:
+    branches: [main]
+    # The preview only changes when the UI, the capture, or the build does.
+    paths:
+      - 'src/**'
+      - 'preview/trace-preview.db'
+      - 'vite.config.ts'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time, and let a newer commit finish rather than cancelling
+# it: a half-published Pages site is worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.14.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build preview
+        # Project Pages serve from /<repo>/, so the bundle's base path has to
+        # match the repository name rather than being hardcoded.
+        env:
+          PREVIEW_BASE: /${{ github.event.repository.name }}/
+        run: pnpm preview:build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: preview/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # Scoped to this job only: the build above installs dependencies and runs
+    # repository code, and must not hold a token that can publish.
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

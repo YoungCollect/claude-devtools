@@ -3,12 +3,10 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 
-import { redactHeaders } from '../core/redact.js';
-import { assembleStreamResponse, inspectRequest } from '../core/adapters/index.js';
 import type { Store } from '../core/store.js';
-import type { TransportRecord } from '../core/types.js';
 import type { Config } from './config.js';
 import type { Persistence } from './persistence.js';
+import { hydrate, presentRecord } from './transport-view.js';
 
 export interface ApiOptions {
   store: Store;
@@ -181,42 +179,6 @@ export function createApi({
   }
 
   return app;
-}
-
-/**
- * Refills the bodies that were dropped from memory after the exchange finished.
- *
- * Only the Inspector needs them, and only for the one request being viewed —
- * which is exactly why they are not kept resident. A miss means retention has
- * since evicted the request; the metadata still renders.
- */
-function hydrate(record: TransportRecord, persistence: Persistence | undefined): TransportRecord {
-  if (!record.bodiesOffloaded || !persistence) return record;
-  const bodies = persistence.loadBodies(record.id);
-  if (!bodies) return record;
-  return { ...record, ...bodies };
-}
-
-/** Shapes a record for the wire: masked headers plus derived timing. */
-function presentRecord(record: TransportRecord) {
-  const { startedAt, ttfbAt, firstTokenAt, endedAt } = record.timing;
-  return {
-    ...record,
-    assembledResponse: assembleStreamResponse(record),
-    requestInspection: inspectRequest(record),
-    requestHeaders: redactHeaders(record.requestHeaders),
-    responseHeaders: record.responseHeaders
-      ? redactHeaders(record.responseHeaders)
-      : undefined,
-    derivedTiming: {
-      totalMs: endedAt !== undefined ? endedAt - startedAt : undefined,
-      ttfbMs: ttfbAt !== undefined ? ttfbAt - startedAt : undefined,
-      firstTokenMs: firstTokenAt !== undefined ? firstTokenAt - startedAt : undefined,
-      streamMs:
-        endedAt !== undefined && ttfbAt !== undefined ? endedAt - ttfbAt : undefined,
-      frameCount: record.sseFrames.length,
-    },
-  };
 }
 
 const MIME: Record<string, string> = {

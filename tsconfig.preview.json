@@ -1,0 +1,21 @@
+{
+  // The static-preview generator: Node code that reads a trace database and
+  // writes JSON. Kept out of tsconfig.server.json because that project emits
+  // into `dist/` and this tool is never shipped in the published package —
+  // and out of tsconfig.json because it is Node, not browser.
+  //
+  // `src/preview/paths.ts` is the exception: it is isomorphic and the SPA
+  // imports it, so tsconfig.json names that one file explicitly.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["src/preview", "src/server", "src/core"]
+}

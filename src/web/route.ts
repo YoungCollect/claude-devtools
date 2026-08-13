@@ -25,23 +25,42 @@ export interface Route {
 }
 
 /** Anything else — including `/` — means "no conversation picked yet". */
-const CONVERSATION_PREFIX = '/c/';
+const CONVERSATION_PREFIX = 'c/';
 
 /** The default view is left out of the URL, so the common address stays `/c/<id>`. */
 const DEFAULT_VIEW: RouteView = 'trace';
 
-export function readRoute(location: { pathname: string; search: string }): Route {
+/**
+ * The path the app is mounted at, with a leading and trailing slash.
+ *
+ * `/` when the devtools server serves the SPA, and `/<repo>/` for the static
+ * preview on project Pages. Read from Vite's `BASE_URL` rather than passed in,
+ * because it is fixed at build time — but every entry point takes it as a
+ * defaulted argument so the routing rules stay testable under plain Node, where
+ * `import.meta.env` does not exist.
+ */
+export function basePath(): string {
+  const base = import.meta.env?.BASE_URL ?? '/';
+  const withLeading = base.startsWith('/') ? base : `/${base}`;
+  return withLeading.endsWith('/') ? withLeading : `${withLeading}/`;
+}
+
+export function readRoute(
+  location: { pathname: string; search: string },
+  base: string = basePath(),
+): Route {
   const view = new URLSearchParams(location.search).get('view');
-  const conversationId = readConversationId(location.pathname);
+  const conversationId = readConversationId(location.pathname, base);
   return {
     ...(conversationId ? { conversationId } : {}),
     view: view === 'network' ? 'network' : DEFAULT_VIEW,
   };
 }
 
-function readConversationId(pathname: string): string | undefined {
-  if (!pathname.startsWith(CONVERSATION_PREFIX)) return undefined;
-  const raw = pathname.slice(CONVERSATION_PREFIX.length).replace(/\/+$/, '');
+function readConversationId(pathname: string, base: string): string | undefined {
+  const prefix = `${base}${CONVERSATION_PREFIX}`;
+  if (!pathname.startsWith(prefix)) return undefined;
+  const raw = pathname.slice(prefix.length).replace(/\/+$/, '');
   if (!raw) return undefined;
   try {
     return decodeURIComponent(raw) || undefined;
@@ -52,10 +71,13 @@ function readConversationId(pathname: string): string | undefined {
   }
 }
 
-export function routeHref({ conversationId, view }: Route): string {
+export function routeHref(
+  { conversationId, view }: Route,
+  base: string = basePath(),
+): string {
   const path = conversationId
-    ? `${CONVERSATION_PREFIX}${encodeURIComponent(conversationId)}`
-    : '/';
+    ? `${base}${CONVERSATION_PREFIX}${encodeURIComponent(conversationId)}`
+    : base;
   return view === DEFAULT_VIEW ? path : `${path}?view=${encodeURIComponent(view)}`;
 }
 

@@ -381,6 +381,36 @@ test('the selected conversation and view round-trip through the URL', () => {
   assert.equal(readRoute({ pathname: '/settings', search: '' }).conversationId, undefined);
 });
 
+test('routes survive being mounted under a subdirectory', () => {
+  // GitHub project Pages serve the static preview from `/<repo>/`, so every
+  // route the app writes and reads has to carry that prefix. The devtools
+  // server keeps serving from `/`, which is the default everywhere else.
+  const base = '/agent-devtools/';
+
+  assert.equal(routeHref({ conversationId: 'conv_7', view: 'trace' }, base), '/agent-devtools/c/conv_7');
+  assert.equal(
+    routeHref({ conversationId: 'conv_7', view: 'network' }, base),
+    '/agent-devtools/c/conv_7?view=network',
+  );
+  assert.equal(routeHref({ view: 'trace' }, base), '/agent-devtools/');
+
+  assert.deepEqual(
+    readRoute({ pathname: '/agent-devtools/c/conv_7', search: '?view=network' }, base),
+    { conversationId: 'conv_7', view: 'network' },
+  );
+  assert.equal(readRoute({ pathname: '/agent-devtools/', search: '' }, base).conversationId, undefined);
+
+  // The prefix is required, not optional: a bare `/c/<id>` under a based build
+  // is some other application's URL, not a conversation this page can open.
+  assert.equal(readRoute({ pathname: '/c/conv_7', search: '' }, base).conversationId, undefined);
+
+  // And a based address must not resolve against the default mount.
+  assert.equal(
+    readRoute({ pathname: '/agent-devtools/c/conv_7', search: '' }, '/').conversationId,
+    undefined,
+  );
+});
+
 test('the trace is grouped into the HTTP exchanges it was rebuilt from', () => {
   // One captured turn: `r1` carried the prompt up and streamed a tool call
   // back; `r2` carried the result up and streamed the answer back.

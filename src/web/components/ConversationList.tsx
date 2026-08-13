@@ -12,6 +12,12 @@ export interface ConversationListProps {
   onSelect: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
   onRename: (id: string, title: string) => Promise<void>;
+  /**
+   * Hides the per-row actions. Set by the static preview, where the capture is
+   * a published file: offering Rename and Delete there would be offering edits
+   * that cannot be saved anywhere.
+   */
+  readOnly?: boolean;
 }
 
 export function ConversationList({
@@ -20,6 +26,7 @@ export function ConversationList({
   onSelect,
   onDelete,
   onRename,
+  readOnly = false,
 }: ConversationListProps) {
   if (conversations.length === 0) {
     return <Empty>No conversations yet.</Empty>;
@@ -46,6 +53,7 @@ export function ConversationList({
           onSelect={onSelect}
           onDelete={onDelete}
           onRename={onRename}
+          readOnly={readOnly}
         />
       ))}
     </div>
@@ -67,6 +75,7 @@ function Branch({
   onSelect,
   onDelete,
   onRename,
+  readOnly,
 }: {
   conversation: Conversation;
   childrenOf: (id: string) => Conversation[];
@@ -75,6 +84,7 @@ function Branch({
   onSelect: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
   onRename: (id: string, title: string) => Promise<void>;
+  readOnly: boolean;
 }) {
   return (
     <div>
@@ -85,6 +95,7 @@ function Branch({
         onDelete={onDelete}
         onRename={onRename}
         nested={depth > 0}
+        readOnly={readOnly}
       />
       {childrenOf(conversation.id).map((child) => (
         <Branch
@@ -96,6 +107,7 @@ function Branch({
           onSelect={onSelect}
           onDelete={onDelete}
           onRename={onRename}
+          readOnly={readOnly}
         />
       ))}
     </div>
@@ -109,6 +121,7 @@ function Row({
   onDelete,
   onRename,
   nested = false,
+  readOnly = false,
 }: {
   conversation: Conversation;
   selected: boolean;
@@ -116,6 +129,7 @@ function Row({
   onDelete: (id: string) => Promise<void>;
   onRename: (id: string, title: string) => Promise<void>;
   nested?: boolean;
+  readOnly?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -255,7 +269,10 @@ function Row({
           onSelect(conversation.id);
         }}
         className={cx(
-          'w-full border-l-2 py-3 pr-11 pl-4 text-left transition-colors',
+          'w-full border-l-2 py-3 pl-4 text-left transition-colors',
+          // Reserves the actions trigger's corner. Without an actions button
+          // there is nothing to clear, and the title should use the full width.
+          readOnly ? 'pr-4' : 'pr-11',
           nested && 'pl-7',
           selected ? 'border-primary bg-surface-card' : 'border-transparent hover:bg-surface-soft',
         )}
@@ -277,6 +294,7 @@ function Row({
         </div>
       </button>
 
+      {!readOnly && (
       <button
         ref={menuTriggerRef}
         type="button"
@@ -292,8 +310,9 @@ function Row({
       >
         <EllipsisIcon />
       </button>
+      )}
 
-      {menuOpen && (
+      {!readOnly && menuOpen && (
         <div
           role="menu"
           aria-label={`Conversation actions for ${conversation.title}`}
