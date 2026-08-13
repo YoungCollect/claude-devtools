@@ -668,6 +668,62 @@ test('a side call replaying the whole transcript does not mirror the conversatio
   assert.ok(added.every((node) => node.sideCall), 'and it is marked as background activity');
 });
 
+test('a billing header changing mid-session does not split the conversation', () => {
+  // The second reported duplicate. `/loop` schedules a wakeup, and Claude Code
+  // appends `cc_workload=cron;` to the billing header it carries at the top of
+  // the system prompt. Everything else about the session is unchanged, but
+  // identity hashed that line, so the next turn matched nothing and rebuilt its
+  // history as a second trace beside the first.
+  const store = new Store(100);
+  const builder = new TraceBuilder(store);
+  const run = { 'x-claude-code-session-id': 'sess-1' };
+  const agentSystem = 'You are Claude Code, an interactive CLI tool.';
+
+  const request = (id: string, billing: string, messages: unknown[], startedAt: number): TransportRecord => ({
+    id, provider: 'anthropic', kind: 'other', method: 'POST', path: '/v1/messages',
+    url: 'https://api.anthropic.com/v1/messages', requestHeaders: run,
+    requestBody: {
+      max_tokens: 64_000,
+      system: [{ type: 'text', text: billing }, { type: 'text', text: agentSystem }],
+      tools: [{ name: 'Bash' }],
+      messages,
+    },
+    isStream: false, sseFrames: [], timing: { startedAt }, requestBytes: 0, responseBytes: 0,
+  });
+
+  const plain = 'x-anthropic-billing-header: cc_version=2.1.229; cc_entrypoint=cli;';
+  const cron = 'x-anthropic-billing-header: cc_version=2.1.229; cc_entrypoint=cli; cc_workload=cron;';
+
+  const first = request('r1', plain, [{ role: 'user', content: 'say hi every 10s' }], 100);
+  builder.onRequestBody(first);
+
+  const second = request(
+    'r2',
+    cron,
+    [
+      { role: 'user', content: 'say hi every 10s' },
+      { role: 'assistant', content: 'scheduled' },
+      { role: 'user', content: 'hi' },
+    ],
+    200,
+  );
+  builder.onRequestBody(second);
+
+  assert.equal(
+    store.snapshot().conversations.length,
+    1,
+    'the wakeup turn continues the session it was scheduled from',
+  );
+  assert.equal(second.conversationId, first.conversationId);
+
+  // The prompt itself is untouched — only identity looks past the header, so the
+  // Inspector still shows exactly what was sent.
+  const systemNode = store
+    .getNodes(first.conversationId ?? '')
+    .find((node) => node.kind === 'system');
+  assert.ok(systemNode?.text?.includes('x-anthropic-billing-header'), 'the header is still shown');
+});
+
 test('a subagent still gets its own trace despite sharing the session id', () => {
   // The guard on the fix above. A `Task` subagent reuses its parent's run id and
   // differs only by system prompt, so it is told apart the same way the mirrored

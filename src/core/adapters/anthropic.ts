@@ -40,7 +40,7 @@ export const anthropicAdapter: ProviderAdapter = {
       agent: detectAgent(record.requestHeaders),
       model: typeof body?.model === 'string' ? body.model : undefined,
       sessionId: readSessionId(record.requestHeaders),
-      systemFp: fingerprint('system', system),
+      systemFp: fingerprint('system', identitySystem(system)),
       system,
       history: messages.flatMap((message, index) => readMessage(message, index)),
     };
@@ -284,6 +284,29 @@ function detectAgent(headers: Record<string, string>): string {
   if (ua.includes('mastra')) return 'mastra';
   if (ua.includes('anthropic-sdk') || ua.includes('anthropic-ai')) return 'anthropic-sdk';
   return 'unknown';
+}
+
+/**
+ * Claude Code opens its system prompt with a billing header block:
+ *
+ *   `x-anthropic-billing-header: cc_version=…; cc_entrypoint=cli;`
+ *
+ * It is routing metadata that happens to travel inside the prompt, and it is
+ * not stable across a session: scheduling a wakeup with `/loop` appends
+ * `cc_workload=cron;` to it, and nothing else about the agent changes. Because
+ * conversation identity hashes the system prompt, those 18 characters split a
+ * live conversation in two — the follow-up turn matched no known session and
+ * rebuilt its history as a second trace beside the first.
+ *
+ * So identity is taken from the prompt with that line removed. The full text is
+ * still what `system` carries and what the Inspector shows; only the fingerprint
+ * looks away, because only the fingerprint is asking "is this the same agent?".
+ */
+const BILLING_HEADER_LINE = /^x-anthropic-billing-header:.*$/gm;
+
+function identitySystem(system: string | undefined): string | undefined {
+  if (system === undefined) return undefined;
+  return system.replace(BILLING_HEADER_LINE, '');
 }
 
 function readSystem(system: unknown): string | undefined {

@@ -176,6 +176,53 @@ for (const item of parsed.history) {
 - `pnpm typecheck`、`pnpm build`、`pnpm preview:build` 全绿
 - **真实数据重放**:把抓包库的 19 个原始请求喂进修复后的 builder,会话数从 **4 → 3**,`/goal` 的镜像会话消失,主会话完整保留 6 个请求
 
+### 改动三:`systemFp` 归一化 — `anthropic.ts`
+
+**同一症状的第二个独立成因**,前两处改完后复现 `/loop` 才暴露出来:重复依旧,但这次三个请求**都带工具**,分类无关。
+
+```
+conv_28  22:08:52  tools=171  msgs=2  sysLen=29968
+conv_28  22:08:58  tools=173  msgs=5  sysLen=29968
+conv_42  22:09:26  tools=172  msgs=7  sysLen=29986   ← 被拆走
+```
+
+两个 system prompt 逐字符比对,只差 18 个字符,位于提示词最开头的独立一段:
+
+```
+x-anthropic-billing-header: cc_version=2.1.229.645; cc_entrypoint=cli;
+x-anthropic-billing-header: cc_version=2.1.229.645; cc_entrypoint=cli; cc_workload=cron;
+                                                                      ^^^^^^^^^^^^^^^^^^
+```
+
+`/loop` 排了一次 wakeup,Claude Code 就往这个计费头上加了 `cc_workload=cron;`。它是**混在提示词里的路由元数据**,不是 agent 身份的一部分,但 `systemFp` 把整段提示词都哈希了,于是 18 个字符让后续轮次匹配不上任何已知会话,历史被重建成第二条 trace。
+
+注意 `msgs` 是 2 → 5 → 7,历史前缀本来是完美衔接的;但 `sameSession` 是**前置条件**,在前缀比对之前就把候选筛掉了,所以匹配根本没机会发生。
+
+修法:算指纹时剔除该行。
+
+```js
+const BILLING_HEADER_LINE = /^x-anthropic-billing-header:.*$/gm;
+
+function identitySystem(system: string | undefined): string | undefined {
+  if (system === undefined) return undefined;
+  return system.replace(BILLING_HEADER_LINE, '');
+}
+```
+
+`system` 字段本身不动——Inspector 里显示的仍是原样发出去的完整提示词,**只有指纹别过脸去**,因为只有指纹在问"这还是同一个 agent 吗"。
+
+### 验证
+
+- 新增 3 个回归测试 + 改写 1 个既有测试;`pnpm test` **125 项全通过**
+- `pnpm typecheck`、`pnpm build`、`pnpm preview:build` 全绿
+- **真实数据重放**(两个独立抓包库,都把原始请求喂进修复后的 builder):
+
+| 抓包库 | 修复前 | 修复后 | 消除的重复 |
+| --- | --- | --- | --- |
+| `~/.claude-devtools/traces.db`(19 请求) | 4 会话 | **3** | `/goal` 的镜像 |
+| `preview/trace-preview.db`(7 请求) | 3 会话 | **2** | `/loop` 的分裂 |
+
 ### 仍然开放
 
-报告里的第 3、4 点没有动:分类仍是请求阶段的启发式(拿不到响应),`sameSession` 仍用 system prompt 严格相等。目前证据下两者都够用。
+- 报告第 3 点未动:分类仍是请求阶段的启发式(拿不到响应)。
+- 报告第 4 点(`sameSession` 严格相等是否过紧)**得到部分回答**:过紧,但这次是通过归一化掉一个已知的易变字段来解决的,而不是放松比较本身。如果以后发现别的易变内容混在提示词里,更通用的修法是——**当历史前缀强匹配时允许 systemFp 不等**(子代理的首个请求与父会话共同前缀为 0,因此仍会被正确切分)。目前只有计费头一个已知案例,不值得为它引入这个复杂度。
