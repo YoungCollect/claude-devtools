@@ -36,7 +36,7 @@ export const anthropicAdapter: ProviderAdapter = {
 
     return {
       provider: 'anthropic',
-      kind: classify(path, tools.length, messages.length, readSessionId(record.requestHeaders)),
+      kind: classify(path, tools.length, readSessionId(record.requestHeaders)),
       agent: detectAgent(record.requestHeaders),
       model: typeof body?.model === 'string' ? body.model : undefined,
       sessionId: readSessionId(record.requestHeaders),
@@ -232,24 +232,37 @@ export const anthropicAdapter: ProviderAdapter = {
  * single-turn exchange never reached the trace, and a longer one only appeared
  * from its third message on.
  *
- * So the tool-less case is narrowed by the run id. A side call is a request
- * that names a session, declares no tools, and carries a single message — the
- * SDK and Mastra send no run id at all, so their one-shot turns cannot match.
+ * So the tool-less case is narrowed by the run id, and by that alone: a request
+ * that names a Claude Code session and declares no tools is a side call. The
+ * SDK and Mastra send no run id, so their tool-less turns still reach the trace,
+ * which is the whole reason that guard exists.
  *
- * The narrowing used to be a `max_tokens` ceiling instead, on the theory that a
- * side call is given barely any room to answer. It is not: Claude Code's title
- * call asks for the same 64000-token budget as a real turn, so every one of
- * them was read as a conversation and opened its own trace.
+ * Two narrowings were tried on top of the run id and both were wrong about what
+ * a side call looks like:
+ *
+ *   `max_tokens` ceiling — on the theory that a side call is given barely any
+ *   room to answer. It is not: the title call asks for the same 64000-token
+ *   budget as a real turn.
+ *
+ *   `messageCount <= 1` — on the theory that a side call carries a single
+ *   message. It does not: the call that summarises a session replays the entire
+ *   transcript. Because its system prompt differs from the session's, no
+ *   existing conversation matched it, and it opened a second conversation that
+ *   mirrored the first turn for turn. Observed against a real capture, every
+ *   tool-less Claude Code request had a system prompt under 1.8 kB while every
+ *   request bearing tools carried the full ~30 kB one — the two do not overlap,
+ *   and message count separates neither.
+ *
+ * What remains is the original signal, kept honest by the run id: an agent turn
+ * always ships its tools. If a Claude Code turn ever arrives without them it
+ * lands in Background activity rather than the transcript — visible in Network,
+ * demoted in Chat Trace — which is the safer direction to be wrong in than
+ * duplicating a whole conversation.
  */
-function classify(
-  path: string,
-  toolCount: number,
-  messageCount: number,
-  sessionId: string | undefined,
-) {
+function classify(path: string, toolCount: number, sessionId: string | undefined) {
   if (path.includes('count_tokens')) return 'utility' as const;
   if (toolCount > 0) return 'conversation' as const;
-  if (sessionId !== undefined && messageCount <= 1) return 'utility' as const;
+  if (sessionId !== undefined) return 'utility' as const;
   return 'conversation' as const;
 }
 

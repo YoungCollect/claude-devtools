@@ -3,7 +3,7 @@
 - 报告日期:2026-08-13
 - 涉及代码:`src/core/adapters/anthropic.ts`(`classify`、`systemFp`)、`src/core/trace-builder.ts`(`attachToConversation`、`sameSession`)
 - 发现方式:在 Claude Code 中执行 `/goal`、`/loop` 后,会话列表出现重复条目;根因通过查询真实抓包库(`~/.claude-devtools/traces.db`)的会话与请求元数据定位
-- 状态:**未修复**,本报告用于评审修法。建议的改动只有一行,但涉及 trace 重建语义,按 `AGENTS.md` 需配回归测试
+- 状态:**已修复**(2026-08-13)。修复涉及两处而非报告最初预计的一处,详见文末「修复记录」
 - 标准来源:`AGENTS.md`(架构约束)、`README.md`(重建行为承诺)
 
 ## 症状
@@ -120,3 +120,62 @@ function sameSession(state, provider, sessionId, systemFp) {
 ## 约束
 
 `AGENTS.md` 要求:改动 trace 重建行为必须配回归测试。本例的回归用例应为——**一个 tools=0、带全量历史、system prompt 与主会话不同的请求,不得新建会话**,同时保证子代理(Task,同 sessionId 不同 system prompt)仍然被正确切分为独立会话。
+
+---
+
+## 修复记录(2026-08-13)
+
+### 开放问题 1 的结论:`tools === 0` 判据成立
+
+拿真实抓包库(19 个请求)按「有无 sessionId × 有无 tools」分组统计:
+
+| 分组 | 请求数 | msgs 范围 | sysLen 范围 |
+| --- | --- | --- | --- |
+| 有 sessionId / tools=0 | 10 | 1~12 | **2~1781** |
+| 有 sessionId / tools>0 | 9 | 1~12 | **29951~30661** |
+
+两组的 system prompt 长度**完全没有重叠**:没有任何一个无工具请求带着完整提示词。而 `msgs` 在两组里都是 1~12,证实 `messageCount` 毫无区分力。
+
+### 改动一:`classify()` — `anthropic.ts`
+
+`messageCount` 判据整个移除(参数一并删掉):
+
+```js
+function classify(path: string, toolCount: number, sessionId: string | undefined) {
+  if (path.includes('count_tokens')) return 'utility' as const;
+  if (toolCount > 0) return 'conversation' as const;
+  if (sessionId !== undefined) return 'utility' as const;
+  return 'conversation' as const;
+}
+```
+
+查 git 历史发现这条规则经历过三个阶段:最初就是纯按工具集判定,后来因为 **SDK / Mastra 不声明工具会被误藏**(`5af9e5b`)而加了 `max_tokens` 收窄,再后来(`325bfb7`)换成 `sessionId + messageCount`。关键在于:**保护 SDK / Mastra 的是 `sessionId` 守卫,不是 `messageCount`**——它们根本不发 run id。所以移除 `messageCount` 不会让那次修复回退,回归测试里保留了对应断言。
+
+同时改掉了 `tests/runtime.test.ts` 里一条与本修复直接冲突的既有断言(无工具 + 有 run id + 2 条消息 → 曾断言为 `conversation`)。该断言写在 SDK/Mastra 那一段的语境里却传了 run id,与真实抓包证据矛盾;现已改为断言 `utility`,并另立一条不带 run id 的用例来守住 SDK/Mastra 的原意。
+
+### 改动二:`revealSideCall()` — `trace-builder.ts`
+
+**报告最初漏掉的一层。** 分类修好之后不再产生第二条会话,但回归测试立刻暴露:节点数仍从 4 涨到 8。原因是 `revealSideCall` 会把副调用的**每一条历史**都追加为 `sideCall` 节点——这对只有一条消息的标题调用没问题,但摘要调用带的是整段 transcript,于是同样的重复只是从「第二条会话」下沉成了「Background activity 里的重放」。
+
+修法:跳过已经在本会话 transcript 里的块。
+
+```js
+const alreadyInTranscript = new Set(state.fps);
+for (const item of parsed.history) {
+  if (item.kind === 'tool_result' || !item.text) continue;
+  if (alreadyInTranscript.has(item.fp)) continue;
+  ...
+}
+```
+
+副调用现在只贡献它自己带来的东西(它自己的 system prompt)。标题调用的那条消息不在任何 transcript 里,行为不变。
+
+### 验证
+
+- 新增 2 个回归测试 + 改写 1 个既有测试;`pnpm test` 124 项全通过
+- `pnpm typecheck`、`pnpm build`、`pnpm preview:build` 全绿
+- **真实数据重放**:把抓包库的 19 个原始请求喂进修复后的 builder,会话数从 **4 → 3**,`/goal` 的镜像会话消失,主会话完整保留 6 个请求
+
+### 仍然开放
+
+报告里的第 3、4 点没有动:分类仍是请求阶段的启发式(拿不到响应),`sameSession` 仍用 system prompt 严格相等。目前证据下两者都够用。

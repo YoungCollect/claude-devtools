@@ -568,17 +568,140 @@ test('a tool-less request is only utility when it looks like a side call', () =>
   // Code's title call asks for as much room as a real turn.
   assert.equal(kind({ max_tokens: 64_000, messages: [{ role: 'user', content: 'name this' }] }, run), 'utility');
 
-  // A one-shot from a runtime that sends no run id — the SDK, Mastra — must
-  // reach the trace however small its budget.
-  assert.equal(kind({ max_tokens: 512, messages: [{ role: 'user', content: 'hi' }] }), 'conversation');
-  assert.equal(kind({ max_tokens: 4096, messages: [{ role: 'user', content: 'hi' }] }), 'conversation');
-  // So must a second turn, which the old message-count rule also swallowed.
+  // The side call that summarises a session replays the whole transcript, so
+  // message count says nothing about which of the two it is. Reading a long one
+  // as a turn is what opened a second conversation mirroring the first.
+  assert.equal(
+    kind(
+      {
+        max_tokens: 512,
+        messages: Array.from({ length: 12 }, (_, i) => ({
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content: `m${i}`,
+        })),
+      },
+      run,
+    ),
+    'utility',
+  );
   assert.equal(
     kind({ max_tokens: 512, messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }] }, run),
+    'utility',
+  );
+
+  // A runtime that sends no run id — the SDK, Mastra — declares no tools either,
+  // so the run id is the only thing keeping its turns in the trace. However many
+  // messages it carries, and however small its budget.
+  assert.equal(kind({ max_tokens: 512, messages: [{ role: 'user', content: 'hi' }] }), 'conversation');
+  assert.equal(kind({ max_tokens: 4096, messages: [{ role: 'user', content: 'hi' }] }), 'conversation');
+  assert.equal(
+    kind({ max_tokens: 512, messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }] }),
     'conversation',
   );
+
   // Tools are still decisive on their own.
   assert.equal(kind({ max_tokens: 8, tools: [{ name: 'Bash' }], messages: [{ role: 'user', content: 'x' }] }, run), 'conversation');
+});
+
+test('a side call replaying the whole transcript does not mirror the conversation', () => {
+  // The reported bug: `/goal` and `/loop` each left two near-identical traces in
+  // the sidebar. The second was a summarisation call — no tools, its own short
+  // system prompt, and the entire transcript attached. Read as a turn, it matched
+  // no existing conversation (different system prompt, so different identity) and
+  // rebuilt every message into a conversation of its own.
+  const store = new Store(100);
+  const builder = new TraceBuilder(store);
+  const run = { 'x-claude-code-session-id': 'sess-1' };
+
+  const request = (
+    id: string,
+    body: unknown,
+    startedAt: number,
+  ): TransportRecord => ({
+    id, provider: 'anthropic', kind: 'other', method: 'POST', path: '/v1/messages',
+    url: 'https://api.anthropic.com/v1/messages', requestHeaders: run, requestBody: body,
+    isStream: false, sseFrames: [], timing: { startedAt }, requestBytes: 0, responseBytes: 0,
+  });
+
+  const agentSystem = 'You are Claude Code, an interactive CLI tool.';
+  const history = [
+    { role: 'user', content: 'add a retry to the upload client' },
+    { role: 'assistant', content: 'looking at the client now' },
+    { role: 'user', content: 'three attempts is enough' },
+  ];
+
+  const turn = request('turn', {
+    max_tokens: 64_000,
+    system: agentSystem,
+    tools: [{ name: 'Bash' }, { name: 'Edit' }],
+    messages: history,
+  }, 100);
+  builder.onRequestBody(turn);
+  assert.equal(store.snapshot().conversations.length, 1);
+  const conversationId = store.snapshot().conversations[0]?.id ?? '';
+  const nodesAfterTurn = store.getNodes(conversationId).length;
+
+  // Same session, same history, no tools, a different and much shorter system
+  // prompt. Every one of those is what the real capture showed.
+  const summary = request('summary', {
+    max_tokens: 512,
+    system: 'You summarise conversations.',
+    messages: history,
+  }, 140);
+  builder.onRequestBody(summary);
+
+  assert.equal(summary.kind, 'utility');
+  assert.equal(
+    store.snapshot().conversations.length,
+    1,
+    'the side call must not open a second, mirrored conversation',
+  );
+  assert.equal(summary.conversationId, conversationId, 'it belongs to the session it came from');
+
+  // It contributes only what it brought of its own — its system prompt — and
+  // not one echo of the transcript it was handed.
+  const added = store.getNodes(conversationId).slice(nodesAfterTurn);
+  assert.deepEqual(
+    added.map(({ kind, text }) => ({ kind, text })),
+    [{ kind: 'system', text: 'You summarise conversations.' }],
+  );
+  assert.ok(added.every((node) => node.sideCall), 'and it is marked as background activity');
+});
+
+test('a subagent still gets its own trace despite sharing the session id', () => {
+  // The guard on the fix above. A `Task` subagent reuses its parent's run id and
+  // differs only by system prompt, so it is told apart the same way the mirrored
+  // side call was — except a subagent declares tools, and so stays a
+  // conversation. If classification ever collapses that distinction, this fails.
+  const store = new Store(100);
+  const builder = new TraceBuilder(store);
+  const run = { 'x-claude-code-session-id': 'sess-1' };
+
+  const request = (id: string, body: unknown, startedAt: number): TransportRecord => ({
+    id, provider: 'anthropic', kind: 'other', method: 'POST', path: '/v1/messages',
+    url: 'https://api.anthropic.com/v1/messages', requestHeaders: run, requestBody: body,
+    isStream: false, sseFrames: [], timing: { startedAt }, requestBytes: 0, responseBytes: 0,
+  });
+
+  const parent = request('parent', {
+    max_tokens: 64_000,
+    system: 'You are Claude Code, an interactive CLI tool.',
+    tools: [{ name: 'Task' }, { name: 'Bash' }],
+    messages: [{ role: 'user', content: 'review the diff' }],
+  }, 100);
+  builder.onRequestBody(parent);
+
+  const subagent = request('subagent', {
+    max_tokens: 64_000,
+    system: 'You are a code review subagent.',
+    tools: [{ name: 'Read' }, { name: 'Grep' }],
+    messages: [{ role: 'user', content: 'review these files' }],
+  }, 200);
+  builder.onRequestBody(subagent);
+
+  assert.equal(subagent.kind, 'conversation');
+  assert.equal(store.snapshot().conversations.length, 2, 'parent and subagent stay distinct');
+  assert.notEqual(subagent.conversationId, parent.conversationId);
 });
 
 test('a side call joins its session rather than opening a trace of its own', () => {

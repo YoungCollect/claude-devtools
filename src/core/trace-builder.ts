@@ -198,8 +198,16 @@ export class TraceBuilder {
       });
     }
 
+    // Only what this call brought of its own. A side call that summarises the
+    // session attaches the entire transcript, and echoing that back would print
+    // every message a second time under Background activity — the same
+    // duplication the classifier used to produce as a whole second conversation,
+    // moved one layer down. The title call, whose one message appears in no
+    // transcript, is unaffected.
+    const alreadyInTranscript = new Set(state.fps);
     for (const item of parsed.history) {
       if (item.kind === 'tool_result' || !item.text) continue;
+      if (alreadyInTranscript.has(item.fp)) continue;
       this.append({
         conversationId: state.id,
         kind: item.kind,
