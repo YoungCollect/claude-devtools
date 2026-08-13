@@ -30,6 +30,27 @@ function previewBase(env: NodeJS.ProcessEnv): string {
 }
 
 /**
+ * Which devtools server this dev UI talks to.
+ *
+ * Two captures can run side by side — an ordinary `pnpm dev` and a
+ * `pnpm preview:capture` recording into the committed database — and each needs
+ * its own Vite pointing at its own API. Reads the same variable the server binds
+ * from, so one value moves both ends of the connection and they cannot disagree.
+ *
+ * Throws on a malformed value rather than falling back: silently proxying to
+ * the default port would send the recording UI to the *other* capture, which is
+ * exactly the confusion this parameter exists to prevent.
+ */
+function apiPort(env: NodeJS.ProcessEnv): number {
+  const raw = env.CLAUDE_DEVTOOLS_UI_PORT;
+  if (!raw) return 4142;
+  if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > 65_535) {
+    throw new Error(`CLAUDE_DEVTOOLS_UI_PORT must be a port between 1 and 65535, got ${raw}`);
+  }
+  return Number(raw);
+}
+
+/**
  * The two files GitHub Pages needs that a bundler does not produce.
  *
  * `404.html` is the SPA fallback: Pages has no rewrite rules, so a visitor
@@ -109,7 +130,7 @@ export default defineConfig(({ mode }) => {
               // `/api.ts` — this app's own `src/web/api.ts` module — and proxies the
               // frontend's source file to the backend, which never resolves.
               '^/api/': {
-                target: 'http://127.0.0.1:4142',
+                target: `http://127.0.0.1:${apiPort(process.env)}`,
                 changeOrigin: false,
               },
             },

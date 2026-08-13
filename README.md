@@ -193,6 +193,12 @@ Development services:
 Server and core edits restart the server; Vite hot-reloads the React UI; stored
 traces survive development restarts.
 
+`pnpm preview:capture` runs a second capture on its own ports (`4143`, `4144`,
+`5175`) writing to its own database, so it can record a preview session
+alongside an ordinary `pnpm dev` without either one adopting the other's
+traffic. `CLAUDE_DEVTOOLS_PROXY_PORT`, `CLAUDE_DEVTOOLS_UI_PORT`, and
+`CLAUDE_DEVTOOLS_VITE_PORT` move both the server and its Vite together.
+
 ### Static preview
 
 The UI is also published as a standalone page with a recorded session baked in,

@@ -23,12 +23,32 @@ without containing anyone's source code.
 pnpm preview:capture
 ```
 
-That starts the proxy and UI exactly like `pnpm dev`, but writes to
-`preview/trace-preview.db` instead of your normal capture. In another terminal,
-join it and work until the trace shows what you want the preview to show:
+That starts a second, fully separate capture — its own proxy, API, and Vite —
+writing to `preview/trace-preview.db` instead of your normal database:
+
+| | `pnpm dev` | `pnpm preview:capture` |
+| --- | --- | --- |
+| Capture proxy | `4141` | **`4143`** |
+| API / UI | `4142` | **`4144`** |
+| Vite | `5173` | **`5175`** |
+| Database | `~/.claude-devtools/traces.db` | `preview/trace-preview.db` |
+
+Nothing is shared, so both can run at once and neither can quietly record into
+the other's database.
+
+In another terminal, join **this** capture and work until the trace shows what
+you want the preview to show. The port matters: `run` looks for a capture on the
+API port it was given, and the bare command would find the ordinary one.
 
 ```bash
-claude-devtools run
+claude-devtools run --ui-port 4144
+```
+
+Watch it arrive at <http://127.0.0.1:4144>. If the convenience command is
+unavailable, the equivalent manual launch is:
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:4143 claude
 ```
 
 Delete any conversation you would rather not publish from the sidebar before
