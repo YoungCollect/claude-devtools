@@ -4,6 +4,7 @@ import { agentForProvider, BrandMark, useAgent } from '../agent.js';
 import { splitTaggedUserContent } from '../../core/tagged-content.js';
 import { hasXmlStructure } from '../../core/xml-outline.js';
 import { ContentToolbar, type ContentToolbarProps } from './ContentToolbar.js';
+import { ToolResultInputRow } from './ToolResultInputRow.js';
 import {
   ContentViewer,
   diffFormatFor,
@@ -232,6 +233,13 @@ function ExchangeBlock({
       {items.map((item) =>
         item.type === 'turn' ? (
           <TurnRow key={item.key} turn={item} />
+        ) : item.type === 'tool_result_input' ? (
+          <ToolResultInputRow
+            key={item.key}
+            node={item.node}
+            selected={item.node.id === selectedNodeId}
+            onInspect={onInspect}
+          />
         ) : (
           <TraceRow
             key={item.key}

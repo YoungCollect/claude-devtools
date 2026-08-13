@@ -22,7 +22,17 @@ export interface TraceTurn {
   tools: ToolActivity[];
 }
 
-export type TraceItem = { type: 'node'; key: string; node: TraceNode } | TraceTurn;
+/** Request-side projection of a result that is also shown with its originating call. */
+export interface ToolResultInput {
+  type: 'tool_result_input';
+  key: string;
+  node: TraceNode;
+}
+
+export type TraceItem =
+  | { type: 'node'; key: string; node: TraceNode }
+  | ToolResultInput
+  | TraceTurn;
 
 /**
  * Folds a flat node list into the turns a reader thinks in.
@@ -98,6 +108,15 @@ export function groupTrace(nodes: readonly TraceNode[]): TraceItem[] {
         break;
 
       case 'tool_call': {
+        // A captured response is the authoritative occurrence of a call. Older
+        // reconstruction state may also contain the assistant-history replay
+        // from the next request when Claude Code normalized its input before
+        // resending it. Keep that replay available in the Inspector through
+        // its request body, but do not let a second trace node replace the
+        // original activity and steal the result association.
+        const existing = node.toolUseId ? openActivities.get(node.toolUseId) : undefined;
+        if (existing?.call?.producedByRequestId && !node.producedByRequestId) break;
+
         const activity: ToolActivity = { id: node.toolUseId ?? node.id, call: node };
         turnFor(node).tools.push(activity);
         if (node.toolUseId) openActivities.set(node.toolUseId, activity);
@@ -162,7 +181,7 @@ export interface ExchangePhases {
 export function splitExchangePhases(exchange: TraceExchange): ExchangePhases {
   const phases: ExchangePhases = { request: [], response: [] };
   for (const item of exchange.items) {
-    const nodes = item.type === 'node' ? [item.node] : turnNodes(item);
+    const nodes = traceItemNodes(item);
     const producedHere =
       exchange.requestId !== undefined &&
       (item.type === 'turn' && item.requestId === exchange.requestId ||
@@ -213,7 +232,7 @@ export function inspectorTabForPhase(
 
 /** Which request a rendered item came out of. */
 function requestIdFor(item: TraceItem): string | undefined {
-  if (item.type === 'node') {
+  if (item.type === 'node' || item.type === 'tool_result_input') {
     return item.node.producedByRequestId ?? item.node.revealedByRequestId;
   }
   const [first] = turnNodes(item);
@@ -274,7 +293,7 @@ export type TraceSection =
  * point in the timeline.
  */
 export function groupTraceSections(nodes: readonly TraceNode[]): TraceSection[] {
-  const phases = groupByRequest(groupTrace(nodes)).flatMap((exchange) => {
+  const phases: TracePhaseExchange[] = groupByRequest(groupTrace(nodes)).flatMap((exchange) => {
     const itemsByPhase = splitExchangePhases(exchange);
     return (Object.keys(itemsByPhase) as ExchangePhase[]).flatMap((phase) => {
       const items = itemsByPhase[phase];
@@ -283,6 +302,96 @@ export function groupTraceSections(nodes: readonly TraceNode[]): TraceSection[] 
         : [];
     });
   });
+
+  /*
+   * A matched tool result is rendered inside the response turn that issued the
+   * call. That is the readable conversation view, but it must not erase the
+   * next HTTP request that carried the result back to the model. Restore an
+   * request-phase shell for every revealed request whose only visible nodes
+   * were folded into an earlier tool card. Tool results then project into the
+   * shell below, and an adjacent response merges with it into the same compact
+   * complete exchange as an ordinary request/response pair.
+   */
+  const requestPhases = new Map(
+    phases.flatMap((exchange) =>
+      exchange.phase === 'request' && exchange.requestId
+        ? [[exchange.requestId, exchange] as const]
+        : [],
+    ),
+  );
+  const revealedRequestIds = new Set(
+    nodes.flatMap((node) => (node.revealedByRequestId ? [node.revealedByRequestId] : [])),
+  );
+  for (const requestId of revealedRequestIds) {
+    if (requestPhases.has(requestId)) continue;
+    const shell: TracePhaseExchange = {
+      key: `exchange:request-shell:${requestId}`,
+      requestId,
+      phase: 'request',
+      items: [],
+    };
+    phases.push(shell);
+    requestPhases.set(requestId, shell);
+  }
+
+  // A tool result answers two useful questions at once. Its lifecycle belongs
+  // beside the call that launched it, while its transport role belongs in the
+  // next request that sent it back to the model. Project it into that request
+  // without cloning the node or removing it from the originating tool card.
+  for (const node of nodes) {
+    if (node.kind !== 'tool_result' || !node.revealedByRequestId) continue;
+    const request = requestPhases.get(node.revealedByRequestId);
+    if (!request) continue;
+    const alreadyVisible = request.items.some((item) =>
+      traceItemNodes(item).some((candidate) => candidate.id === node.id),
+    );
+    if (alreadyVisible) continue;
+    request.items.push({
+      type: 'tool_result_input',
+      key: `tool-result-input:${node.id}`,
+      node,
+    });
+  }
+
+  // Shells are created after grouping, so put every phase back at the point
+  // where its own request/response nodes first appeared. This also preserves
+  // real concurrent ordering: a late side-call response stays late.
+  const nodeOrder = new Map<string, number>();
+  const firstRevealed = new Map<string, number>();
+  const firstProduced = new Map<string, number>();
+  nodes.forEach((node, index) => {
+    nodeOrder.set(node.id, index);
+    if (node.revealedByRequestId && !firstRevealed.has(node.revealedByRequestId)) {
+      firstRevealed.set(node.revealedByRequestId, index);
+    }
+    if (node.producedByRequestId && !firstProduced.has(node.producedByRequestId)) {
+      firstProduced.set(node.producedByRequestId, index);
+    }
+  });
+  const itemAnchor = (item: TraceItem): number =>
+    Math.min(
+      ...traceItemNodes(item).map(
+        (node) => nodeOrder.get(node.id) ?? Number.MAX_SAFE_INTEGER,
+      ),
+      Number.MAX_SAFE_INTEGER,
+    );
+  for (const phase of phases) phase.items.sort((left, right) => itemAnchor(left) - itemAnchor(right));
+
+  const phaseAnchor = (exchange: TracePhaseExchange): number => {
+    if (exchange.requestId) {
+      const requestOrder =
+        exchange.phase === 'request'
+          ? firstRevealed.get(exchange.requestId)
+          : firstProduced.get(exchange.requestId);
+      if (requestOrder !== undefined) return requestOrder;
+    }
+    const itemNodes = exchange.items.flatMap(traceItemNodes);
+    return Math.min(
+      ...itemNodes.map((node) => nodeOrder.get(node.id) ?? Number.MAX_SAFE_INTEGER),
+      Number.MAX_SAFE_INTEGER,
+    );
+  };
+  phases.sort((left, right) => phaseAnchor(left) - phaseAnchor(right));
 
   const displayExchanges: TracePhaseExchange[] = [];
   for (const exchange of phases) {
@@ -370,10 +479,13 @@ export function formatBackgroundActivitySummary(
 }
 
 function isBackgroundExchange(exchange: TraceExchange): boolean {
-  const nodes = exchange.items.flatMap((item) =>
-    item.type === 'node' ? [item.node] : turnNodes(item),
-  );
+  const nodes = exchange.items.flatMap(traceItemNodes);
   return nodes.length > 0 && nodes.every((node) => node.sideCall === true);
+}
+
+/** Every node carried by a presentation item, including request projections. */
+function traceItemNodes(item: TraceItem): TraceNode[] {
+  return item.type === 'turn' ? turnNodes(item) : [item.node];
 }
 
 /** Every node a turn renders, for selection and drill-down. */

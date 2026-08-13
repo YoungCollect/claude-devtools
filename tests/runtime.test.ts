@@ -867,6 +867,73 @@ test('history-revealed assistant turns borrow the request model and stay untimed
   assert.equal(typeof produced?.durationMs, 'number', 'a watched block is timed');
 });
 
+test('a replayed tool call is matched by tool_use_id when the client normalizes its input', () => {
+  const store = new Store();
+  const builder = new TraceBuilder(store);
+  const first = request('tool_turn');
+
+  builder.onRequestBody(first);
+  first.isStream = true;
+  builder.onStreamFrames(first, [
+    frame('content_block_start', {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'toolu_1', name: 'Bash' },
+    }),
+    frame('content_block_delta', {
+      type: 'content_block_delta',
+      index: 0,
+      delta: {
+        type: 'input_json_delta',
+        partial_json: '{"command":"wrapper command","description":"check"}',
+      },
+    }),
+    frame('content_block_stop', { type: 'content_block_stop', index: 0 }),
+  ]);
+
+  const next = request('tool_result_turn', 'unused', 10);
+  next.requestBody = {
+    model: 'test-model',
+    tools: [{ name: 'Bash' }],
+    messages: [
+      { role: 'user', content: 'hello' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'Bash',
+            // Claude Code may replay a semantically equivalent, normalized
+            // input rather than the exact JSON emitted on the SSE stream.
+            input: { command: 'command', description: 'check' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' },
+        ],
+      },
+    ],
+  };
+  builder.onRequestBody(next);
+
+  assert.equal(next.conversationId, first.conversationId);
+  const nodes = store.getNodes(first.conversationId ?? '');
+  const calls = nodes.filter(
+    (node) => node.kind === 'tool_call' && node.toolUseId === 'toolu_1',
+  );
+  const results = nodes.filter(
+    (node) => node.kind === 'tool_result' && node.toolUseId === 'toolu_1',
+  );
+  assert.equal(calls.length, 1, 'history replay must not duplicate the streamed call');
+  assert.equal(calls[0]?.producedByRequestId, first.id);
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.revealedByRequestId, next.id);
+});
+
 /**
  * A failed turn is still that turn: the UI draws it as an assistant row with a
  * model name, so the error node has to carry one. Unlike history-revealed

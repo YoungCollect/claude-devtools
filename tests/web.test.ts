@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 import { transportForConversation } from '../src/web/transport.js';
 import { feedStatus } from '../src/web/activity.js';
@@ -21,6 +23,7 @@ import { readRoute, routeHref } from '../src/web/route.js';
 import { gitDiffShortcut } from '../src/web/shortcuts.js';
 import { anthropicAdapter } from '../src/core/adapters/anthropic.js';
 import { splitTaggedUserContent } from '../src/core/tagged-content.js';
+import { ToolResultInputRow } from '../src/web/components/ToolResultInputRow.js';
 import type { TraceNode, TraceNodeKind } from '../src/core/types.js';
 
 test('network transport is isolated to the selected conversation', () => {
@@ -184,6 +187,36 @@ test('a turn folds its assistant text, tool calls and their results into one ite
   );
   // Everything the turn renders stays reachable for selection and drill-down.
   assert.deepEqual(turnNodes(first).map((n) => n.id), ['n2', 'n3', 'n5', 'n4', 'n6']);
+});
+
+test('a history-replayed tool call cannot steal the original call result', () => {
+  const items = groupTrace([
+    traceNode('tool_call', {
+      id: 'streamed-call',
+      producedByRequestId: 'r1',
+      toolUseId: 't1',
+      toolName: 'Bash',
+      toolInput: { command: 'wrapper command' },
+    }),
+    traceNode('tool_call', {
+      id: 'history-copy',
+      revealedByRequestId: 'r2',
+      toolUseId: 't1',
+      toolName: 'Bash',
+      toolInput: { command: 'command' },
+    }),
+    traceNode('tool_result', {
+      id: 'result',
+      revealedByRequestId: 'r2',
+      toolUseId: 't1',
+    }),
+  ]);
+
+  const turns = items.filter((item) => item.type === 'turn');
+  assert.equal(turns.length, 1);
+  const activity = turns[0]?.type === 'turn' ? turns[0].tools[0] : undefined;
+  assert.equal(activity?.call?.id, 'streamed-call');
+  assert.equal(activity?.result?.id, 'result');
 });
 
 test('a mid-conversation attach still groups history-revealed turns', () => {
@@ -366,6 +399,84 @@ test('the trace is grouped into the HTTP exchanges it was rebuilt from', () => {
   // the exchange beside it — a boundary there would be invented.
   const orphaned = groupByRequest(groupTrace([traceNode('user', { id: 'u9', text: 'hi' })]));
   assert.deepEqual(orphaned.map((exchange) => exchange.requestId), [undefined]);
+});
+
+test('a request carrying only a tool result keeps its HTTP exchange boundary', () => {
+  const sections = groupTraceSections([
+    traceNode('user', { id: 'prompt', text: 'run it', revealedByRequestId: 'r1' }),
+    traceNode('tool_call', {
+      id: 'call',
+      producedByRequestId: 'r1',
+      toolUseId: 't1',
+      toolName: 'Bash',
+    }),
+    // This is the entire new tail of r2's request history. It is rendered in
+    // r1's tool card, but r2 is still a real POST and must not become a
+    // response-only block merely because its request row is visually folded.
+    traceNode('tool_result', {
+      id: 'result',
+      revealedByRequestId: 'r2',
+      toolUseId: 't1',
+    }),
+    traceNode('thinking', { id: 'thinking', producedByRequestId: 'r2' }),
+    traceNode('tool_call', {
+      id: 'next-call',
+      producedByRequestId: 'r2',
+      toolUseId: 't2',
+      toolName: 'Read',
+    }),
+  ]);
+
+  assert.deepEqual(
+    sections.map((section) =>
+      section.type === 'exchange'
+        ? [section.exchange.requestId, section.exchange.phase]
+        : ['background'],
+    ),
+    [
+      ['r1', 'complete'],
+      ['r2', 'complete'],
+    ],
+  );
+
+  const first = sections[0];
+  assert.equal(first?.type, 'exchange');
+  if (first?.type !== 'exchange') return;
+  const toolTurn = first.exchange.items.find((item) => item.type === 'turn');
+  assert.equal(toolTurn?.type === 'turn' ? toolTurn.tools[0]?.result?.id : undefined, 'result');
+
+  const second = sections[1];
+  assert.equal(second?.type, 'exchange');
+  if (second?.type !== 'exchange') return;
+  assert.deepEqual(
+    second.exchange.items.map((item) => item.type),
+    ['tool_result_input', 'node', 'turn'],
+    'r2 visibly projects the result it sent while r1 keeps the lifecycle card',
+  );
+});
+
+test('only the external-link icon opens a projected tool result', () => {
+  const node = traceNode('tool_result', {
+    id: 'result',
+    revealedByRequestId: 'r2',
+    toolUseId: 't1',
+    toolName: 'Bash',
+    toolResult: 'ok',
+  });
+
+  const html = renderToStaticMarkup(
+    createElement(ToolResultInputRow, {
+      node,
+      selected: false,
+      onInspect: () => {},
+    }),
+  );
+  assert.match(
+    html,
+    /<div data-tool-result-input=""[^>]*>.*?<button[^>]*aria-label="Inspect tool result from Bash"/s,
+    'the result summary is a non-interactive container with a dedicated inspect button',
+  );
+  assert.match(html, /lucide-external-link/, 'the inspect button uses the external-link icon');
 });
 
 test('the chat trace combines only adjacent request and response phases', () => {

@@ -42,7 +42,8 @@ export interface ConversationState {
   provider?: KnownProviderId;
   /** The transcript we believe the agent is holding, as block fingerprints. */
   fps: string[];
-  /** Fingerprints we materialised from a response stream rather than from history. */
+  /** Fingerprints already materialised from a response stream, including
+   * history-normalized aliases for the same provider block identity. */
   producedFps: Set<string>;
   /** The agent runtime's own run id, when it sent one. */
   sessionId?: string;
@@ -356,6 +357,27 @@ export class TraceBuilder {
       const item = history[i];
       if (!item) continue;
       state.fps.push(item.fp);
+
+      // `tool_use_id` is the provider's stable identity for a call. Claude Code
+      // may normalize the input before replaying the assistant block in its
+      // next request (for example, stripping a local wrapper from a command or
+      // adding an explicit default). In that case the content fingerprint no
+      // longer matches the SSE block even though it is the same call. Treat the
+      // replay fingerprint as an alias of the response-produced node so the
+      // call is not duplicated and its result still binds to the original.
+      if (item.kind === 'tool_call' && item.toolUseId) {
+        const producedCall = this.store.findNode(
+          (node) =>
+            node.conversationId === state.id &&
+            node.kind === 'tool_call' &&
+            node.toolUseId === item.toolUseId &&
+            node.producedByRequestId !== undefined,
+        );
+        if (producedCall) {
+          state.producedFps.add(item.fp);
+          continue;
+        }
+      }
 
       // Assistant-side blocks are normally already on the trace, materialised
       // live from the response stream. They only show up here when the proxy

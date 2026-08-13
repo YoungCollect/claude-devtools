@@ -12,7 +12,25 @@ export interface NetworkViewProps {
 
 /** Column heads are the system's uppercase category label, not shadcn's sentence-case default. */
 const HEAD = 'px-3 py-2 text-[12px] font-medium tracking-[1.5px] text-muted-foreground uppercase';
-const NUM = 'px-3 py-2 text-right font-mono text-[12.5px]';
+const NUM = 'px-3 py-2 font-mono text-[12.5px]';
+
+/**
+ * The table is `table-fixed`, so these header widths — not the widest cell in
+ * each column — decide the layout. Auto sizing gave the short metric columns
+ * the leftover space and left `path` and `model` stranded against wide gaps;
+ * fixed shares keep the columns evenly distributed at any window width.
+ */
+const COL = {
+  turn: 'w-[8%]',
+  time: 'w-[12%]',
+  path: 'w-[20%]',
+  status: 'w-[12%]',
+  model: 'w-[15%]',
+  ttfb: 'w-[10%]',
+  total: 'w-[9%]',
+  size: 'w-[9%]',
+  tokens: 'w-[8%]',
+} as const;
 
 /**
  * The selected conversation's request list. Selecting a row opens the same
@@ -73,18 +91,21 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
           <Empty>No requests captured yet.</Empty>
         </div>
       ) : (
-        <Table containerClassName="scroll-surface min-h-0 flex-1 overflow-auto" className="text-[13px]">
+        <Table
+          containerClassName="scroll-surface min-h-0 flex-1 overflow-auto"
+          className="min-w-200 table-fixed text-[13px]"
+        >
           <TableHeader className="sticky top-0 z-10 bg-surface-soft">
             <TableRow className="hover:bg-surface-soft">
-              <TableHead className={HEAD}>time</TableHead>
-              <TableHead className={HEAD}>path</TableHead>
-              <TableHead className={HEAD}>status</TableHead>
-              <TableHead className={HEAD}>model</TableHead>
-              <TableHead className={cx(HEAD, 'text-right')}>ttfb</TableHead>
-              <TableHead className={cx(HEAD, 'text-right')}>total</TableHead>
-              <TableHead className={cx(HEAD, 'text-right')}>size</TableHead>
-              <TableHead className={cx(HEAD, 'text-right')}>tokens</TableHead>
-              <TableHead className={HEAD}>turn</TableHead>
+              <TableHead className={cx(HEAD, COL.turn)}>turn</TableHead>
+              <TableHead className={cx(HEAD, COL.time)}>time</TableHead>
+              <TableHead className={cx(HEAD, COL.path)}>path</TableHead>
+              <TableHead className={cx(HEAD, COL.status)}>status</TableHead>
+              <TableHead className={cx(HEAD, COL.model)}>model</TableHead>
+              <TableHead className={cx(HEAD, COL.ttfb)}>ttfb</TableHead>
+              <TableHead className={cx(HEAD, COL.total)}>total</TableHead>
+              <TableHead className={cx(HEAD, COL.size)}>size</TableHead>
+              <TableHead className={cx(HEAD, COL.tokens)}>tokens</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -100,10 +121,13 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
                   row.kind !== 'conversation' && 'text-muted-soft',
                 )}
               >
+                <TableCell className="px-3 py-2 font-mono text-[12.5px] text-muted-foreground">
+                  {row.turnIndex !== undefined ? `#${row.turnIndex + 1}` : '—'}
+                </TableCell>
                 <TableCell className="px-3 py-2 font-mono text-muted-foreground">
                   {formatClock(row.startedAt)}
                 </TableCell>
-                <TableCell className="max-w-[240px] truncate px-3 py-2">
+                <TableCell className="truncate px-3 py-2">
                   {/*
                     The row's keyboard entry point is a real button in the path
                     cell, not `tabIndex`/`role="button"` on the `<tr>` itself:
@@ -139,7 +163,7 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
                     <StatusBadge tone={row.status >= 400 ? 'error' : 'success'}>{row.status}</StatusBadge>
                   )}
                 </TableCell>
-                <TableCell className="max-w-[160px] truncate px-3 py-2 font-mono text-[12.5px]">
+                <TableCell className="truncate px-3 py-2 font-mono text-[12.5px]">
                   {row.model ?? '—'}
                 </TableCell>
                 <TableCell className={NUM}>{formatMs(row.ttfbMs)}</TableCell>
@@ -151,9 +175,6 @@ export function NetworkView({ transport, selectedId, onSelect }: NetworkViewProp
                   {row.usage
                     ? `${formatTokens(row.usage.inputTokens)}/${formatTokens(row.usage.outputTokens)}`
                     : '—'}
-                </TableCell>
-                <TableCell className="px-3 py-2 font-mono text-[12.5px] text-muted-foreground">
-                  {row.turnIndex !== undefined ? `#${row.turnIndex + 1}` : '—'}
                 </TableCell>
               </TableRow>
             ))}
