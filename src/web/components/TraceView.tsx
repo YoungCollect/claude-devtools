@@ -28,6 +28,7 @@ import {
   type TraceTurn,
 } from '../trace-groups.js';
 import { formatMs, formatTokens, pretty, toolResultText, truncate } from '../format.js';
+import { filterTraceSections } from '../trace-filter.js';
 import { Chevron, cx, Empty, MetaBadge, StatusBadge, TagLabel, type RoleTone } from './ui.js';
 
 /**
@@ -63,6 +64,8 @@ export interface TraceViewProps {
    * the blocks draw either way, just without their summary line.
    */
   transport?: readonly TransportSummary[];
+  /** One-based exchange numbers selected in the header filter. */
+  filterNumbers?: readonly number[];
   selectedNodeId?: string;
   /** The exchange the Inspector is currently open on, whichever view opened it. */
   selectedRequestId?: string;
@@ -84,6 +87,7 @@ export function TraceView({
   nodes,
   provider,
   transport,
+  filterNumbers = [],
   selectedNodeId,
   selectedRequestId,
   onInspect,
@@ -91,14 +95,21 @@ export function TraceView({
 }: TraceViewProps) {
   // Grouping walks the whole list, so it must not re-run per streamed frame.
   // store bumps its revision on every streamed frame.
-  const sections = useMemo(() => groupTraceSections(nodes), [nodes]);
+  const allSections = useMemo(() => groupTraceSections(nodes), [nodes]);
+  const sections = useMemo(
+    () => filterTraceSections(allSections, transport ?? [], filterNumbers),
+    [allSections, transport, filterNumbers],
+  );
   const requestsById = useMemo(
     () => new Map((transport ?? []).map((record) => [record.id, record])),
     [transport],
   );
 
-  if (sections.length === 0) {
+  if (allSections.length === 0) {
     return <Empty>No trace events yet. Point an agent at the proxy and send a message.</Empty>;
+  }
+  if (sections.length === 0) {
+    return <Empty>No exchanges match this filter.</Empty>;
   }
   return (
     <ConversationProvider.Provider value={provider}>

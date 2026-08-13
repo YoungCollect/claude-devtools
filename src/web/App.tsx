@@ -20,6 +20,7 @@ import { ConversationList } from './components/ConversationList.js';
 import { GitDiffDialog } from './components/GitDiffDialog.js';
 import { Inspector } from './components/Inspector.js';
 import { NetworkView } from './components/NetworkView.js';
+import { TraceNumberFilter } from './components/TraceNumberFilter.js';
 import { TraceView } from './components/TraceView.js';
 import {
   cx,
@@ -42,6 +43,7 @@ import { useTheme } from './theme.js';
 import { clearGitDiff, setGitDiffOpen, useGitDiff } from './git-diff.js';
 import { transportForConversation } from './transport.js';
 import { gitDiffShortcut } from './shortcuts.js';
+import { parseTraceFilterNumbers } from './trace-filter.js';
 
 const VIEWS = [
   { id: 'trace', label: 'Chat Trace' },
@@ -174,6 +176,17 @@ function useFollowNewest({
   return { ref, onScroll };
 }
 
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [value, delayMs]);
+
+  return debounced;
+}
+
 export function App() {
   const [config, setConfig] = useState<ServerConfig | undefined>();
   const [snapshot, setSnapshot] = useState<StateSnapshot>({
@@ -192,6 +205,7 @@ export function App() {
     [navigate],
   );
   const [nodes, setNodes] = useState<TraceNode[]>([]);
+  const [traceFilterInput, setTraceFilterInput] = useState('');
   const [selection, setSelection] = useState<Selection | undefined>();
   const [connected, setConnected] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -323,6 +337,13 @@ export function App() {
     setSelection(undefined);
   }, [conversationId]);
 
+  // Exchange numbers belong to one trace. Carrying a query across a
+  // conversation switch would make the next selection appear unexpectedly
+  // empty, so start each conversation unfiltered.
+  useEffect(() => {
+    setTraceFilterInput('');
+  }, [conversationId]);
+
   // Escape closes the narrow-viewport conversation panel, the same way it
   // closes the Inspector drawer and the conversation actions menu.
   useEffect(() => {
@@ -346,6 +367,13 @@ export function App() {
   // What the trace actually renders, so the tab badge and the Network badge
   // mean the same thing.
   const traceItemCount = useMemo(() => groupTraceSections(nodes).length, [nodes]);
+  const debouncedTraceFilterInput = useDebouncedValue(traceFilterInput, 160);
+  const traceFilterNumbers = useMemo(
+    // Clearing is an explicit command and should restore the full trace now;
+    // only non-empty edits need the debounce window.
+    () => parseTraceFilterNumbers(traceFilterInput.trim() ? debouncedTraceFilterInput : ''),
+    [debouncedTraceFilterInput, traceFilterInput],
+  );
 
   const trace = useFollowNewest({
     content: nodes,
@@ -455,7 +483,7 @@ export function App() {
           </nav>
 
           <main className="flex min-w-0 flex-1 flex-col">
-            <div className="flex h-12 shrink-0 items-center border-b border-hairline">
+            <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-hairline pr-3">
               <Tabs
                 tabs={[
                   // Both counts are "rows this view renders". `nodes.length` was
@@ -470,12 +498,9 @@ export function App() {
                 onChange={setView}
                 idPrefix="view"
                 label="Views"
+                className="max-sm:gap-0 max-sm:px-1 max-sm:[&_button]:px-1.5 max-sm:[&_button_span]:hidden"
               />
-              {/* Nothing sits opposite the tabs. The agent name became the
-                  header's logo, and the model now rides on each assistant turn
-                  — where it belongs, since a conversation-level model is only
-                  ever the newest turn's and says nothing about the ones above
-                  it. */}
+              <TraceNumberFilter value={traceFilterInput} onChange={setTraceFilterInput} />
             </div>
 
             <div
@@ -487,16 +512,17 @@ export function App() {
               {view === 'trace' ? (
                 conversation ? (
                   <TraceView
-                  nodes={nodes}
-                  provider={conversation.provider}
-                  transport={conversationTransport}
-                  selectedNodeId={selection?.node?.id}
-                  selectedRequestId={selection?.transportId}
-                  onInspect={inspectNode}
-                  onInspectRequest={(transportId, inspectorTab) =>
-                    setSelection({ transportId, inspectorTab })
-                  }
-                />
+                    nodes={nodes}
+                    provider={conversation.provider}
+                    transport={conversationTransport}
+                    filterNumbers={traceFilterNumbers}
+                    selectedNodeId={selection?.node?.id}
+                    selectedRequestId={selection?.transportId}
+                    onInspect={inspectNode}
+                    onInspectRequest={(transportId, inspectorTab) =>
+                      setSelection({ transportId, inspectorTab })
+                    }
+                  />
                 ) : (
                   <WaitingForTraffic commands={runCommands(config)} />
                 )

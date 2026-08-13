@@ -21,6 +21,12 @@ import {
 } from '../src/web/trace-groups.js';
 import { readRoute, routeHref } from '../src/web/route.js';
 import { gitDiffShortcut } from '../src/web/shortcuts.js';
+import {
+  completeTraceFilterInput,
+  filterTraceSections,
+  formatTraceFilterInput,
+  parseTraceFilterNumbers,
+} from '../src/web/trace-filter.js';
 import { anthropicAdapter } from '../src/core/adapters/anthropic.js';
 import { splitTaggedUserContent } from '../src/core/tagged-content.js';
 import { ToolResultInputRow } from '../src/web/components/ToolResultInputRow.js';
@@ -602,4 +608,54 @@ test('an exchange labels its request and response as separate numbered phases', 
     methodAndPath: true,
     statusAndDuration: true,
   });
+});
+
+test('trace number filters accept flexible separators and remove duplicates', () => {
+  assert.deepEqual(parseTraceFilterNumbers('#2'), [2]);
+  assert.deepEqual(parseTraceFilterNumbers('#11,#2'), [11, 2]);
+  assert.deepEqual(parseTraceFilterNumbers('#3, #4, #5, #3'), [3, 4, 5]);
+  assert.deepEqual(parseTraceFilterNumbers('3 4，#5'), [3, 4, 5]);
+  assert.equal(formatTraceFilterInput('#11,#2'), '#11, #2');
+});
+
+test('trace filter completion starts the next number without a typed comma', () => {
+  assert.equal(completeTraceFilterInput('#11'), '#11, #');
+  assert.equal(completeTraceFilterInput('#11, #'), '#11, #');
+  assert.equal(completeTraceFilterInput(''), '#');
+});
+
+test('trace filtering follows captured order rather than query order', () => {
+  const sections = groupTraceSections([
+    traceNode('user', { id: 'prompt-2', text: 'second', revealedByRequestId: 'r2' }),
+    traceNode('assistant', { id: 'answer-2', text: 'two', producedByRequestId: 'r2' }),
+    traceNode('user', { id: 'prompt-11', text: 'eleventh', revealedByRequestId: 'r11' }),
+    traceNode('assistant', { id: 'answer-11', text: 'eleven', producedByRequestId: 'r11' }),
+  ]);
+  const transport = [
+    {
+      id: 'r2', provider: 'anthropic' as const, kind: 'conversation' as const, method: 'POST',
+      path: '/v1/messages', status: 200, isStream: false, startedAt: 1, durationMs: 10,
+      requestBytes: 1, responseBytes: 1, conversationId: 'c1', turnIndex: 1,
+    },
+    {
+      id: 'r11', provider: 'anthropic' as const, kind: 'conversation' as const, method: 'POST',
+      path: '/v1/messages', status: 200, isStream: false, startedAt: 2, durationMs: 10,
+      requestBytes: 1, responseBytes: 1, conversationId: 'c1', turnIndex: 10,
+    },
+  ];
+
+  const filtered = filterTraceSections(
+    sections,
+    transport,
+    parseTraceFilterNumbers('#11, #2'),
+  );
+
+  assert.deepEqual(
+    filtered.flatMap((section) =>
+      section.type === 'exchange'
+        ? [section.exchange.requestId]
+        : section.exchanges.map((exchange) => exchange.requestId),
+    ),
+    ['r2', 'r11'],
+  );
 });
