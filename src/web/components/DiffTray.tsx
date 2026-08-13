@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import { Maximize2, PanelLeft, PanelRight, X } from 'lucide-react';
 
 import {
@@ -8,6 +8,7 @@ import {
   type GitDiffSide,
   type GitDiffSource,
 } from '../git-diff.js';
+import { warmDiffRenderer } from '../diff-renderer.js';
 import { greekLines } from '../greeking.js';
 import { cx } from './ui.js';
 
@@ -35,10 +36,26 @@ const PANE_BODY = 'h-[84px]';
  */
 export function DiffTray() {
   const diff = useGitDiff();
+  const pending = diff.left !== undefined || diff.right !== undefined;
+
+  /*
+    The tray's own reason for existing is also the best moment to fetch the diff
+    renderer: a source is chosen, and the user is now off looking for the one to
+    compare it against. That gap is seconds at best and minutes often — far more
+    than the megabyte of renderer, wasm highlighter and Shiki grammars needs,
+    and all of it time in which nothing else is loading. Left until the dialog
+    opens, the same fetches land squarely on the critical path, after an
+    animation that was already holding them up.
+
+    Idempotent, so the dependency only decides *when* rather than how often.
+  */
+  useEffect(() => {
+    if (pending) warmDiffRenderer();
+  }, [pending]);
 
   // Nothing selected is nothing to remember. Open, and the dialog is showing
   // both sources in full a few hundred pixels away.
-  if (diff.open || (diff.left === undefined && diff.right === undefined)) return null;
+  if (diff.open || !pending) return null;
 
   const ready = diff.left !== undefined && diff.right !== undefined;
 
@@ -92,7 +109,7 @@ export function DiffTray() {
         */}
         <TrayIconButton
           label={ready ? 'Open the diff' : 'Open the diff — one side still to choose'}
-          onClick={() => setGitDiffOpen(true)}
+          onClick={() => setGitDiffOpen(true, 'tray')}
           tone={ready ? 'primary' : 'muted'}
           className="ml-auto size-5"
         >

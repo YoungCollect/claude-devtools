@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Columns2, RotateCcw, X } from 'lucide-react';
 
 import type { Theme } from '../theme.js';
@@ -10,7 +10,9 @@ import {
   type GitDiffSource,
   type GitDiffSide,
 } from '../git-diff.js';
+import { MultiFileDiff, prerenderDiff, warmDiffRenderer } from '../diff-renderer.js';
 import { Button } from './ui/button.js';
+import { cx } from './ui.js';
 import {
   Dialog,
   DialogContent,
@@ -18,11 +20,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog.js';
-
-const LazyMultiFileDiff = lazy(async () => {
-  const module = await import('@pierre/diffs/react');
-  return { default: module.MultiFileDiff };
-});
 
 interface DiffOptions {
   diffStyle: 'split';
@@ -71,7 +68,17 @@ export function GitDiffDialog({ theme }: { theme: Theme }) {
       }}
       onOpenChangeComplete={setDialogReady}
     >
-      <DialogContent className="flex h-[min(90vh,960px)] w-[min(96vw,1600px)] max-w-none flex-col gap-0 overflow-hidden bg-canvas p-0 text-body sm:max-w-none">
+      {/*
+        Opened from the tray, the dialog grows out of the corner the tray was
+        docked in — see `.diff-dialog-from-tray`. Every other route keeps the
+        default centred zoom.
+      */}
+      <DialogContent
+        className={cx(
+          'flex h-[min(90vh,960px)] w-[min(96vw,1600px)] max-w-none flex-col gap-0 overflow-hidden bg-canvas p-0 text-body sm:max-w-none',
+          diff.origin === 'tray' && 'diff-dialog-from-tray',
+        )}
+      >
         <DialogHeader className="shrink-0 gap-1 border-b border-hairline px-5 py-4 pr-12">
           <div className="flex items-center gap-2">
             <Columns2 className="size-4 text-primary" aria-hidden />
@@ -143,14 +150,18 @@ function PreparedDiff({
   useEffect(() => {
     let cancelled = false;
     setPrepared({ key: renderKey, status: 'loading' });
-    void import('@pierre/diffs/ssr')
-      .then(({ preloadMultiFileDiff }) =>
-        preloadMultiFileDiff({
-          oldFile: files.oldFile,
-          newFile: files.newFile,
-          options,
-        }),
-      )
+    // Both halves of the renderer start loading here, together. `MultiFileDiff`
+    // is only referenced once the prerender resolves, so left to itself its
+    // chunk could not begin fetching until the prerender was finished — two
+    // module loads and a highlight pass, strictly one after another. The
+    // warm-up is idempotent, so this costs nothing when the tray already ran it
+    // while the second source was being chosen.
+    warmDiffRenderer();
+    void prerenderDiff({
+      oldFile: files.oldFile,
+      newFile: files.newFile,
+      options,
+    })
       .then(
         ({ prerenderedHTML }) => {
           if (!cancelled) setPrepared({ key: renderKey, status: 'ready', html: prerenderedHTML });
@@ -173,7 +184,7 @@ function PreparedDiff({
 
   return (
     <Suspense fallback={<DiffEmptyState text="Preparing diff…" />}>
-      <LazyMultiFileDiff
+      <MultiFileDiff
         key={renderKey}
         oldFile={files.oldFile}
         newFile={files.newFile}

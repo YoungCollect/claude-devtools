@@ -557,6 +557,70 @@ button:not(:disabled),
   transform-origin: bottom left;
 }
 
+/* The diff dialog growing out of the tray that opened it.
+
+   Only for that one entry point. The tray is a 224px model of this dialog
+   parked in the bottom-left corner, and its `Maximize2` promises that the small
+   thing becomes the big one; scaling from the dialog's own bottom-left corner
+   keeps that promise literally, because on a centred dialog that corner lands
+   inside the tray it just replaced. Opened from the header button or the `G D`
+   chord there is no such corner to come from — those keep the default centred
+   zoom, which claims nothing about where the dialog came from.
+
+   Three numbers carry the growth, and the curve matters more than the size.
+   An extreme ease-out (`0.16, 1, 0.3, 1`, which the tray's own dock uses)
+   spends most of its distance in the first fifth of its duration, so the motion
+   is over in ~40ms and reads as a pop rather than as an expansion. This is a
+   gentler deceleration over a longer window, and the panel starts at roughly a
+   third of its size — near enough to the tray's real 224px share of a 1600px
+   dialog to be believed as the same object, without the near-zero start that
+   would make a full-screen surface feel like it was fired out of a cannon.
+
+   Opacity finishes at 30% rather than tracking the scale. Fading across the
+   whole animation would hide the growth inside a panel that is barely visible
+   while it is moving most — the part worth seeing would be the part you cannot
+   see.
+
+   The duration is not free. `GitDiffDialog` gates the whole renderer behind
+   `onOpenChangeComplete`, which fires when this animation ends, and the module
+   loads and the highlight pass only start from there — so every millisecond
+   here is a millisecond added before the diff appears, not one spent beside
+   it. Lengthen this only alongside work that moves that loading earlier. */
+
+/* Unlayered on purpose. Tailwind's utilities live in `@layer utilities`, and
+   unlayered rules beat layered ones whatever the specificity, so this replaces
+   `animate-in`/`zoom-in-95` without an `!important` or a selector war. Base UI
+   reads whatever animation ends up computed, so the exit still finishes before
+   the popup unmounts. */
+@keyframes diff-dialog-grow {
+  from {
+    opacity: 0;
+    transform: scale(0.34);
+  }
+  30% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.diff-dialog-from-tray {
+  transform-origin: bottom left;
+}
+
+.diff-dialog-from-tray[data-open] {
+  animation: diff-dialog-grow 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* The exit retraces the entrance rather than playing its own shape — a panel
+   that grew from the corner and then vanished centred reads as two objects.
+   Faster than the entrance: arriving is worth watching, leaving is not. */
+.diff-dialog-from-tray[data-closed] {
+  animation: diff-dialog-grow 220ms cubic-bezier(0.22, 0.61, 0.36, 1) reverse;
+}
+
 /* Respected globally: every transition and animation in this file and in the
    Tailwind utilities it composes with collapses to instant when the user has
    asked the OS for reduced motion (P2-01). */

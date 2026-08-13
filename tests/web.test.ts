@@ -22,7 +22,7 @@ import {
 import { readRoute, routeHref } from '../src/web/route.js';
 import { gitDiffShortcut } from '../src/web/shortcuts.js';
 import { greekLines } from '../src/web/greeking.js';
-import { clearGitDiff, toggleGitDiffSource } from '../src/web/git-diff.js';
+import { clearGitDiff, setGitDiffOpen, toggleGitDiffSource, useGitDiff } from '../src/web/git-diff.js';
 import { DiffTray } from '../src/web/components/DiffTray.js';
 import {
   completeTraceFilterInput,
@@ -728,4 +728,21 @@ test('the diff tray shows a chosen side beside a slot still waiting', () => {
 test('the diff tray stays out of the way when there is nothing pending', () => {
   clearGitDiff();
   assert.equal(renderToStaticMarkup(createElement(DiffTray)), '');
+});
+
+test('closing the diff keeps the origin its entrance used', () => {
+  const Probe = () => createElement('i', null, useGitDiff().origin);
+  const origin = () => renderToStaticMarkup(createElement(Probe)).replace(/<\/?i>/g, '');
+
+  setGitDiffOpen(true, 'tray');
+  assert.equal(origin(), 'tray');
+  // The exit retraces the entrance. Reset it on close and a dialog that grew
+  // out of the tray's corner would collapse into the middle of the screen.
+  setGitDiffOpen(false);
+  assert.equal(origin(), 'tray');
+
+  // Every other route has no corner to come from and must not inherit one.
+  setGitDiffOpen(true);
+  assert.equal(origin(), 'elsewhere');
+  setGitDiffOpen(false);
 });
