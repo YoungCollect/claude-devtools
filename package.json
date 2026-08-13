@@ -1,6 +1,6 @@
 {
   "name": "@oneyoung/claude-devtools",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Local observability proxy for Claude Code with Chat Trace and HTTP/SSE drill-down.",
