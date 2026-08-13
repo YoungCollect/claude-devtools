@@ -52,6 +52,7 @@
     "changeset": "changeset",
     "release": "changeset publish",
     "prepack": "pnpm build",
+    "preview": "node bin/claude-devtools.js run --ui-port 4144",
     "start": "node bin/claude-devtools.js",
     "test": "node --disable-warning=ExperimentalWarning --import tsx --test tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.preview.json"

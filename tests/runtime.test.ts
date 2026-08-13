@@ -662,6 +662,83 @@ test('a side call joins its session rather than opening a trace of its own', () 
   assert.equal(next.conversationId, conversationId);
 });
 
+test('a full-history tool-less Claude Code side call does not duplicate its conversation', () => {
+  const store = new Store(100);
+  const builder = new TraceBuilder(store);
+  const headers = {
+    'user-agent': 'claude-cli/test',
+    'x-claude-code-session-id': 'sess-full-history',
+  };
+  const history = [
+    { role: 'user', content: 'inspect the repository' },
+    { role: 'assistant', content: 'I will inspect it.' },
+    { role: 'user', content: 'continue' },
+  ];
+  const send = (id: string, body: unknown, startedAt: number): TransportRecord => {
+    const record = request(id, '', startedAt);
+    record.requestHeaders = headers;
+    record.requestBody = body;
+    builder.onRequestBody(record);
+    return record;
+  };
+
+  const turn = send(
+    'full_history_turn',
+    {
+      model: 'test-model',
+      system: 'You are Claude Code with the full runtime prompt.',
+      tools: [{ name: 'Bash' }, { name: 'Task' }],
+      messages: history,
+    },
+    100,
+  );
+  const side = send(
+    'full_history_side',
+    {
+      model: 'test-model',
+      system: 'Summarize the transcript for a slash command.',
+      tools: [],
+      messages: history,
+    },
+    101,
+  );
+
+  assert.equal(side.kind, 'utility');
+  assert.equal(side.conversationId, turn.conversationId);
+  assert.equal(store.snapshot().conversations.length, 1, 'the replayed history must not open a mirror');
+
+  const nodes = store.getNodes(turn.conversationId ?? '');
+  assert.equal(nodes.filter((node) => !node.sideCall && node.kind === 'user').length, 2);
+  assert.ok(nodes.some((node) => node.sideCall && node.revealedByRequestId === side.id));
+});
+
+test('a Task subagent sharing the parent run id keeps its own conversation', () => {
+  const store = new Store(100);
+  const builder = new TraceBuilder(store);
+  const headers = {
+    'user-agent': 'claude-cli/test',
+    'x-claude-code-session-id': 'sess-parent-and-task',
+  };
+  const send = (id: string, system: string, message: string): TransportRecord => {
+    const record = request(id, '', 100);
+    record.requestHeaders = headers;
+    record.requestBody = {
+      model: 'test-model',
+      system,
+      tools: [{ name: 'Bash' }, { name: 'Task' }],
+      messages: [{ role: 'user', content: message }],
+    };
+    builder.onRequestBody(record);
+    return record;
+  };
+
+  const parent = send('task_parent', 'You are the parent Claude Code agent.', 'delegate this');
+  const subagent = send('task_child', 'You are the dedicated Task subagent.', 'do the delegated work');
+
+  assert.notEqual(subagent.conversationId, parent.conversationId);
+  assert.equal(store.snapshot().conversations.length, 2);
+});
+
 test('an attachment is fingerprinted without hashing its payload', () => {
   const image = (data: string) => ({
     role: 'user',
