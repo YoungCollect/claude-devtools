@@ -17,3 +17,6 @@ preview/dist/
 # these two files must never follow it in.
 *.db-wal
 *.db-shm
+
+.claude
+.agents
