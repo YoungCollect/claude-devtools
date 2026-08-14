@@ -5,9 +5,13 @@
  * only replaces the manual `pnpm changeset` prompt by deriving one changeset
  * per releasable commit since the last release tag.
  *
+ * The release workflow runs this on every push to `main`, so the generated
+ * `.changeset/auto-<sha>.md` files are gitignored scratch output; `--dry-run` is
+ * the normal local invocation.
+ *
  * Usage:
- *   pnpm changeset:auto              # write .changeset/auto-<sha>.md files
  *   pnpm changeset:auto --dry-run    # print what would be written
+ *   pnpm changeset:auto              # write .changeset/auto-<sha>.md files
  *   pnpm changeset:auto --all        # also include docs/chore/test/... commits
  *   CHANGESET_BASE=v0.1.0 pnpm changeset:auto
  */
@@ -185,18 +189,16 @@ function main(): void {
   let written = 0;
   for (const entry of entries) {
     const file = join(changesetDir, `auto-${entry.commit.shortSha}.md`);
-    const contents = render(name, entry);
+    const exists = existsSync(file);
+    const note = exists ? " (changeset already exists)" : "";
 
-    if (existsSync(file)) {
-      console.log(`  skip  ${entry.commit.shortSha} (changeset already exists)`);
-      continue;
-    }
+    console.log(
+      `  ${entry.bump.padEnd(5)} ${entry.commit.shortSha} ${entry.commit.subject}${note}`,
+    );
 
-    console.log(`  ${entry.bump.padEnd(5)} ${entry.commit.shortSha} ${entry.commit.subject}`);
-    if (!dryRun) {
-      writeFileSync(file, contents, { encoding: "utf8", mode: 0o644 });
-      written += 1;
-    }
+    if (dryRun || exists) continue;
+    writeFileSync(file, render(name, entry), { encoding: "utf8", mode: 0o644 });
+    written += 1;
   }
 
   console.log(dryRun ? "Dry run — nothing written." : `Wrote ${written} changeset file(s).`);

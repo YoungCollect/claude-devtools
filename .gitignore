@@ -18,5 +18,11 @@ preview/dist/
 *.db-wal
 *.db-shm
 
+# Written by `pnpm changeset:auto` from commit subjects. The release workflow
+# regenerates them on every push to `main`, so a local copy is scratch output —
+# committing one would only make the generator skip that commit in CI.
+# Hand-written changesets from `pnpm changeset` use random names and are tracked.
+.changeset/auto-*.md
+
 .claude
 .agents

@@ -46,9 +46,13 @@ package users. Preview what the next release would contain:
 
 ```bash
 pnpm changeset:auto --dry-run   # classify commits since the last release
-pnpm changeset:auto             # write .changeset/auto-<sha>.md locally
 pnpm changeset:auto --all       # also include docs/chore/test/ci/build/style
 ```
+
+`--dry-run` is the normal local invocation. Without it the generator writes one
+`.changeset/auto-<short-sha>.md` per releasable commit; those files are
+gitignored scratch output, because the release workflow regenerates them on
+every push to `main`. Remove them with `rm .changeset/auto-*.md`.
 
 Hand-written changesets still work and are merged with the generated ones. Use
 `pnpm changeset` when the changelog needs wording the commit subject cannot

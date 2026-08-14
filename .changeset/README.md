@@ -22,6 +22,9 @@ pnpm changeset
 
 Hand-written and generated changesets are combined by the automated release pull
 request. Do not edit the version in `package.json` or `CHANGELOG.md` by hand.
-Generated files are named `auto-<short-sha>.md`.
+
+Generated files are named `auto-<short-sha>.md` and are gitignored: the release
+workflow regenerates them on every push to `main`, so a local copy is scratch
+output. Delete them with `rm .changeset/auto-*.md` whenever they are in the way.
 
 See [`docs/releasing.md`](../docs/releasing.md) for the full lifecycle.
