@@ -9,6 +9,7 @@ import { TraceBuilder } from '../core/trace-builder.js';
 import { createApi } from './api.js';
 import { parseArgs, USAGE } from './cli.js';
 import { loadConfig } from './config.js';
+import { openInBrowser, shouldOpenUi } from './open-browser.js';
 import { Persistence } from './persistence.js';
 import { createProxy } from './proxy.js';
 import { findRunningCapture, launchClient, type Launched } from './run-client.js';
@@ -58,8 +59,13 @@ const config = orExit(() => loadConfig(argv));
 if (cli.runClient) {
   const existing = await findRunningCapture(config.uiPort);
   if (existing) {
+    // No browser here on purpose: the capture being joined opened one already,
+    // and every session lands in that same UI, so a second `run` would only add
+    // a duplicate tab of a page that is already live. The URL is printed
+    // instead, for the case where that tab was since closed.
     console.log(
       `\n  claude-devtools  ·  joining the capture already on ${existing.proxyUrl}\n` +
+        `  ui        http://${config.host}:${config.uiPort}\n` +
         `  starting ${cli.runClient.label}\n`,
     );
     const attached = launchClient({
@@ -134,6 +140,8 @@ const webRoot = devMode
 const proxyUrl = `http://${config.host}:${config.proxyPort}`;
 const apiUrl = `http://${config.host}:${config.uiPort}`;
 const viteUrl = `http://${config.host}:${config.vitePort}`;
+/** Where a human reads the trace: Vite owns the page in dev, the API serves it otherwise. */
+const uiUrl = devMode ? viteUrl : apiUrl;
 
 /**
  * The banner waits for both listeners.
@@ -152,6 +160,20 @@ const announceWhenReady = () => {
   console.log(banner());
   if (!cli.runClient) return;
 
+  // Before the client, not after: this is the last thing written to this
+  // terminal, and handing it over to Claude Code while a browser is still being
+  // spawned would interleave an opener failure with the client's first frame.
+  if (
+    shouldOpenUi({
+      requested: cli.open !== false,
+      uiIsServed: devMode || webRoot !== undefined,
+      env: process.env,
+      platform: process.platform,
+    })
+  ) {
+    openInBrowser(uiUrl);
+  }
+
   // Started only once both ports are bound: a client that came up first would
   // send its opening request to a proxy that was not listening yet.
   launched = launchClient({
@@ -166,7 +188,7 @@ const announceWhenReady = () => {
     if (result.failedToStart) return;
     console.log(
       `\n  ${cli.runClient?.label} exited. The capture is still running:\n` +
-        `  ui        ${devMode ? viteUrl : apiUrl}\n` +
+        `  ui        ${uiUrl}\n` +
         '  Ctrl-C to stop.\n',
     );
   });

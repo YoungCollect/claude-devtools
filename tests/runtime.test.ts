@@ -18,6 +18,7 @@ import { CLAUDE_CODE, manualRunCommand, runCommand } from '../src/core/clients.j
 import { createApi } from '../src/server/api.js';
 import { parseArgs } from '../src/server/cli.js';
 import { loadConfig } from '../src/server/config.js';
+import { openCommand, shouldOpenUi } from '../src/server/open-browser.js';
 import { Persistence } from '../src/server/persistence.js';
 import { createProxy, serverPort } from '../src/server/proxy.js';
 import { CaptureRuntime } from '../src/server/runtime.js';
@@ -1385,6 +1386,41 @@ test('the Claude-only command line configures one upstream and launches Claude C
   );
   assert.equal(runCommand(), 'claude-devtools run');
   assert.equal(runCommand(4998), 'claude-devtools run --ui-port 4998');
+});
+
+test('run opens the trace UI, and only where a browser can show one', () => {
+  // Default on for `run`; the flag is the only way to turn it off.
+  assert.equal(parseArgs(['run']).open, undefined);
+  assert.equal(parseArgs(['run', '--no-open']).open, false);
+  assert.equal(parseArgs(['run', '--no-open', '--', '--model', 'sonnet']).open, false);
+
+  const base = { requested: true, uiIsServed: true, env: {}, platform: 'darwin' as const };
+  assert.equal(shouldOpenUi(base), true);
+  assert.equal(shouldOpenUi({ ...base, requested: false }), false);
+
+  // Without a built bundle the UI port answers with JSON, so there is no page
+  // to show and opening one would look like a bug.
+  assert.equal(shouldOpenUi({ ...base, uiIsServed: false }), false);
+
+  // Headless environments: nothing to draw on, and the opener either fails or
+  // blocks. Linux needs a display server; CI never wants a window at all.
+  assert.equal(shouldOpenUi({ ...base, env: { CI: '1' } }), false);
+  assert.equal(shouldOpenUi({ ...base, platform: 'linux' }), false);
+  assert.equal(shouldOpenUi({ ...base, platform: 'linux', env: { DISPLAY: ':0' } }), true);
+  assert.equal(
+    shouldOpenUi({ ...base, platform: 'linux', env: { WAYLAND_DISPLAY: 'wayland-0' } }),
+    true,
+  );
+  // A missing display server is a Linux concept; macOS has no DISPLAY to check.
+  assert.equal(shouldOpenUi({ ...base, platform: 'win32' }), true);
+
+  const url = 'http://127.0.0.1:4142';
+  // macOS opens in the background: Claude Code owns this terminal for the rest
+  // of the session, so the tab must not take focus away from it.
+  assert.deepEqual(openCommand(url, 'darwin'), { bin: 'open', args: ['-g', url] });
+  // The empty argument is `start`'s window title; without it the URL is eaten.
+  assert.deepEqual(openCommand(url, 'win32'), { bin: 'cmd', args: ['/c', 'start', '', url] });
+  assert.deepEqual(openCommand(url, 'linux'), { bin: 'xdg-open', args: [url] });
 });
 
 test('the Claude-only command line rejects legacy provider selection', () => {

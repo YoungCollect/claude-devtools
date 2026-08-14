@@ -73,9 +73,11 @@ npm install --global @oneyoung/claude-devtools
 claude-devtools run
 ```
 
-`run` starts the local capture, opens a Claude Code process with
-`ANTHROPIC_BASE_URL` already configured, and leaves the trace UI available at
-<http://127.0.0.1:4142>. Arguments after `--` pass to Claude Code unchanged:
+`run` starts the local capture, opens the trace UI at <http://127.0.0.1:4142> in
+your browser, and starts a Claude Code process with `ANTHROPIC_BASE_URL` already
+configured. On macOS the tab opens in the background so Claude Code keeps the
+foreground; pass `--no-open` to skip the browser entirely. Arguments after `--`
+pass to Claude Code unchanged:
 
 ```bash
 claude-devtools run -- --model claude-sonnet-4-5
@@ -99,7 +101,8 @@ claude-devtools run
 ```
 
 If a capture is already running, another `claude-devtools run` joins it instead
-of opening a competing SQLite writer.
+of opening a competing SQLite writer. A joining `run` does not open a browser:
+every session lands in the UI the first capture already opened.
 
 If the convenience command is unavailable, the equivalent manual launch is:
 
@@ -124,6 +127,7 @@ claude-devtools run [options] [-- <claude args>]
 | `--max-bytes <n>` | Stored body retention budget | `1 GiB` |
 | `--max-requests <n>` | In-memory transport index limit | `5000` |
 | `--no-persist` | Keep traces in memory only | off |
+| `--no-open` | Do not open the trace UI in a browser (`run` only) | off |
 | `--dev` | Redirect the UI to Vite | off |
 | `-h`, `--help` | Print usage | — |
 | `-v`, `--version` | Print the package version | — |

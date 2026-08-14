@@ -10,6 +10,8 @@ export interface CliOptions {
   runClient?: ClaudeClientProfile;
   /** Everything after `--`, handed to Claude Code unchanged. */
   runArgs?: string[];
+  /** False when `run` should leave the trace UI closed. Only `run` opens one. */
+  open?: boolean;
   proxyPort?: number;
   uiPort?: number;
   /** Anthropic-compatible upstream receiving all proxied traffic. */
@@ -35,6 +37,7 @@ Options
   --max-bytes <n>          Stored body bytes kept before the oldest are dropped
   --max-requests <n>       In-memory request index size
   --no-persist             Keep everything in memory; traces are lost on restart
+  --no-open                Do not open the trace UI in a browser (\`run\` only)
   --dev                    Serve the UI from the Vite dev server
   -h, --help               Print this and exit
   -v, --version            Print the version and exit
@@ -137,6 +140,9 @@ export function parseArgs(input: readonly string[]): CliOptions {
         break;
       case '--no-persist':
         options.persist = false;
+        break;
+      case '--no-open':
+        options.open = false;
         break;
       case '--proxy-url':
         options.proxyPort = Number(readLoopbackUrl(flag, take()).port);
