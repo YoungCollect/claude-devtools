@@ -70,7 +70,8 @@ carry, or when a commit's type understates its release impact.
    updates `CHANGELOG.md`, and removes the consumed changeset files.
 5. A maintainer reviews and merges the release pull request.
 6. The same workflow validates, builds, publishes the package to npm, creates a
-   `@oneyoung/claude-devtools@<version>` git tag, and creates a GitHub Release.
+   `v<version>` git tag, and creates a GitHub Release. Changesets only uses the
+   `<package>@<version>` tag form for multi-package repositories.
 
 Do not edit the package version or generated changelog entries manually. To
 inspect exactly what npm will receive without publishing, run:
