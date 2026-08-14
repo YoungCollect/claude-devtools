@@ -1,5 +1,11 @@
 # @oneyoung/claude-devtools
 
+## 0.1.1
+
+### Patch Changes
+
+- cb2370b: Update Trace Preview
+
 ## 0.1.0
 
 ### Minor Changes
