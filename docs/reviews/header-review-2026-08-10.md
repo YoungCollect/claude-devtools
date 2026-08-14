@@ -1,4 +1,4 @@
-# Agent DevTools Header 区域审查
+# Claude DevTools Header 区域审查
 
 - 审查日期：2026-08-10
 - 审查对象：`claude/ui-review-2026-08-10` 分支（`9cbc17d`）的两块 header

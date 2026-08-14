@@ -13,13 +13,13 @@
     "proxy",
     "sse"
   ],
-  "homepage": "https://github.com/YoungCollect/agent-devtools#readme",
+  "homepage": "https://github.com/YoungCollect/claude-devtools#readme",
   "bugs": {
-    "url": "https://github.com/YoungCollect/agent-devtools/issues"
+    "url": "https://github.com/YoungCollect/claude-devtools/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/YoungCollect/agent-devtools.git"
+    "url": "https://github.com/YoungCollect/claude-devtools.git"
   },
   "files": [
     "bin",

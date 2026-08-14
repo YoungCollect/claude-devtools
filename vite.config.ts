@@ -24,7 +24,7 @@ const PREVIEW_PUBLIC_DIR = fileURLToPath(new URL('./preview/public', import.meta
  * produces the same bundle CI does.
  */
 function previewBase(env: NodeJS.ProcessEnv): string {
-  const raw = env.PREVIEW_BASE ?? '/agent-devtools/';
+  const raw = env.PREVIEW_BASE ?? '/claude-devtools/';
   const withLeading = raw.startsWith('/') ? raw : `/${raw}`;
   return withLeading.endsWith('/') ? withLeading : `${withLeading}/`;
 }
@@ -54,7 +54,7 @@ function apiPort(env: NodeJS.ProcessEnv): number {
  * The two files GitHub Pages needs that a bundler does not produce.
  *
  * `404.html` is the SPA fallback: Pages has no rewrite rules, so a visitor
- * opening `/agent-devtools/c/conv_3` directly gets the 404 document, and making
+ * opening `/claude-devtools/c/conv_3` directly gets the 404 document, and making
  * it a copy of the app shell lets the client router read the path it was given.
  * `.nojekyll` stops Pages from running the upload through Jekyll, which
  * silently drops files and directories beginning with an underscore.

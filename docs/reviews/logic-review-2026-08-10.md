@@ -1,4 +1,4 @@
-# Agent DevTools 逻辑审查
+# Claude DevTools 逻辑审查
 
 - 审查日期：2026-08-10
 - 审查对象：`claude/bluepoint-markdown-read-fnltwu` 分支全量代码（`8125417..aaa95fa`），覆盖 `src/core`、`src/server`、`src/web` 全部逻辑文件
@@ -55,7 +55,7 @@
 - **触发**：用户在浏览任意网页时，该页面执行 `fetch('http://127.0.0.1:4142/api/clear', {method:'POST', mode:'no-cors'})`。
 - **影响**：静默清空全部 trace（内存 + SQLite）。读取端点不受影响——没有 `Access-Control-Allow-Origin`，跨域页面发得出请求但读不到响应，所以这是破坏性而非泄露性问题。`DELETE /api/conversations/:id` 因方法非 simple 会触发预检，被 CORS 挡住。
 - **与规范的关系**：`AGENTS.md` 写的是「Never expose credential reveal or destructive endpoints on an unauthenticated non-loopback listener」。当前监听确实强制 loopback（`config.ts:45`），但 loopback 对本机浏览器是可达的，这条约束的实际保护范围比字面小。
-- **建议**：要求一个自定义请求头（如 `x-agent-devtools: 1`）——它会强制预检，而预检因无 CORS 头被拒；或直接校验 `Origin` / `Sec-Fetch-Site: same-origin`。前端 `src/web/api.ts` 相应带上该头。
+- **建议**：要求一个自定义请求头（如 `x-claude-devtools: 1`）——它会强制预检，而预检因无 CORS 头被拒；或直接校验 `Origin` / `Sec-Fetch-Site: same-origin`。前端 `src/web/api.ts` 相应带上该头。
 
 ### [中] CR-04 无工具的一次性对话不会进入 Chat Trace
 
@@ -136,7 +136,7 @@
 ### [低] ST-02 主题初始化逻辑存在两份
 
 - **位置**：`src/web/theme.ts:7` 的 `resolveInitialTheme()` 与 `src/web/index.html:10-23` 的内联脚本
-- **证据**：`resolveInitialTheme` 全仓库无引用（已 grep 确认），内联脚本重复了它的完整逻辑，包括 storage key 字面量 `'agent-devtools:theme'`。
+- **证据**：`resolveInitialTheme` 全仓库无引用（已 grep 确认），内联脚本重复了它的完整逻辑，包括 storage key 字面量 `'claude-devtools:theme'`。
 - **影响**：两份必须手工保持同步的逻辑，其中一份是死代码。
 - **建议**：删除未使用的导出，并在内联脚本处注明它是首屏主题的唯一来源。
 
@@ -206,8 +206,8 @@
 | 编号 | 状态 | 修复摘要 |
 | --- | --- | --- |
 | CR-01 | 已修复 | `SseParser` 新增 `pushBytes()`，用 `TextDecoder` 流式解码跨 chunk 的多字节序列；proxy 改为传字节而非 `chunk.toString()`。选用 Web API 而非 `node:string_decoder`，以保持 `src/core` 对浏览器可用。 |
-| CR-02 | 已修复（方案调整） | 卸载与 drain 移出持久化分支。**未采用报告建议的「无条件卸载」**：那会让 `--no-persist` 完全无法查看任何已完成请求的 body，而查 payload 正是本工具的存在理由。改为有界驻留——最新的 body 留在内存中，受与磁盘相同的 `AGENT_DEVTOOLS_MAX_BYTES` 约束，超出后释放最旧的，并始终保留最近一次交换。 |
-| CR-03 | 已修复 | `POST /api/clear` 与 `DELETE /api/conversations/:id` 要求 `x-agent-devtools` 头。该头不是密钥，作用是让请求不再属于 CORS simple request，从而必须走预检——而本 API 不应答预检。 |
+| CR-02 | 已修复（方案调整） | 卸载与 drain 移出持久化分支。**未采用报告建议的「无条件卸载」**：那会让 `--no-persist` 完全无法查看任何已完成请求的 body，而查 payload 正是本工具的存在理由。改为有界驻留——最新的 body 留在内存中，受与磁盘相同的 `CLAUDE_DEVTOOLS_MAX_BYTES` 约束，超出后释放最旧的，并始终保留最近一次交换。 |
+| CR-03 | 已修复 | `POST /api/clear` 与 `DELETE /api/conversations/:id` 要求 `x-claude-devtools` 头。该头不是密钥，作用是让请求不再属于 CORS simple request，从而必须走预检——而本 API 不应答预检。 |
 | CR-04 | 已修复 | utility 判定收敛为「`count_tokens` 路径」或「无工具 且 单条消息 且 `max_tokens` ≤ 1024」。一次性 SDK 调用与第二轮对话不再被吞掉，Claude Code 的标题/配额调用仍然命中。 |
 | CR-05 | 已修复 | 附件改为按 `type` + `media_type` + 长度 + 首尾各 64 字符指纹，不再序列化并逐字符哈希整个 base64。 |
 | CR-06 | 已修复 | 响应已开始后 upstream 出错时只 `res.end()`，不再把错误 JSON 追加到已发出的 SSE 流尾部。 |

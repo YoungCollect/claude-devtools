@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@oneyoung/claude-devtools"><img alt="npm version" src="https://img.shields.io/npm/v/%40oneyoung%2Fclaude-devtools?style=flat-square"></a>
-  <a href="https://github.com/YoungCollect/agent-devtools/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/YoungCollect/agent-devtools/ci.yml?branch=main&style=flat-square&label=CI"></a>
+  <a href="https://github.com/YoungCollect/claude-devtools/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/YoungCollect/claude-devtools/ci.yml?branch=main&style=flat-square&label=CI"></a>
   <img alt="Node.js 22.5+" src="https://img.shields.io/badge/Node.js-%E2%89%A522.5-339933?style=flat-square&logo=nodedotjs&logoColor=white">
 </p>
 
@@ -176,8 +176,8 @@ remote bind without adding a complete authentication and authorization layer.
 This repository uses pnpm and requires Node.js 22.5 or newer.
 
 ```bash
-git clone https://github.com/YoungCollect/agent-devtools.git
-cd agent-devtools
+git clone https://github.com/YoungCollect/claude-devtools.git
+cd claude-devtools
 pnpm install --frozen-lockfile
 pnpm dev
 ```
@@ -208,7 +208,7 @@ access to anything.
 
 ```bash
 pnpm preview:seed     # write a synthetic preview/trace-preview.db
-pnpm preview:dev      # serve it at 127.0.0.1:5174/agent-devtools/
+pnpm preview:dev      # serve it at 127.0.0.1:5174/claude-devtools/
 pnpm preview:build    # production bundle into preview/dist/
 ```
 

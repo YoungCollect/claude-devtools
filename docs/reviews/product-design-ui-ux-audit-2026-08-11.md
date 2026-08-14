@@ -1,4 +1,4 @@
-# Agent DevTools Product Design 全站 UI / UX 审查与实施手册
+# Claude DevTools Product Design 全站 UI / UX 审查与实施手册
 
 - 审查日期：2026-08-11
 - 审查范围：`src/web/**`、`src/web/styles.css`、`design.md/design-claude.md`

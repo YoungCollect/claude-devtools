@@ -75,7 +75,7 @@ pnpm preview:dev
 | `pnpm preview:seed` | Writes a synthetic `trace-preview.db` from fabricated traffic |
 | `pnpm preview:capture` | Runs the proxy + UI against `trace-preview.db` to record a real session |
 | `pnpm preview:data` | Bakes the database into `preview/public/preview-data/` |
-| `pnpm preview:dev` | Preview data + Vite dev server on `127.0.0.1:5174/agent-devtools/` |
+| `pnpm preview:dev` | Preview data + Vite dev server on `127.0.0.1:5174/claude-devtools/` |
 | `pnpm preview:build` | Production bundle into `preview/dist/` |
 | `pnpm preview:serve` | Serves `preview/dist/` as a static host would |
 

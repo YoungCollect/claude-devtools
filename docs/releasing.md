@@ -17,7 +17,7 @@ requests and npm publishing.
 4. On npm, open the package's **Settings → Trusted Publisher** and configure:
    - provider: GitHub Actions
    - owner: `YoungCollect`
-   - repository: `agent-devtools`
+   - repository: `claude-devtools`
    - workflow: `release.yml`
    - allowed action: `npm publish`
 5. Run one release through trusted publishing, then remove `NPM_TOKEN` from

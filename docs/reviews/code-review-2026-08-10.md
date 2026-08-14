@@ -1,4 +1,4 @@
-# Agent DevTools 代码审查
+# Claude DevTools 代码审查
 
 - 审查日期：2026-08-10
 - 审查对象：当前工作区快照（`main` 之后的 `feat-ui` 分支内容，加上已暂存和未暂存改动）
@@ -31,7 +31,7 @@
 ### [高] CR-03 可将未认证的敏感 API 暴露到非 loopback 网络
 
 - 位置：`src/server/config.ts:31-42`、`src/server/index.ts:79-99,125-136`、`src/server/api.ts:38-58`
-- 证据：`AGENT_DEVTOOLS_HOST=0.0.0.0` 会让代理和 API 对外监听；API 无认证，`GET /api/transport/:id?reveal=1` 可返回进程内真实凭据，`POST /api/clear` 可删除数据。
+- 证据：`CLAUDE_DEVTOOLS_HOST=0.0.0.0` 会让代理和 API 对外监听；API 无认证，`GET /api/transport/:id?reveal=1` 可返回进程内真实凭据，`POST /api/clear` 可删除数据。
 - 影响：同网段访问者可读取源码/请求和 API key，或删除 trace。这也与 `README.md:206-216` 的安全保证冲突。
 - 建议：默认并强制只允许 loopback；若确需远程访问，则强制随机 bearer token，禁用远程 reveal，并加 Origin/CSRF 防护。
 
@@ -70,7 +70,7 @@
 
 - 位置：`README.md:206-216`、`src/server/config.ts:31-42`
 - 类型：硬性文档冲突。
-- 证据：README 保证两个服务只绑定 `127.0.0.1`，但 `AGENT_DEVTOOLS_HOST` 允许改变监听地址，且没有相应的认证边界。
+- 证据：README 保证两个服务只绑定 `127.0.0.1`，但 `CLAUDE_DEVTOOLS_HOST` 允许改变监听地址，且没有相应的认证边界。
 - 建议：代码强制 loopback，或将非 loopback 模式设计为明确的受保护功能并修正文档。
 
 ### [低] ST-03 主题说明过度绝对
@@ -109,7 +109,7 @@
 | --- | --- | --- |
 | CR-01 | 已修复 | 新增 `CaptureRuntime` 请求世代隔离；Clear 同时重置 Builder、Store 和 SQLite，旧的在途回调不再回写。 |
 | CR-02 | 已修复 | 按会话计数跟踪全部在途请求，retention 接收完整 protected id 集合。 |
-| CR-03 | 已修复 | 服务器强制 IPv4 loopback；非 `127.0.0.1` 的 `AGENT_DEVTOOLS_HOST` 配置会直接拒绝启动。 |
+| CR-03 | 已修复 | 服务器强制 IPv4 loopback；非 `127.0.0.1` 的 `CLAUDE_DEVTOOLS_HOST` 配置会直接拒绝启动。 |
 | CR-04 | 已修复 | 启动时修复旧 seq 空洞/重复，建立唯一索引，只在新节点 INSERT 时分配序号，并从 `MAX(seq)+1` 恢复。 |
 | CR-05 | 已修复 | 只剩受保护会话时，按最旧请求释放 body 但保留元数据，使字节上限仍然有效。 |
 | CR-06 | 已修复 | `package.json` 声明 Node `>=22.5.0`，README 增加运行时前置条件。 |
