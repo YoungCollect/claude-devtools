@@ -229,15 +229,19 @@ pnpm typecheck
 pnpm build
 ```
 
-User-visible changes should also include a release note:
+Release notes come from commit subjects: write
+[Conventional Commits](https://www.conventionalcommits.org/) (`feat:` for a
+minor bump, `fix:` for a patch, `!`/`BREAKING CHANGE:` for a major), and the
+release workflow turns them into changesets. Preview the classification with:
 
 ```bash
-pnpm changeset
+pnpm changeset:auto --dry-run
 ```
 
-Changesets maintains the package version and `CHANGELOG.md` through an automated
-release pull request. Maintainers can follow the full [release
-guide](docs/releasing.md).
+Run `pnpm changeset` to hand-write an entry when the commit subject cannot carry
+the wording the changelog needs. Changesets maintains the package version and
+`CHANGELOG.md` through an automated release pull request. Maintainers can follow
+the full [release guide](docs/releasing.md).
 
 ## Architecture
 

@@ -17,6 +17,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          # Full history: the changeset generator walks commits back to the
+          # last release commit.
+          fetch-depth: 0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
@@ -36,6 +40,13 @@ jobs:
 
       - name: Validate release
         run: pnpm test && pnpm typecheck
+
+      # Derives changesets from the conventional commits landed since the last
+      # release commit. Hand-written changesets in `.changeset/` are kept as-is;
+      # `changeset version` consumes both and deletes them, so nothing generated
+      # here is committed back to `main`.
+      - name: Generate changesets from commits
+        run: pnpm changeset:auto
 
       - name: Create release pull request or publish
         uses: changesets/action@v1

@@ -50,12 +50,13 @@
     "preview:build": "pnpm preview:data && vite build --mode github",
     "preview:serve": "vite preview --mode github",
     "changeset": "changeset",
+    "changeset:auto": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx scripts/changeset-from-commits.ts",
     "release": "changeset publish",
     "prepack": "pnpm build",
     "preview": "node bin/claude-devtools.js run --ui-port 4144",
     "start": "node bin/claude-devtools.js",
     "test": "node --disable-warning=ExperimentalWarning --import tsx --test tests/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.preview.json"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.preview.json && tsc -p tsconfig.scripts.json"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

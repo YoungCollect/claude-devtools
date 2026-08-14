@@ -29,29 +29,43 @@ credential. Public packages published this way also receive npm provenance.
 
 ## Every change
 
-For a user-visible change, create a changeset before opening the pull request:
+Changesets are derived from commit subjects, so the default path is to write a
+[Conventional Commit](https://www.conventionalcommits.org/) and nothing else.
+`scripts/changeset-from-commits.ts` maps the type to a SemVer bump:
+
+| Commit type                            | Bump      |
+| -------------------------------------- | --------- |
+| `feat:`                                | `minor`   |
+| `fix:`, `perf:`, `refactor:`, `revert:` | `patch`   |
+| `<type>!:` or `BREAKING CHANGE:` body  | `major`   |
+| `docs:`, `chore:`, `test:`, `ci:`, `build:`, `style:` | skipped |
+| anything without a recognized type     | skipped   |
+
+The commit subject becomes the `CHANGELOG.md` entry, so write subjects for
+package users. Preview what the next release would contain:
 
 ```bash
-pnpm changeset
+pnpm changeset:auto --dry-run   # classify commits since the last release
+pnpm changeset:auto             # write .changeset/auto-<sha>.md locally
+pnpm changeset:auto --all       # also include docs/chore/test/ci/build/style
 ```
 
-Select the SemVer bump:
-
-- `patch`: backwards-compatible fix or small behavior improvement
-- `minor`: backwards-compatible feature
-- `major`: breaking CLI, configuration, storage, or behavior change
-
-Write the summary for package users; it becomes part of `CHANGELOG.md`. Pure
-tests, documentation, chores, and internal refactors can omit a changeset.
+Hand-written changesets still work and are merged with the generated ones. Use
+`pnpm changeset` when the changelog needs wording the commit subject cannot
+carry, or when a commit's type understates its release impact.
 
 ## Automated release lifecycle
 
-1. Changes containing changeset files merge into `main`.
-2. `release.yml` creates or updates a single release pull request.
-3. Changesets combines pending entries, updates `package.json`, creates or
+1. Any commit merges into `main`.
+2. `release.yml` runs `pnpm changeset:auto`, which writes one changeset per
+   releasable commit since the last `chore: release package` commit. Generated
+   changesets stay in the runner's working tree and are never pushed to `main`;
+   `changeset version` consumes them in the same job.
+3. `changesets/action` creates or updates a single release pull request.
+4. Changesets combines pending entries, updates `package.json`, creates or
    updates `CHANGELOG.md`, and removes the consumed changeset files.
-4. A maintainer reviews and merges the release pull request.
-5. The same workflow validates, builds, publishes the package to npm, creates a
+5. A maintainer reviews and merges the release pull request.
+6. The same workflow validates, builds, publishes the package to npm, creates a
    `@oneyoung/claude-devtools@<version>` git tag, and creates a GitHub Release.
 
 Do not edit the package version or generated changelog entries manually. To
